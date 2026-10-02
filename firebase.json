@@ -1,23 +1,10 @@
 {
   "hosting": {
-    "public": "dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "cleanUrls": true,
-    "rewrites": [
-      {
-        "source": "/api/**",
-        "run": {
-          "serviceId": "jamed-app",
-          "region": "asia-southeast2"
-        }
-      },
+    "redirects": [
       {
         "source": "**",
-        "destination": "/index.html"
+        "destination": "https://jamed--jamed-9bdbe.asia-southeast1.hosted.app",
+        "type": 301
       }
     ]
   }
