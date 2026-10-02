@@ -16,19 +16,7 @@ outputFiles:
       - .
 
 env:
-  - variable: JAMED_AI_BASE_URL
-    value: "https://rcljvh2.abc-tunnel.us/v1"
-    availability:
-      - RUNTIME
-  - variable: JAMED_AI_MODEL
-    value: "cx/gpt-5.6-luna"
-    availability:
-      - RUNTIME
   - variable: JAMED_ALLOWED_HOSTS
     value: "*"
-    availability:
-      - RUNTIME
-  - variable: JAMED_AI_API_KEY
-    secret: jamed-ai-api-key
     availability:
       - RUNTIME
