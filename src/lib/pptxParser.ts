@@ -367,6 +367,74 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
   const empty = !shape.text && shape.kind === "text" && !shape.placeholderType?.match(/title|ctrTitle/i);
   const isTitle = shape.placeholderType === "title" || shape.placeholderType === "ctrTitle" || shape.text === slide.title;
 
+  if (profileId === "lapjag") {
+    const body = shape.kind === "text" && !isTitle && shape.text.trim().length > 8;
+    const leftSide = (shape.x ?? 0) < 4.8;
+    if (index === 0) {
+      if (!isTitle && /tim mahasiswa|tim jaga/.test(text) && /fasilitator/.test(text) && /dpjp/.test(text)) return target("shift.coverBlock");
+      if (!isTitle && /fasilitator/.test(text)) return target("shift.facilitator");
+      if (!isTitle && /dpjp/.test(text)) return target("shift.dpjp");
+      if (!isTitle && /mahasiswa|tim jaga/.test(text)) return target("shift.team");
+    }
+    if (index === 1 && shape.kind === "graphicFrame") return target("shift.patientSummaryTable");
+    if (index === 2) {
+      if (shape.kind === "graphicFrame") return target("patient.identityBlock");
+      if (body && /keluhan utama|chief complaint/.test(text)) return target("patient.chiefComplaint");
+    }
+    if (index === 3) {
+      if (/^kesan\s*[:：]/.test(text)) return target("patient.assessment.summary");
+      if (body) return target(leftSide ? "patient.pediatricAssessment.leftBlock" : "patient.pediatricAssessment.rightBlock");
+    }
+    if (index === 4) {
+      if (/^kesan\s*[:：]/.test(text)) return target("patient.assessment.summary");
+      if (body) return target("patient.primarySurveyBlock");
+    }
+    if (index === 5) {
+      if (/^kesan\s*[:：]/.test(text)) return target("patient.assessment.summary");
+      if (body) return target("patient.secondarySurveyBlock");
+    }
+    if (index === 6 && body) return target("patient.history.presentIllness");
+    if ((index === 7 || index === 8) && body) {
+      const semanticField = bodyBindingForSlide(slide, shape);
+      return semanticField === "static" ? undefined : target(semanticField);
+    }
+    if (index === 9) {
+      if (/^kesan\s*[:：]/.test(text)) return target("patient.templateSection", "nutritionConclusion");
+      if (body) return target("patient.anthropometryBlock");
+    }
+    if (index >= 10 && index <= 12) return undefined;
+    if (index === 13) {
+      if (/^kesan\s*[:：]/.test(text)) return target("patient.assessment.summary");
+      if (body) return target("patient.physicalExamBlock");
+    }
+    if (index === 14) {
+      if (shape.kind === "graphicFrame") return target("patient.physicalExam.organFindings");
+      if (body) return target("patient.physicalExamBlock");
+    }
+    if (index === 15 && body) return target("patient.templateSection", "initialDiagnosis");
+    if (index === 16) {
+      if (shape.kind === "graphicFrame") return target("patient.managementTable");
+      if (body) return target(leftSide ? "patient.templateSection" : "patient.timelineBlock", leftSide ? "initialManagement" : undefined);
+    }
+    if (index === 17) {
+      if (shape.kind === "graphicFrame") return target("patient.templateSection", "bloodGasTable");
+      if (body) return target("patient.investigations.summary");
+    }
+    if (index === 18) return undefined;
+    if (index === 19 || index === 20) {
+      if (shape.kind === "graphicFrame") return target("patient.investigations.laboratory");
+      if (/^kesan\s*[:：]/.test(text)) return target("patient.investigations.summary");
+    }
+    if (index === 21 && body) return target("patient.investigations.imaging");
+    if (index === 22 && body) return target("patient.templateSection", "finalDiagnosis");
+    if (index === 23) {
+      if (shape.kind === "graphicFrame") return target("patient.managementTable", "finalManagement");
+      if (body) return target("patient.templateSection", "finalManagement");
+    }
+    if ((index === 24 || index === 25) && body) return target("patient.nutritionBlock");
+    return undefined;
+  }
+
   if (profileId === "perina-lapjag" || profileId === "perina-rsab") {
     if (index === 0 && !isTitle && /mahasiswa/.test(text) && /dpjp/.test(text)) return target("shift.coverBlock");
     if (index === 0 && !isTitle && /mahasiswa/.test(text)) return target("shift.student");
@@ -481,6 +549,7 @@ function bodyBindingForSlide(slide: ParsedSlide, shape: ParsedShape): SemanticFi
     if (slide.role === "shift_summary") return "shift.patientSummaryTable";
     if (slide.role === "patient_identity") return "patient.identityBlock";
     if (slide.role === "physical_exam" && /organ|deskripsi/.test(text)) return "patient.physicalExam.organFindings";
+    if (slide.role === "investigation" && /radiologi|foto toraks|imaging|usg/.test(slideText)) return "patient.investigations.imaging";
     if (slide.role === "investigation" && /pemeriksaan|hasil|reference|rujukan/.test(text)) return "patient.investigations.laboratory";
     if (slide.role === "management" && /diagnosis|masalah|target|tindakan/.test(text)) return "patient.managementTable";
     return "static";
@@ -522,7 +591,7 @@ function bodyBindingForSlide(slide: ParsedSlide, shape: ParsedShape): SemanticFi
     if (text.length > 20) return "patient.secondarySurveyBlock";
   }
   if (slide.role === "anthropometry") {
-    if (/^kesan\s*[:：]/.test(text)) return "patient.assessment.summary";
+    if (/^kesan\s*[:：]/.test(text)) return "patient.templateSection";
     if (text.length > 20) return "patient.anthropometryBlock";
   }
   if (slide.role === "physical_exam") {
@@ -535,10 +604,11 @@ function bodyBindingForSlide(slide: ParsedSlide, shape: ParsedShape): SemanticFi
     if (text.length > 20) return "patient.investigationsBlock";
   }
   if (slide.role === "diagnosis") {
-    if (text.length > 20) return "patient.assessmentBlock";
+    if (text.length > 20) return /(?:akhir|final)/.test(text) ? "patient.templateSection" : "patient.assessmentBlock";
   }
   if (slide.role === "management") {
-    if (/gizi buruk/.test(slideText) && text.length > 20) return "patient.nutritionBlock";
+    if (/(?:gizi|nutrisi)/.test(slideText) && text.length > 20) return "patient.nutritionBlock";
+    if (/(?:akhir|final)/.test(slideText) && text.length > 20) return "patient.managementBlock";
     if (text.length > 20) {
       const bodyShapes = slide.shapes.filter((item) => item.kind === "text" && item.placeholderType !== "title" && item.text.length > 20).sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
       return bodyShapes[0]?.id === shape.id ? "patient.managementBlock" : "patient.timelineBlock";
@@ -565,11 +635,10 @@ function autoBindings(slides: ParsedSlide[], profileId: TemplateProfileId): Temp
       });
     });
   });
-  if (profileId === "generic" || profileId === "lapjag") return bindings;
   const unique = new Map<string, TemplateBinding>();
   bindings.forEach((binding) => {
-    const key = `${binding.slideIndex}:${binding.semanticField}:${binding.templateKey || ""}`;
-    unique.set(key, binding);
+    const key = `${binding.slideIndex}:${binding.shapeId}`;
+    if (!unique.has(key) || binding.source === "user") unique.set(key, binding);
   });
   return Array.from(unique.values());
 }

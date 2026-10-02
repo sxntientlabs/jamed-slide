@@ -3,6 +3,7 @@ import type {
   ClinicalField,
   InvestigationItem,
   OrganFinding,
+  ParsedShape,
   ParsedSlide,
   ParsedTemplate,
   PatientRecord,
@@ -204,6 +205,20 @@ function blockLine(label: string, value: string | undefined, maxLength = 320): s
   return `${label}: ${compactText(text, maxLength)}`;
 }
 
+function optionalText(value: string | undefined): string {
+  return value && value !== "Tidak tercantum" && value.trim() ? value.trim() : "";
+}
+
+function optionalBlockLine(label: string, value: string | undefined, maxLength = 320): string {
+  const text = optionalText(value);
+  return text ? `${label}: ${compactText(text, maxLength)}` : "";
+}
+
+function presentLines(lines: string[], fallback = "Tidak tercantum"): string {
+  const present = lines.map((line) => line.trim()).filter(Boolean);
+  return present.length ? present.join("\n") : fallback;
+}
+
 function pediatricSectionLines(rawValue: string, fields: Array<[string, string]>, maxLength = 180): string[] {
   const raw = rawValue === "Tidak tercantum" ? "" : rawValue;
   const boundary = fields.map(([, pattern]) => pattern).join("|");
@@ -212,7 +227,7 @@ function pediatricSectionLines(rawValue: string, fields: Array<[string, string]>
     return [label, match?.[1]?.trim() || "Tidak tercantum"] as const;
   });
   if (raw && values.every(([, value]) => value === "Tidak tercantum")) values[0] = [values[0][0], raw];
-  return values.map(([label, value]) => blockLine(label, value, maxLength));
+  return values.map(([label, value]) => optionalBlockLine(label, value, maxLength)).filter(Boolean);
 }
 
 function patientText(patient: PatientRecord, path: string, maxLength = 320): string {
@@ -324,154 +339,147 @@ function formatShiftCover(shift: ShiftDetails, template?: ParsedTemplate): strin
 function formatPatientBlock(semanticField: SemanticField, patient: PatientRecord): string {
   switch (semanticField) {
     case "patient.identityBlock":
-      return [
-        blockLine("Nama", patientText(patient, "identifiers.name")),
-        blockLine("Usia", patientText(patient, "demographics.age")),
-        blockLine("Jenis kelamin", patientText(patient, "demographics.sex")),
-        blockLine("No. RM", patientText(patient, "identifiers.medicalRecordNumber")),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Nama", patientText(patient, "identifiers.name")),
+        optionalBlockLine("Usia", patientText(patient, "demographics.age")),
+        optionalBlockLine("Jenis kelamin", patientText(patient, "demographics.sex")),
+        optionalBlockLine("No. RM", patientText(patient, "identifiers.medicalRecordNumber")),
+        optionalBlockLine("Tanggal lahir", patientText(patient, "templateData.dateOfBirth")),
+        optionalBlockLine("Alamat", patientText(patient, "templateData.address", 260)),
+      ]);
     case "patient.historyBlock":
-      return [
-        blockLine("RPS", patientText(patient, "history.presentIllness", 720)),
-        blockLine("RPD", patientText(patient, "history.pastMedicalHistory", 420)),
-        blockLine("Alergi", patientText(patient, "history.allergyHistory", 260)),
-        blockLine("Riwayat obat", patientText(patient, "history.medicationHistory", 420)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("RPS", patientText(patient, "history.presentIllness", 560)),
+        optionalBlockLine("RPD", patientText(patient, "history.pastMedicalHistory", 360)),
+        optionalBlockLine("Alergi", patientText(patient, "history.allergyHistory", 220)),
+        optionalBlockLine("Riwayat obat", patientText(patient, "history.medicationHistory", 300)),
+        optionalBlockLine("Riwayat lahir", patientText(patient, "history.birthHistory", 360)),
+        optionalBlockLine("Riwayat keluarga", patientText(patient, "history.familyHistory", 300)),
+        optionalBlockLine("Riwayat nutrisi", patientText(patient, "history.nutritionHistory", 300)),
+        optionalBlockLine("Sosioekonomi", patientText(patient, "history.socioeconomicHistory", 260)),
+      ]);
     case "patient.pediatricAssessmentBlock":
-      return [
-        blockLine("Behaviour", patientText(patient, templateHasValue(patient, ["templateData.patBehaviour"]) ? "templateData.patBehaviour" : "physicalExam.generalAppearance", 220)),
-        blockLine("Breathing", patientText(patient, templateHasValue(patient, ["templateData.patBreathing"]) ? "templateData.patBreathing" : "physicalExam.findings", 680)),
-        blockLine("Kesimpulan", patientText(patient, "assessment.workingDiagnosis", 300)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Behaviour", patientText(patient, templateHasValue(patient, ["templateData.patBehaviour"]) ? "templateData.patBehaviour" : "physicalExam.generalAppearance", 220)),
+        optionalBlockLine("Breathing", patientText(patient, templateHasValue(patient, ["templateData.patBreathing"]) ? "templateData.patBreathing" : "physicalExam.findings", 520)),
+        optionalBlockLine("Kesimpulan", patientText(patient, "assessment.workingDiagnosis", 300)),
+      ]);
     case "patient.pediatricAssessment.leftBlock":
       if (templateHasValue(patient, ["templateData.patBehaviour", "templateData.patInteractiveness", "templateData.patConsolability", "templateData.patLookOrGaze"])) {
-        return [
-          blockLine("Behaviour / Tonus", patientText(patient, "templateData.patBehaviour", 180)),
-          blockLine("Interactiveness", patientText(patient, "templateData.patInteractiveness", 180)),
-          blockLine("Consolability", patientText(patient, "templateData.patConsolability", 180)),
-          blockLine("Look or gaze", patientText(patient, "templateData.patLookOrGaze", 180)),
-        ].join("\n");
+        return presentLines([
+          optionalBlockLine("Behaviour / Tonus", patientText(patient, "templateData.patBehaviour", 180)),
+          optionalBlockLine("Interactiveness", patientText(patient, "templateData.patInteractiveness", 180)),
+          optionalBlockLine("Consolability", patientText(patient, "templateData.patConsolability", 180)),
+          optionalBlockLine("Look or gaze", patientText(patient, "templateData.patLookOrGaze", 180)),
+        ]);
       }
-      return pediatricSectionLines(patientText(patient, "physicalExam.generalAppearance", 900), [
+      return presentLines(pediatricSectionLines(patientText(patient, "physicalExam.generalAppearance", 900), [
         ["Behaviour / Tonus", "behaviour\\s*[/ ]?\\s*tonus|behaviourtonus|tonus"],
         ["Interactiveness", "interactiveness"],
         ["Consolability", "consolability"],
         ["Look or gaze", "look\\s+or\\s+gaze"],
-      ]).join("\n");
+      ]));
     case "patient.pediatricAssessment.rightBlock":
       if (templateHasValue(patient, ["templateData.patBreathing", "templateData.patRetraction", "templateData.patNasalFlaring", "templateData.patAddedBreathSounds", "templateData.patAbnormalPosition"])) {
-        return [
-          blockLine("Breathing", patientText(patient, "templateData.patBreathing", 180)),
-          blockLine("Retraksi", patientText(patient, "templateData.patRetraction", 180)),
-          blockLine("Nafas cuping hidung", patientText(patient, "templateData.patNasalFlaring", 180)),
-          blockLine("Suara nafas tambahan", patientText(patient, "templateData.patAddedBreathSounds", 180)),
-          blockLine("Posisi abnormal", patientText(patient, "templateData.patAbnormalPosition", 180)),
-        ].join("\n");
+        return presentLines([
+          optionalBlockLine("Breathing", patientText(patient, "templateData.patBreathing", 180)),
+          optionalBlockLine("Retraksi", patientText(patient, "templateData.patRetraction", 180)),
+          optionalBlockLine("Nafas cuping hidung", patientText(patient, "templateData.patNasalFlaring", 180)),
+          optionalBlockLine("Suara nafas tambahan", patientText(patient, "templateData.patAddedBreathSounds", 180)),
+          optionalBlockLine("Posisi abnormal", patientText(patient, "templateData.patAbnormalPosition", 180)),
+        ]);
       }
-      return pediatricSectionLines(patientText(patient, "physicalExam.findings", 1000), [
+      return presentLines(pediatricSectionLines(patientText(patient, "physicalExam.findings", 1000), [
         ["Breathing", "breathing"],
         ["Retraksi", "retraksi"],
         ["Nafas cuping hidung", "nafas\\s+cuping\\s+hidung|cuping\\s+hidung"],
         ["Suara nafas tambahan", "suara\\s+nafas\\s+tambahan"],
         ["Posisi abnormal", "posisi\\s+abnormal"],
-      ]).join("\n");
+      ]));
     case "patient.primarySurveyBlock":
       if (templateHasValue(patient, ["templateData.primarySurvey"])) return patientText(patient, "templateData.primarySurvey", 1100);
-      return [
-        blockLine("Airway", patientText(patient, "physicalExam.findings", 220)),
-        blockLine("Breathing", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 120)),
-        blockLine("Circulation", `${patientText(patient, "physicalExam.vitalSigns.bloodPressure", 120)} · HR ${patientText(patient, "physicalExam.vitalSigns.heartRate", 80)}`),
-        blockLine("Disability", patientText(patient, "physicalExam.consciousness", 180)),
-        blockLine("Exposure", patientText(patient, "physicalExam.findings", 420)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Airway", patientText(patient, "templateData.airway", 220)),
+        optionalBlockLine("Breathing", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 120)),
+        optionalBlockLine("Circulation", [optionalText(patientText(patient, "physicalExam.vitalSigns.bloodPressure", 120)), optionalText(`HR ${patientText(patient, "physicalExam.vitalSigns.heartRate", 80)}`)].filter((value) => value && value !== "HR ").join(" · ")),
+        optionalBlockLine("Disability", patientText(patient, "physicalExam.consciousness", 180)),
+        optionalBlockLine("Exposure", patientText(patient, "templateData.exposure", 420)),
+      ]);
     case "patient.secondarySurveyBlock":
       if (templateHasValue(patient, ["templateData.secondarySurvey"])) return patientText(patient, "templateData.secondarySurvey", 1100);
-      return [
-        blockLine("Allergy", patientText(patient, "history.allergyHistory", 240)),
-        blockLine("Medication history", patientText(patient, "history.medicationHistory", 420)),
-        blockLine("Past illness", patientText(patient, "history.pastMedicalHistory", 520)),
-        blockLine("Family history", patientText(patient, "history.familyHistory", 420)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Allergy", patientText(patient, "history.allergyHistory", 240)),
+        optionalBlockLine("Medication history", patientText(patient, "history.medicationHistory", 360)),
+        optionalBlockLine("Past illness", patientText(patient, "history.pastMedicalHistory", 420)),
+        optionalBlockLine("Last meal", patientText(patient, "templateData.lastMeal", 220)),
+        optionalBlockLine("Event", patientText(patient, "templateData.event", 360)),
+      ]);
     case "patient.anthropometryBlock":
-      return [
-        blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
-        blockLine("TB", patientText(patient, "demographics.heightCm", 80)),
-        blockLine("LK", patientText(patient, "templateData.headCircumference", 80)),
-        blockLine("LiLA", patientText(patient, "templateData.muac", 80)),
-        blockLine("Usia gestasi", patientText(patient, "templateData.gestationalAge", 100)),
-        blockLine("BB/U", patientText(patient, "templateData.weightForAge", 100)),
-        blockLine("TB/U", patientText(patient, "templateData.heightForAge", 100)),
-        blockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 100)),
-        blockLine("Height age", patientText(patient, "templateData.heightAge", 100)),
-        blockLine("RDA", patientText(patient, "templateData.rda", 100)),
-        blockLine("Ballard score", patientText(patient, "templateData.ballardScore", 100)),
-        blockLine("Usia", patientText(patient, "demographics.age", 100)),
-        blockLine("BB sebelum sakit", patientText(patient, "templateData.weightBeforeIllness", 100)),
-        blockLine("Riwayat nutrisi", patientText(patient, "history.nutritionHistory", 360)),
-        blockLine("Kesan", patientText(patient, "templateData.nutritionConclusion", 300)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("BB", patientText(patient, "demographics.weightKg", 80)),
+        optionalBlockLine("TB", patientText(patient, "demographics.heightCm", 80)),
+        optionalBlockLine("LK", patientText(patient, "templateData.headCircumference", 80)),
+        optionalBlockLine("LiLA", patientText(patient, "templateData.muac", 80)),
+        optionalBlockLine("Usia gestasi", patientText(patient, "templateData.gestationalAge", 100)),
+        optionalBlockLine("BB/U", patientText(patient, "templateData.weightForAge", 100)),
+        optionalBlockLine("TB/U", patientText(patient, "templateData.heightForAge", 100)),
+        optionalBlockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 100)),
+        optionalBlockLine("Height age", patientText(patient, "templateData.heightAge", 100)),
+        optionalBlockLine("RDA", patientText(patient, "templateData.rda", 100)),
+        optionalBlockLine("Ballard score", patientText(patient, "templateData.ballardScore", 100)),
+        optionalBlockLine("Usia", patientText(patient, "demographics.age", 100)),
+        optionalBlockLine("BB sebelum sakit", patientText(patient, "templateData.weightBeforeIllness", 100)),
+        optionalBlockLine("Kesan gizi", patientText(patient, "templateData.nutritionConclusion", 300)),
+      ]);
     case "patient.physicalExamBlock":
-      return [
-        blockLine("Keadaan umum", patientText(patient, "physicalExam.generalAppearance", 220)),
-        blockLine("Kesadaran", patientText(patient, "physicalExam.consciousness", 180)),
-        blockLine("Tekanan darah", patientText(patient, "physicalExam.vitalSigns.bloodPressure", 90)),
-        blockLine("Nadi", patientText(patient, "physicalExam.vitalSigns.heartRate", 90)),
-        blockLine("Laju napas", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 90)),
-        blockLine("Suhu", patientText(patient, "physicalExam.vitalSigns.temperature", 90)),
-        blockLine("SpO₂", patientText(patient, "physicalExam.vitalSigns.spo2", 90)),
-        ...organFindingLines(patient),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Keadaan umum", patientText(patient, "physicalExam.generalAppearance", 220)),
+        optionalBlockLine("Kesadaran", patientText(patient, "physicalExam.consciousness", 180)),
+        optionalBlockLine("Tekanan darah", patientText(patient, "physicalExam.vitalSigns.bloodPressure", 90)),
+        optionalBlockLine("Nadi", patientText(patient, "physicalExam.vitalSigns.heartRate", 90)),
+        optionalBlockLine("Laju napas", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 90)),
+        optionalBlockLine("Suhu", patientText(patient, "physicalExam.vitalSigns.temperature", 90)),
+        optionalBlockLine("SpO₂", patientText(patient, "physicalExam.vitalSigns.spo2", 90)),
+        rawFieldValue<OrganFinding[]>(patient, "physicalExam.organFindings")?.length ? "" : optionalBlockLine("Temuan", patientText(patient, "physicalExam.findings", 600)),
+      ]);
     case "patient.investigationsBlock":
-      return [
-        "Laboratorium:",
-        ...investigationLines(patient, "investigations.laboratory"),
-        "Radiologi:",
-        ...investigationLines(patient, "investigations.imaging"),
-      ].join("\n");
+      return presentLines([
+        rawFieldValue<InvestigationItem[]>(patient, "investigations.laboratory")?.length ? "Laboratorium:" : "",
+        ...((rawFieldValue<InvestigationItem[]>(patient, "investigations.laboratory") || []).map((item) => [item.name, item.result, item.unit].filter(Boolean).join(" · "))),
+        rawFieldValue<InvestigationItem[]>(patient, "investigations.imaging")?.length ? "Radiologi:" : "",
+        ...((rawFieldValue<InvestigationItem[]>(patient, "investigations.imaging") || []).map((item) => [item.name, item.result, item.unit].filter(Boolean).join(" · "))),
+      ]);
     case "patient.investigations.summary":
       return investigationLines(patient, "investigations.laboratory").join("; ");
     case "patient.assessmentBlock":
-      return [
-        blockLine("Diagnosis awal", patientText(patient, "templateData.initialDiagnosis", 420)),
-        blockLine("Diagnosis kerja", patientText(patient, "assessment.workingDiagnosis", 520)),
-        blockLine("Diagnosis banding", patientText(patient, "assessment.differentialDiagnosis", 420)),
-        blockLine("Diagnosis final", patientText(patient, "templateData.finalDiagnosis", 420)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Diagnosis awal", patientText(patient, "templateData.initialDiagnosis", 420)),
+        optionalBlockLine("Diagnosis kerja", patientText(patient, "assessment.workingDiagnosis", 520)),
+        optionalBlockLine("Diagnosis banding", patientText(patient, "assessment.differentialDiagnosis", 420)),
+        optionalBlockLine("Diagnosis final", patientText(patient, "templateData.finalDiagnosis", 420)),
+      ]);
     case "patient.assessment.summary":
-      return patientText(patient, templateHasValue(patient, ["templateData.finalDiagnosis"]) ? "templateData.finalDiagnosis" : "assessment.workingDiagnosis", 360);
+      return patientText(patient, "assessment.workingDiagnosis", 360);
     case "patient.managementBlock":
-      if (templateHasValue(patient, ["templateData.initialManagement", "templateData.finalManagement", "templateData.nutritionManagement"])) {
-        return [
-          blockLine("Tata laksana awal", patientText(patient, "templateData.initialManagement", 520)),
-          blockLine("Obat", treatmentLines(patient, "management.medications").join("; "), 520),
-          blockLine("Cairan", treatmentLines(patient, "management.fluids").join("; "), 520),
-          blockLine("Tindakan", treatmentLines(patient, "management.procedures").join("; "), 520),
-          blockLine("Terapi oksigen", treatmentLines(patient, "management.oxygenTherapy").join("; "), 520),
-          blockLine("Tata laksana akhir / respons", patientText(patient, "templateData.finalManagement", 520)),
-          blockLine("Tata laksana nutrisi", patientText(patient, "templateData.nutritionManagement", 420)),
-        ].join("\n");
-      }
-      return [
-        "Obat:",
-        ...treatmentLines(patient, "management.medications"),
-        "Cairan:",
-        ...treatmentLines(patient, "management.fluids"),
-        "Tindakan:",
-        ...treatmentLines(patient, "management.procedures"),
-        "Oksigen:",
-        ...treatmentLines(patient, "management.oxygenTherapy"),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Tata laksana awal", patientText(patient, "templateData.initialManagement", 520)),
+        (rawFieldValue<TreatmentItem[]>(patient, "management.medications") || []).length ? `Obat: ${treatmentLines(patient, "management.medications").join("; ")}` : "",
+        (rawFieldValue<TreatmentItem[]>(patient, "management.fluids") || []).length ? `Cairan: ${treatmentLines(patient, "management.fluids").join("; ")}` : "",
+        (rawFieldValue<TreatmentItem[]>(patient, "management.procedures") || []).length ? `Tindakan: ${treatmentLines(patient, "management.procedures").join("; ")}` : "",
+        (rawFieldValue<TreatmentItem[]>(patient, "management.oxygenTherapy") || []).length ? `Oksigen: ${treatmentLines(patient, "management.oxygenTherapy").join("; ")}` : "",
+      ]);
     case "patient.timelineBlock": {
       const timeline = patient.timeline.map((event) => [event.timestamp, event.description].filter(Boolean).join(" · "));
       return timeline.length ? timeline.map((item) => compactText(item, 260)).join("\n") : "Tidak tercantum";
     }
     case "patient.nutritionBlock":
-      return [
-        blockLine("Riwayat nutrisi", patientText(patient, "history.nutritionHistory", 800)),
-        blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
-        blockLine("TB", patientText(patient, "demographics.heightCm", 80)),
-        blockLine("Tata laksana nutrisi", patientText(patient, "templateData.nutritionManagement", 520)),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Riwayat nutrisi", patientText(patient, "history.nutritionHistory", 560)),
+        optionalBlockLine("BB", patientText(patient, "demographics.weightKg", 80)),
+        optionalBlockLine("TB", patientText(patient, "demographics.heightCm", 80)),
+        optionalBlockLine("Kesan gizi", patientText(patient, "templateData.nutritionConclusion", 320)),
+        optionalBlockLine("Tata laksana nutrisi", patientText(patient, "templateData.nutritionManagement", 420)),
+      ]);
     case "patient.physicalExam.organFindings":
       return organFindingLines(patient).join("\n");
     case "patient.investigations.laboratory":
@@ -487,38 +495,23 @@ function templateSectionText(patient: PatientRecord, key: string): string {
   switch (key) {
     case "previousDeliveries": return patientText(patient, "history.birthHistory", 1100);
     case "pregnancyBirth": return patientText(patient, "history.birthHistory", 1100);
-    case "initialDiagnosis": return templateHasValue(patient, ["templateData.initialDiagnosis"]) ? patientText(patient, "templateData.initialDiagnosis", 1100) : patientText(patient, "assessment.workingDiagnosis", 1100);
-    case "finalDiagnosis": return templateHasValue(patient, ["templateData.finalDiagnosis"]) ? patientText(patient, "templateData.finalDiagnosis", 1100) : patientText(patient, "assessment.workingDiagnosis", 1100);
-    case "initialManagement": return templateHasValue(patient, ["templateData.initialManagement"]) ? patientText(patient, "templateData.initialManagement", 1100) : formatPatientBlock("patient.managementBlock", patient);
-    case "finalManagement": return templateHasValue(patient, ["templateData.finalManagement"]) ? patientText(patient, "templateData.finalManagement", 1100) : formatPatientBlock("patient.managementBlock", patient);
+    case "initialDiagnosis": return "Tidak tercantum";
+    case "finalDiagnosis": return "Tidak tercantum";
+    case "initialManagement": return formatPatientBlock("patient.managementBlock", patient);
+    case "finalManagement": return "Tidak tercantum";
     case "neonatalVitals":
-      return [
-        blockLine("Denyut jantung", patientText(patient, "physicalExam.vitalSigns.heartRate", 90)),
-        blockLine("Laju napas", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 90)),
-        blockLine("Suhu", patientText(patient, "physicalExam.vitalSigns.temperature", 90)),
-        blockLine("Saturasi O₂", patientText(patient, "physicalExam.vitalSigns.spo2", 90)),
-      ].join("\n");
-    case "stableStabilization":
-      return [
-        blockLine("Safe care & sugar", "Tidak tercantum", 220),
-        blockLine("Temperature", "Tidak tercantum", 220),
-        blockLine("Airway", "Tidak tercantum", 220),
-        blockLine("Blood pressure / CRT / nadi", "Tidak tercantum", 260),
-        blockLine("Lab works", "Tidak tercantum", 220),
-        blockLine("Emotional support", "Tidak tercantum", 220),
-      ].join("\n");
-    case "neonatalManagement":
-      return [
-        blockLine("Termoregulasi", "Tidak tercantum", 260),
-        blockLine("Oksigenasi adekuat", "Tidak tercantum", 260),
-        blockLine("Nutrisi & cairan adekuat", "Tidak tercantum", 260),
-        blockLine("Atasi infeksi", "Tidak tercantum", 260),
-        blockLine("Pemantauan", "Tidak tercantum", 260),
-      ].join("\n");
+      return presentLines([
+        optionalBlockLine("Denyut jantung", patientText(patient, "physicalExam.vitalSigns.heartRate", 90)),
+        optionalBlockLine("Laju napas", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 90)),
+        optionalBlockLine("Suhu", patientText(patient, "physicalExam.vitalSigns.temperature", 90)),
+        optionalBlockLine("Saturasi O₂", patientText(patient, "physicalExam.vitalSigns.spo2", 90)),
+      ]);
+    case "stableStabilization": return "Tidak tercantum";
+    case "neonatalManagement": return "Tidak tercantum";
     case "neonatalAnthropometryConclusion": return patientText(patient, "templateData.nutritionConclusion", 600);
     case "supportingInvestigations": return formatPatientBlock("patient.investigationsBlock", patient);
-    case "radiology": return patientText(patient, "investigations.imaging", 1000);
-    case "otherExaminations": return patientText(patient, "investigations.other", 1000);
+    case "radiology": return investigationLines(patient, "investigations.imaging").join("\n");
+    case "otherExaminations": return investigationLines(patient, "investigations.other").join("\n");
     case "emergencyManagement": return formatPatientBlock("patient.managementBlock", patient);
     case "growthDevelopment": return patientText(patient, "templateData.growthDevelopment", 1000);
     default: return "Tidak tercantum";
@@ -536,28 +529,47 @@ function templateAnthropometryText(patient: PatientRecord, template?: ParsedTemp
     ].join("\n");
   }
   if (template?.profileId === "rscm") {
-    return [
-      blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
-      blockLine("TB", patientText(patient, "demographics.heightCm", 80)),
-      blockLine("BB/U", patientText(patient, "templateData.weightForAge", 100)),
-      blockLine("TB/U", patientText(patient, "templateData.heightForAge", 100)),
-      blockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 100)),
-      blockLine("Height age", patientText(patient, "templateData.heightAge", 100)),
-      blockLine("RDA", patientText(patient, "templateData.rda", 100)),
-    ].join("\n");
+    return presentLines([
+      optionalBlockLine("BB", patientText(patient, "demographics.weightKg", 80)),
+      optionalBlockLine("TB", patientText(patient, "demographics.heightCm", 80)),
+      optionalBlockLine("BB/U", patientText(patient, "templateData.weightForAge", 100)),
+      optionalBlockLine("TB/U", patientText(patient, "templateData.heightForAge", 100)),
+      optionalBlockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 100)),
+      optionalBlockLine("Height age", patientText(patient, "templateData.heightAge", 100)),
+      optionalBlockLine("RDA", patientText(patient, "templateData.rda", 100)),
+      optionalBlockLine("Kesan gizi", patientText(patient, "templateData.nutritionConclusion", 280)),
+    ]);
   }
   if (template?.profileId === "rsui") {
-    return [
-      blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
-      blockLine("TB", patientText(patient, "demographics.heightCm", 80)),
-      blockLine("Lingkar kepala", patientText(patient, "templateData.headCircumference", 100)),
-      blockLine("LiLA", patientText(patient, "templateData.muac", 100)),
-      blockLine("BB/U", patientText(patient, "templateData.weightForAge", 100)),
-      blockLine("TB/U", patientText(patient, "templateData.heightForAge", 100)),
-      blockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 100)),
-    ].join("\n");
+    return presentLines([
+      optionalBlockLine("BB", patientText(patient, "demographics.weightKg", 80)),
+      optionalBlockLine("TB", patientText(patient, "demographics.heightCm", 80)),
+      optionalBlockLine("Lingkar kepala", patientText(patient, "templateData.headCircumference", 100)),
+      optionalBlockLine("LiLA", patientText(patient, "templateData.muac", 100)),
+      optionalBlockLine("BB/U", patientText(patient, "templateData.weightForAge", 100)),
+      optionalBlockLine("TB/U", patientText(patient, "templateData.heightForAge", 100)),
+      optionalBlockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 100)),
+      optionalBlockLine("Kesan gizi", patientText(patient, "templateData.nutritionConclusion", 280)),
+    ]);
   }
   return formatPatientBlock("patient.anthropometryBlock", patient);
+}
+
+interface RenderContext {
+  slide?: ParsedSlide;
+  shapeText?: string;
+}
+
+function inferTemplateKey(context?: RenderContext): string | undefined {
+  const text = `${context?.slide?.title || ""} ${context?.shapeText || ""}`.toLowerCase();
+  if (context?.slide?.role === "anthropometry" || /^kesan\s*[:：]/.test(context?.shapeText || "")) return "nutritionConclusion";
+  if (context?.slide?.role === "diagnosis" && /(?:akhir|final)/.test(text)) return "finalDiagnosis";
+  if (context?.slide?.role === "diagnosis") return "initialDiagnosis";
+  if (context?.slide?.role === "management" && /(?:gizi|nutrisi)/.test(text)) return "nutritionManagement";
+  if (context?.slide?.role === "management" && /(?:akhir|final)/.test(text)) return "finalManagement";
+  if (context?.slide?.role === "management") return "initialManagement";
+  if (context?.slide?.role === "investigation") return "supportingInvestigations";
+  return undefined;
 }
 
 function contentForField(
@@ -566,6 +578,7 @@ function contentForField(
   shift: ShiftDetails,
   template?: ParsedTemplate,
   templateKey?: string,
+  context?: RenderContext,
 ): string | undefined {
   if (semanticField === "static") return undefined;
   if (semanticField === "shift.coverBlock") return formatShiftCover(shift, template);
@@ -577,8 +590,11 @@ function contentForField(
   if (semanticField === "shift.custom") return shiftMetadataValue(shift, templateKey || "") || "Tidak tercantum";
   if (semanticField.startsWith("shift.")) return fieldValue(valueAtPath(shift, semanticField.slice("shift.".length)));
   if (!patient || !semanticField.startsWith("patient.")) return "Tidak tercantum";
-  if (semanticField === "patient.templateSection") return templateSectionText(patient, templateKey || "");
+  if (semanticField === "patient.templateSection") return templateSectionText(patient, templateKey || inferTemplateKey(context) || "");
   if (semanticField === "patient.anthropometryBlock") return templateAnthropometryText(patient, template);
+  if (semanticField === "patient.assessment.summary" && context?.slide?.role === "anthropometry") return templateSectionText(patient, "nutritionConclusion");
+  if (semanticField === "patient.assessment.summary" && context?.slide?.role === "diagnosis" && /(?:akhir|final)/i.test(`${context.slide.title} ${context.shapeText || ""}`)) return templateSectionText(patient, "finalDiagnosis");
+  if (semanticField === "patient.investigations.imaging") return investigationLines(patient, "investigations.imaging").join("\n");
   if (semanticField.includes("Block") || semanticField.endsWith("summary") || semanticField === "patient.physicalExam.organFindings" || semanticField === "patient.investigations.laboratory") {
     return formatPatientBlock(semanticField, patient);
   }
@@ -636,7 +652,7 @@ function replaceShapeText(xml: string, shapeId: string, replacement: string, pre
     if (readAttribute(cNvPr, "id") !== shapeId) return block;
     const originalText = Array.from(block.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)).map((match) => decodeXml(match[1])).join("");
     const next = preservePrefix ? contextualReplacement(originalText, replacement) : replacement;
-    return replaceTextBody(block, next, !preservePrefix, highlightAbnormal);
+    return replaceTextBody(block, next, true, highlightAbnormal);
   });
 }
 
@@ -715,15 +731,52 @@ function replaceTemplateCoverDate(xml: string, slide: ParsedSlide, shift: ShiftD
   return replaceShapeText(xml, titleShape.id, replacement, false);
 }
 
-function replaceRscmPatientCount(xml: string, slide: ParsedSlide, patientCount: number): string {
+function replacePatientCountTitle(xml: string, slide: ParsedSlide, patientCount: number): string {
   const titleShape = slide.shapes.find((shape) => /pasien baru/.test(shape.text.toLowerCase()));
   if (!titleShape) return xml;
   const replacement = titleShape.text.replace(/pasien baru\s*:\s*.*?\s+pasien/i, `PASIEN BARU: ${patientCount} PASIEN`);
   return replaceShapeText(xml, titleShape.id, replacement, false);
 }
 
+function replaceRscmPatientCount(xml: string, slide: ParsedSlide, patientCount: number): string {
+  return replacePatientCountTitle(xml, slide, patientCount);
+}
+
+function replaceStaleNutritionTitle(xml: string, slide: ParsedSlide, patient: PatientRecord): string {
+  const conclusion = patientText(patient, "templateData.nutritionConclusion", 260).toLowerCase();
+  if (/gizi\s*buruk/.test(conclusion)) return xml;
+  return slide.shapes.reduce((result, shape) => {
+    if (!/gizi\s*buruk/i.test(shape.text) || shape.text.length > 120) return result;
+    const replacement = shape.text.replace(/gizi\s*buruk/ig, "NUTRISI");
+    return replaceShapeText(result, shape.id, replacement, false);
+  }, xml);
+}
+
+function isLikelySamplePatientText(shape: ParsedShape, slide: ParsedSlide): boolean {
+  if (shape.kind !== "text" || !shape.text.trim()) return false;
+  if (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle" || shape.text.trim() === slide.title.trim()) return false;
+  const text = shape.text.trim();
+  if (/\b(?:qhs|pediatric sample|contoh pasien|sample patient|cti\s*0[,.]62|pjb|gizi\s*buruk|diare|shock|congenital heart failure|causes of high|uremia)\b/i.test(text)) return true;
+  if (!slide.repeat || text.length < 120) return false;
+  if (/(?:nama|usia|umur|diagnosis|diagnosa|kesan|hasil|interpretasi|jantung|paru|radiologi|laboratorium|tata laksana|obat|pasien)\s*[:：]/i.test(text)) return true;
+  return Boolean(shape.fontSizePt && shape.fontSizePt <= 18);
+}
+
+function clearUnboundSamplePatientText(xml: string, slide: ParsedSlide, bindings: TemplateBinding[]): string {
+  if (!slide.repeat) return xml;
+  const boundShapeIds = new Set(bindings.filter((binding) => binding.slideIndex === slide.index && binding.semanticField !== "static").map((binding) => binding.shapeId));
+  const shapeMatcher = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+  return xml.replace(shapeMatcher, (block) => {
+    const cNvPr = block.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "";
+    const id = readAttribute(cNvPr, "id");
+    const shape = id ? slide.shapes.find((item) => item.id === id) : undefined;
+    if (!shape || boundShapeIds.has(shape.id) || !isLikelySamplePatientText(shape, slide)) return block;
+    return replaceTextBody(block, "", true);
+  });
+}
+
 function normalizeLookup(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "");
 }
 
 function cellText(cell: string): string {
@@ -756,15 +809,39 @@ function replaceTableRowCells(row: string, replacements: Map<number, string>): s
   cells.forEach((cell, index) => {
     const replacement = replacements.get(index);
     if (replacement === undefined) return;
-    result = result.replace(cell, replaceCellText(cell, compactText(replacement, 360)));
+    result = result.replace(cell, ensureTextAutoFit(replaceCellText(cell, compactText(replacement, 360))));
   });
   return result;
 }
 
+function canonicalInvestigationLabel(label: string): string {
+  const value = normalizeLookup(label);
+  if (/^(?:hb|hemoglobin)$/.test(value)) return "hb";
+  if (/^(?:ht|hct|hematokrit|hematocrit)$/.test(value)) return "hct";
+  if (/^(?:wbc|leukosit|leukocyte|leukocytes)$/.test(value)) return "wbc";
+  if (/^(?:plt|platelet|platelets|trombosit)$/.test(value)) return "platelet";
+  if (/neutro/.test(value)) return "neutrophil";
+  if (/lymph|limfosit/.test(value)) return "lymphocyte";
+  if (/mono/.test(value)) return "monocyte";
+  if (/eosino/.test(value)) return "eosinophil";
+  if (value === "crp" || value.includes("creactiveprotein")) return "crp";
+  if (value === "ph") return "ph";
+  if (value.includes("pco2") || value.includes("paco2")) return "pco2";
+  if (value.includes("po2") || value.includes("pao2")) return "po2";
+  if (value === "hco3" || value.includes("bikarbonat")) return "hco3";
+  if (value === "be" || value.includes("baseexcess")) return "be";
+  if (value.includes("laktat") || value.includes("lactate")) return "lactate";
+  if (value === "na" || value.includes("natrium") || value.includes("sodium")) return "sodium";
+  if (value === "k" || value.includes("kalium") || value.includes("potassium")) return "potassium";
+  if (value === "cl" || value.includes("klorida") || value.includes("chloride")) return "chloride";
+  if (/^(?:cxr|rontgen|radiologi|fototoraks|toraks|thoraks)/.test(value)) return "chestxray";
+  return value;
+}
+
 function findInvestigation(items: InvestigationItem[], label: string): InvestigationItem | undefined {
-  const target = normalizeLookup(label);
+  const target = canonicalInvestigationLabel(label);
   return items.find((item) => {
-    const name = normalizeLookup(item.name);
+    const name = canonicalInvestigationLabel(item.name);
     return name === target || name.includes(target) || target.includes(name);
   });
 }
@@ -784,7 +861,15 @@ function replaceGenericTemplateTable(
   templateKey: string,
 ): string {
   const raw = patientText(patient, `templateData.${templateKey}`, 5200);
-  if (raw === "Tidak tercantum") return result;
+  if (raw === "Tidak tercantum") {
+    rows.slice(1).forEach((row) => {
+      const cells = tableCells(row);
+      const replacements = new Map<number, string>();
+      cells.forEach((_, index) => replacements.set(index === 0 && cells.length > 1 ? 0 : index, ""));
+      result = result.replace(row, replaceTableRowCells(row, replacements));
+    });
+    return result;
+  }
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (!lines.length) return result;
   const firstDataRow = lines.length >= rows.length ? 0 : (rows.length > 1 ? 1 : 0);
@@ -806,6 +891,12 @@ function replaceGenericTemplateTable(
     } else {
       replacements.set(cells.length - 1, parts[0] || "Tidak tercantum");
     }
+    result = result.replace(row, replaceTableRowCells(row, replacements));
+  });
+  rows.slice(firstDataRow + lines.length).forEach((row) => {
+    const cells = tableCells(row);
+    const replacements = new Map<number, string>();
+    cells.forEach((_, index) => replacements.set(index, ""));
     result = result.replace(row, replaceTableRowCells(row, replacements));
   });
   return result;
@@ -842,7 +933,7 @@ function replaceTableBinding(
       }
       const usedRows = Math.min(capacity, visiblePatients.length + (patients.length > capacity ? 1 : 0));
       rows.slice(1 + usedRows).forEach((row) => {
-        result = result.replace(row, replaceTableRowCells(row, new Map([[1, "Tidak tercantum"], [2, "Tidak tercantum"], [3, "Tidak tercantum"]])));
+        result = result.replace(row, replaceTableRowCells(row, new Map([[0, ""], [1, ""], [2, ""], [3, ""]])));
       });
       return result;
     }
@@ -862,7 +953,12 @@ function replaceTableBinding(
         const cells = tableCells(row);
         const time = cellText(cells[0] ?? "").match(/0|1|3|5|10|15/)?.[0];
         const values = time ? entries.get(time) : undefined;
-        if (!values?.length) return;
+        if (!values?.length) {
+          const blank = new Map<number, string>();
+          cells.forEach((_, index) => { if (index > 0) blank.set(index, ""); });
+          result = result.replace(row, replaceTableRowCells(row, blank));
+          return;
+        }
         const replacements = new Map<number, string>();
         values.slice(0, Math.max(0, cells.length - 1)).forEach((value, index) => replacements.set(index + 1, value));
         result = result.replace(row, replaceTableRowCells(row, replacements));
@@ -891,7 +987,7 @@ function replaceTableBinding(
         const cells = tableCells(row);
         const label = normalizeLookup(cellText(cells[0] ?? ""));
         if (!label) return;
-        let value = "Tidak tercantum";
+        let value = "";
         if (label.includes("nama")) value = patientText(patient, "identifiers.initials", 140) === "Tidak tercantum" ? patient.displayName : patientText(patient, "identifiers.initials", 140);
         else if (label.includes("jeniskelamin") || label.includes("gender")) value = patientText(patient, "demographics.sex", 140);
         else if (label.includes("usiaperawatan") || label === "usia" || label.includes("umur")) value = patientText(patient, "demographics.age", 140);
@@ -905,11 +1001,24 @@ function replaceTableBinding(
     }
     if (semanticField === "patient.physicalExam.organFindings") {
       const findings = rawFieldValue<OrganFinding[]>(patient, "physicalExam.organFindings") ?? [];
+      const organKey = (value: string): string => {
+        const normalized = normalizeLookup(value);
+        if (/thoraks|dada|paru|chest|lung/.test(normalized)) return "thorax";
+        if (/jantung|heart|kardi/.test(normalized)) return "heart";
+        if (/abdomen|perut/.test(normalized)) return "abdomen";
+        if (/ekstremitas|extremit|tangan|kaki/.test(normalized)) return "extremities";
+        if (/neurolog|saraf/.test(normalized)) return "neurologic";
+        return normalized;
+      };
       rows.slice(1).forEach((row) => {
         const cells = tableCells(row);
         const organ = cellText(cells[0] ?? "");
-        const match = findings.find((item) => normalizeLookup(item.organ).includes(normalizeLookup(organ)) || normalizeLookup(organ).includes(normalizeLookup(item.organ)));
-        result = result.replace(row, replaceTableRowCells(row, new Map([[1, match?.description || "Tidak tercantum"]])));
+        const targetOrgan = organKey(organ);
+        const match = findings.find((item) => {
+          const sourceOrgan = organKey(item.organ);
+          return sourceOrgan === targetOrgan || sourceOrgan.includes(targetOrgan) || targetOrgan.includes(sourceOrgan);
+        });
+        result = result.replace(row, replaceTableRowCells(row, new Map([[1, match?.description || ""]])));
       });
       return result;
     }
@@ -919,10 +1028,7 @@ function replaceTableBinding(
       const resultHeaderIndex = headers.findIndex((header) => /(hasil|result|value)/.test(header));
       const resultIndex = resultHeaderIndex >= 0 ? resultHeaderIndex : (tableCells(rows[0]).length > 1 ? 1 : 0);
       const unitIndex = headers.findIndex((header) => /(unit|satuan)/.test(header));
-      const items = [
-        ...(rawFieldValue<InvestigationItem[]>(patient, "investigations.laboratory") ?? []),
-        ...(rawFieldValue<InvestigationItem[]>(patient, "investigations.imaging") ?? []),
-      ];
+      const items = rawFieldValue<InvestigationItem[]>(patient, "investigations.laboratory") ?? [];
       rows.slice(1).forEach((row) => {
         const cells = tableCells(row);
         const label = cellText(cells[nameIndex] ?? "");
@@ -935,16 +1041,19 @@ function replaceTableBinding(
       return result;
     }
     if (semanticField === "patient.managementTable") {
-      const diagnoses = rawFieldValue<string[]>(patient, "assessment.workingDiagnosis") ?? textList(patientText(patient, "templateData.finalDiagnosis", 600));
-      const treatments = [
+      const finalMode = /(?:final|akhir)/i.test(templateKey || "");
+      const diagnoses = finalMode ? textList(patientText(patient, "templateData.finalDiagnosis", 600)) : (rawFieldValue<string[]>(patient, "assessment.workingDiagnosis") ?? []);
+      const treatments = finalMode ? [] : [
         ...(rawFieldValue<TreatmentItem[]>(patient, "management.medications") ?? []),
         ...(rawFieldValue<TreatmentItem[]>(patient, "management.fluids") ?? []),
         ...(rawFieldValue<TreatmentItem[]>(patient, "management.procedures") ?? []),
         ...(rawFieldValue<TreatmentItem[]>(patient, "management.oxygenTherapy") ?? []),
       ];
       rows.slice(1).forEach((row, index) => {
-        const action = treatments[index] ? [treatments[index].name, treatments[index].dose, treatments[index].route, treatments[index].frequency].filter(Boolean).join(" · ") : "Tidak tercantum";
-        result = result.replace(row, replaceTableRowCells(row, new Map([[0, diagnoses[index] || "Tidak tercantum"], [1, "Tidak tercantum"], [2, action]])));
+        const treatment = treatments[index];
+        const action = treatment ? [treatment.name, treatment.dose, treatment.route, treatment.frequency].filter(Boolean).join(" · ") : "";
+        const target = treatment?.notes || "";
+        result = result.replace(row, replaceTableRowCells(row, new Map([[0, diagnoses[index] || ""], [1, target], [2, action]])));
       });
       return result;
     }
@@ -953,7 +1062,12 @@ function replaceTableBinding(
 }
 
 function isWholeShapeBinding(semanticField: SemanticField): boolean {
-  return semanticField.includes("Block") || semanticField === "shift.coverBlock";
+  return semanticField.includes("Block") || semanticField === "shift.coverBlock" || [
+    "patient.investigations.imaging",
+    "patient.investigations.laboratory",
+    "patient.physicalExam.organFindings",
+    "patient.timelineBlock",
+  ].includes(semanticField);
 }
 
 function applyBindings(
@@ -969,9 +1083,9 @@ function applyBindings(
   if (slide.role === "cover") {
     result = template.profileId === "lapjag" ? replaceLapjagCoverDate(result, slide, shift) : replaceTemplateCoverDate(result, slide, shift, template);
   }
-  if (template.profileId === "rscm" && slide.role === "shift_summary") {
-    result = replaceRscmPatientCount(result, slide, patients.length);
-  }
+  if (slide.role === "shift_summary") result = replacePatientCountTitle(result, slide, patients.length);
+  if (patient && slide.role === "management") result = replaceStaleNutritionTitle(result, slide, patient);
+  result = clearUnboundSamplePatientText(result, slide, bindings);
   bindings
     .filter((binding) => binding.slideIndex === slide.index && binding.semanticField !== "static")
     .forEach((binding) => {
@@ -980,14 +1094,12 @@ function applyBindings(
         result = replaceTableBinding(result, binding.shapeId, binding.semanticField, patient, patients, template, binding.templateKey);
         return;
       }
-      const content = contentForField(binding.semanticField, patient, shift, template, binding.templateKey);
+      const content = contentForField(binding.semanticField, patient, shift, template, binding.templateKey, { slide, shapeText: shape?.text });
       if (content !== undefined) {
         const highlightAbnormal = ["patient.pediatricAssessmentBlock", "patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.primarySurveyBlock", "patient.physicalExamBlock"].includes(binding.semanticField);
-        const replaceWholeTemplateSection =
-          binding.semanticField === "patient.templateSection" &&
-          ["stableStabilization", "neonatalManagement"].includes(binding.templateKey || "");
+        const replaceWholeTemplateSection = binding.semanticField === "patient.templateSection";
         const headingOnly = Boolean(shape?.text && shape.text.trim().length < 100 && !/[:：…]|\t/.test(shape.text));
-        if (binding.semanticField === "patient.templateSection" && !replaceWholeTemplateSection && (binding.templateKey === "neonatalBirthProcess" || (headingOnly && shape?.text?.trim() !== "."))) {
+        if (binding.semanticField === "patient.templateSection" && (binding.templateKey === "neonatalBirthProcess" || (headingOnly && shape?.text?.trim() !== "."))) {
           result = appendShapeText(result, binding.shapeId, content, highlightAbnormal);
         } else if (binding.semanticField === "patient.chiefComplaint" && shape?.text && /keluhan utama|chief complaint/i.test(shape.text) && !/[:：]/.test(shape.text)) {
           result = appendShapeText(result, binding.shapeId, content, highlightAbnormal);

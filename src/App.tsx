@@ -43,13 +43,11 @@ import {
 import type {
   ClinicalField,
   FieldStatus,
-  ParsedShape,
   ParsedSlide,
   ParsedTemplate,
   PatientAttachment,
   PatientRecord,
   PatientDraft,
-  SemanticField,
   ShiftDetails,
   SourceItem,
 } from "./types";
@@ -58,9 +56,9 @@ import { loadBuiltInTemplate, loadBuiltInTemplateCatalog } from "./lib/builtInTe
 import { extractPatientsWithAi } from "./lib/aiClinicalClient";
 import { extractPatients, formatFieldValue } from "./lib/clinicalParser";
 import { generatePresentation } from "./lib/pptxGenerator";
-import { parsePptx, shapeSummary } from "./lib/pptxParser";
+import { parsePptx } from "./lib/pptxParser";
 import { renderPresentationForPreview } from "./lib/presentationRenderer";
-import { analyzeTemplateWithAi } from "./lib/templateAnalyzer";
+import { analyzeTemplateWithAi, buildLocalTemplateAnalysis } from "./lib/templateAnalyzer";
 import { getTemplateProfile } from "./lib/templateProfiles";
 import "./styles.css";
 
@@ -131,81 +129,10 @@ function attachmentIcon(kind: PatientAttachment["kind"]) {
 const NAV_ITEMS: Array<{ id: View; label: string; icon: typeof Home; hint?: string }> = [
   { id: "dashboard", label: "Overview", icon: Home },
   { id: "new-shift", label: "Laporan baru", icon: Plus },
-  { id: "template", label: "Template mapping", icon: Map, hint: "01" },
-  { id: "inbox", label: "Data pasien", icon: Files, hint: "02" },
-  { id: "review", label: "Review klinis", icon: ClipboardCheck, hint: "03" },
+  { id: "inbox", label: "Data pasien", icon: Files, hint: "01" },
+  { id: "review", label: "Review klinis", icon: ClipboardCheck, hint: "02" },
+  { id: "template", label: "Struktur template", icon: Map, hint: "03" },
   { id: "generate", label: "Generate laporan", icon: Layers3, hint: "04" },
-];
-
-const SEMANTIC_OPTIONS: Array<{ value: SemanticField; label: string }> = [
-  { value: "static", label: "Static text" },
-  { value: "shift.title", label: "Laporan · judul" },
-  { value: "shift.date", label: "Laporan · tanggal" },
-  { value: "shift.department", label: "Laporan · departemen" },
-  { value: "shift.hospital", label: "Laporan · rumah sakit" },
-  { value: "shift.team", label: "Laporan · tim" },
-  { value: "shift.student", label: "Laporan · mahasiswa" },
-  { value: "shift.ppds", label: "Laporan · tim PPDS" },
-  { value: "shift.presenter", label: "Laporan · penyaji" },
-  { value: "shift.perinaTeam", label: "Laporan · tim perinatologi" },
-  { value: "shift.facilitator", label: "Laporan · fasilitator" },
-  { value: "shift.dpjp", label: "Laporan · DPJP" },
-  { value: "shift.custom", label: "Laporan · metadata custom" },
-  { value: "shift.coverBlock", label: "Laporan · blok cover" },
-  { value: "shift.patientSummaryTable", label: "Laporan · tabel pasien" },
-  { value: "patient.identifiers.name", label: "Pasien · nama" },
-  { value: "patient.identifiers.initials", label: "Pasien · inisial" },
-  { value: "patient.identifiers.medicalRecordNumber", label: "Pasien · nomor RM" },
-  { value: "patient.demographics.age", label: "Pasien · usia" },
-  { value: "patient.demographics.sex", label: "Pasien · jenis kelamin" },
-  { value: "patient.demographics.weightKg", label: "Pasien · berat badan" },
-  { value: "patient.demographics.heightCm", label: "Pasien · tinggi badan" },
-  { value: "patient.chiefComplaint", label: "Pasien · keluhan utama" },
-  { value: "patient.history.presentIllness", label: "Anamnesis · RPS" },
-  { value: "patient.history.pastMedicalHistory", label: "Anamnesis · RPD" },
-  { value: "patient.history.medicationHistory", label: "Anamnesis · riwayat obat" },
-  { value: "patient.history.allergyHistory", label: "Anamnesis · alergi" },
-  { value: "patient.history.birthHistory", label: "Anamnesis · riwayat lahir" },
-  { value: "patient.history.immunizationHistory", label: "Anamnesis · imunisasi" },
-  { value: "patient.history.familyHistory", label: "Anamnesis · riwayat keluarga" },
-  { value: "patient.history.nutritionHistory", label: "Anamnesis · nutrisi" },
-  { value: "patient.history.socioeconomicHistory", label: "Anamnesis · sosioekonomi" },
-  { value: "patient.identityBlock", label: "Blok · identitas pasien" },
-  { value: "patient.historyBlock", label: "Blok · anamnesis" },
-  { value: "patient.pediatricAssessmentBlock", label: "Blok · pediatric assessment" },
-  { value: "patient.pediatricAssessment.leftBlock", label: "Lapjag · PAT kiri" },
-  { value: "patient.pediatricAssessment.rightBlock", label: "Lapjag · PAT kanan" },
-  { value: "patient.primarySurveyBlock", label: "Blok · primary survey" },
-  { value: "patient.secondarySurveyBlock", label: "Blok · secondary survey" },
-  { value: "patient.anthropometryBlock", label: "Blok · antropometri" },
-  { value: "patient.physicalExamBlock", label: "Blok · pemeriksaan fisik" },
-  { value: "patient.physicalExam.organFindings", label: "Tabel · temuan organ" },
-  { value: "patient.investigationsBlock", label: "Blok · pemeriksaan penunjang" },
-  { value: "patient.investigations.summary", label: "Penunjang · kesan" },
-  { value: "patient.assessmentBlock", label: "Blok · diagnosis" },
-  { value: "patient.assessment.summary", label: "Assessment · kesan" },
-  { value: "patient.managementBlock", label: "Blok · tata laksana" },
-  { value: "patient.managementTable", label: "Tabel · tata laksana" },
-  { value: "patient.timelineBlock", label: "Blok · timeline" },
-  { value: "patient.nutritionBlock", label: "Blok · gizi" },
-  { value: "patient.templateSection", label: "Template · section spesifik" },
-  { value: "patient.physicalExam.generalAppearance", label: "Pemeriksaan · keadaan umum" },
-  { value: "patient.physicalExam.consciousness", label: "Pemeriksaan · kesadaran" },
-  { value: "patient.physicalExam.vitalSigns.bloodPressure", label: "Pemeriksaan · tekanan darah" },
-  { value: "patient.physicalExam.vitalSigns.heartRate", label: "Pemeriksaan · denyut jantung" },
-  { value: "patient.physicalExam.vitalSigns.respiratoryRate", label: "Pemeriksaan · laju napas" },
-  { value: "patient.physicalExam.vitalSigns.temperature", label: "Pemeriksaan · suhu" },
-  { value: "patient.physicalExam.vitalSigns.spo2", label: "Pemeriksaan · SpO₂" },
-  { value: "patient.physicalExam.findings", label: "Pemeriksaan · temuan" },
-  { value: "patient.investigations.laboratory", label: "Penunjang · laboratorium" },
-  { value: "patient.investigations.imaging", label: "Penunjang · radiologi" },
-  { value: "patient.assessment.workingDiagnosis", label: "Assessment · diagnosis kerja" },
-  { value: "patient.assessment.differentialDiagnosis", label: "Assessment · diagnosis banding" },
-  { value: "patient.management.medications", label: "Tata laksana · obat" },
-  { value: "patient.management.fluids", label: "Tata laksana · cairan" },
-  { value: "patient.management.procedures", label: "Tata laksana · tindakan" },
-  { value: "patient.management.oxygenTherapy", label: "Tata laksana · oksigen" },
-  { value: "patient.disposition", label: "Disposisi" },
 ];
 
 const STATUS_META: Record<FieldStatus, { label: string; className: string; icon: typeof Check }> = {
@@ -338,7 +265,7 @@ function SectionHeading({ eyebrow, title, description, action }: { eyebrow?: str
 }
 
 function ProgressSteps({ active }: { active: number }) {
-  const steps = ["Data laporan", "Template", "Pasien", "Hasil"];
+  const steps = ["Data laporan", "Pasien", "Review", "Template", "Hasil"];
   return (
     <div className="progress-steps">
       {steps.map((step, index) => (
@@ -504,7 +431,7 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
         <aside className="panel side-info-panel">
           <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><Layers3 size={20} /></div>
           <p>JaMed membaca struktur shape, layout, dan teks dari template. File asli tetap menjadi sumber desain.</p>
-          <div className="attached-template"><div className="file-icon"><FileArchive size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · {template.bindings.length} mapping awal · {profile.label}</span></div><CircleCheck className="success-icon" size={18} /></div>
+          <div className="attached-template"><div className="file-icon"><FileArchive size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · kontrak klinis siap · {profile.label}</span></div><CircleCheck className="success-icon" size={18} /></div>
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
           <div className="side-info-list"><div><Check size={14} /> Layout asli dipertahankan</div><div><Check size={14} /> Shape bisa dikoreksi manual</div><div><Check size={14} /> Output tetap editable</div></div>
         </aside>
@@ -514,58 +441,63 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
 }
 
 function TemplatePage({ template, setTemplate, onContinue, onBack }: { template: ParsedTemplate | null; setTemplate: (template: ParsedTemplate) => void; onContinue: () => void; onBack: () => void }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const selectedSlide = template?.slides[selectedIndex];
-  const bindingFor = (slideIndex: number, shapeId: string) => template?.bindings.find((binding) => binding.slideIndex === slideIndex && binding.shapeId === shapeId);
-  const setBinding = (slideIndex: number, shapeId: string, semanticField: SemanticField) => {
-    if (!template) return;
-    const existing = template.bindings.find((binding) => binding.slideIndex === slideIndex && binding.shapeId === shapeId);
-    const filtered = template.bindings.filter((binding) => !(binding.slideIndex === slideIndex && binding.shapeId === shapeId));
-    const bindings = semanticField === "static" ? filtered : [...filtered, { slideIndex, shapeId, semanticField, templateKey: existing?.templateKey, confidence: 1, source: "user" as const }];
-    setTemplate({ ...template, bindings, templateAnalysis: template.templateAnalysis ? { ...template.templateAnalysis, bindings } : undefined });
-  };
+  const [previewSlides, setPreviewSlides] = useState<string[]>([]);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   const setRepeat = (slideIndex: number, repeat: boolean) => {
     if (!template) return;
     const slides = template.slides.map((slide) => slide.index === slideIndex ? { ...slide, repeat } : slide);
     const templateAnalysis = template.templateAnalysis ? { ...template.templateAnalysis, slideGuides: template.templateAnalysis.slideGuides.map((guide) => guide.index === slideIndex ? { ...guide, repeat } : guide) } : undefined;
     setTemplate({ ...template, slides, templateAnalysis });
   };
-  if (!template) return <div className="page"><ProgressSteps active={1} /><SectionHeading eyebrow="Langkah 02 · Template" title="Template belum dipilih" description="Pemilihan template hanya dilakukan di awal laporan baru." /><section className="panel template-empty-picker"><EmptyState icon={FileArchive} title="Belum ada template aktif" description="Kembali ke langkah Data laporan untuk memilih template bawaan atau upload template sendiri." action={<button className="button button-dark" onClick={onBack}>Kembali ke pilih template</button>} /></section></div>;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!template?.raw) {
+      setPreviewSlides([]);
+      setPreviewError("");
+      return () => { cancelled = true; };
+    }
+    setPreviewBusy(true);
+    setPreviewError("");
+    renderPresentationForPreview(new Blob([template.raw], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }))
+      .then((rendered) => {
+        if (!cancelled) setPreviewSlides(rendered.slides);
+      })
+      .catch((error) => {
+        if (!cancelled) setPreviewError(error instanceof Error ? error.message : "Preview template belum tersedia.");
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, [template?.id, template?.raw]);
+
+  if (!template) return <div className="page"><ProgressSteps active={3} /><SectionHeading eyebrow="Langkah 04 · Struktur template" title="Template belum dipilih" description="Pemilihan template dilakukan di awal laporan baru." /><section className="panel template-empty-picker"><EmptyState icon={FileArchive} title="Belum ada template aktif" description="Kembali ke data laporan untuk memilih template bawaan atau upload template sendiri." action={<button className="button button-dark" onClick={onBack}>Kembali ke data laporan</button>} /></section></div>;
   return (
     <div className="page">
-      <ProgressSteps active={1} />
-      <SectionHeading eyebrow="Langkah 02 · Template" title="Template mapping" description="JaMed sudah membaca struktur file. Periksa role slide dan field yang akan diisi sebelum lanjut." action={<div className="template-confidence"><span className="confidence-dot" /> {template.bindings.length} mapping awal</div>} />
-      {template.templateAnalysis && <section className="panel template-analysis-banner">
-        <div className="template-analysis-icon"><BrainCircuit size={19} /></div>
-        <div className="template-analysis-copy">
-          <span className="eyebrow">{template.templateAnalysis.source === "agent" ? "Agent template · dipelajari" : "Observasi lokal · fallback adaptif"}</span>
-          <h3>{template.templateAnalysis.label}</h3>
-          <p>{template.templateAnalysis.description}</p>
-          <div className="template-analysis-meta"><span>{Math.round(template.templateAnalysis.confidence * 100)}% confidence</span><span>{template.templateAnalysis.slideGuides.length} panduan slide</span><span>{template.templateAnalysis.fieldGroups.length} kelompok field</span>{template.templateAnalysis.warnings.length > 0 && <span>{template.templateAnalysis.warnings.length} catatan</span>}</div>
+      <ProgressSteps active={3} />
+      <SectionHeading eyebrow="Langkah 04 · Struktur template" title="Konfirmasi struktur template" description="Tinjau urutan slide dan pilih slide yang perlu diulang untuk setiap pasien sebelum membuat PPTX." action={<div className="template-confidence"><span className="confidence-dot" /> {template.slides.filter((slide) => slide.repeat).length} slide per pasien</div>} />
+      <div className="template-contract-strip"><CircleCheck size={15} /><span>Mapping klinis otomatis sudah aktif untuk <strong>{template.name}</strong>. Di halaman ini Anda hanya perlu mengatur urutan pengulangan slide.</span><span className="template-contract-source">{template.templateAnalysis?.source === "agent" ? "Kontrak dipelajari dari file" : "Kontrak lokal tervalidasi"}</span></div>
+      <div className="template-summary-grid"><div className="template-summary"><div className="summary-icon"><FileArchive size={18} /></div><div><span>File template</span><strong>{template.name}</strong></div><span className="summary-meta">{template.fileName}</span></div><div className="template-summary"><div className="summary-icon purple"><Layers3 size={18} /></div><div><span>Slide terdeteksi</span><strong>{template.slideCount} slide</strong></div><span className="summary-meta">struktur terbaca</span></div><div className="template-summary"><div className="summary-icon orange"><Map size={18} /></div><div><span>Diulang per pasien</span><strong>{template.slides.filter((slide) => slide.repeat).length} slide</strong></div><span className="summary-meta">bisa diubah di bawah</span></div></div>
+      <section className="panel template-overview-panel">
+        <div className="panel-heading compact-heading"><div><h3>Overview slide template</h3><p>Preview menunjukkan layout asli. Teks yang terlihat adalah contoh dari template, bukan data pasien baru.</p></div><Layers3 size={18} /></div>
+        {previewBusy && <div className="template-preview-status"><RefreshCw size={14} className="spin" /> Menyiapkan preview slide…</div>}
+        {previewError && <div className="template-preview-status warning"><AlertTriangle size={14} /> Preview visual belum tersedia; struktur slide tetap bisa diatur.</div>}
+        <div className="template-slide-grid">
+          {template.slides.map((slide) => {
+            const preview = previewSlides[slide.index];
+            return <article className={`template-slide-card ${slide.repeat ? "is-repeat" : ""}`} key={slide.index}>
+              <div className="template-slide-card-head"><span>SLIDE {String(slide.index + 1).padStart(2, "0")}</span><span className={`template-slide-status ${slide.repeat ? "repeat" : "static"}`}>{slide.repeat ? "Per pasien" : "Sekali"}</span></div>
+              <div className="template-slide-preview">{preview ? <img src={preview} alt={`Preview slide ${slide.index + 1}`} /> : <div className="template-slide-placeholder"><span>{String(slide.index + 1).padStart(2, "0")}</span><strong>{slide.title || `Slide ${slide.index + 1}`}</strong><small>{slide.shapes.length} elemen terbaca</small></div>}</div>
+              <div className="template-slide-copy"><strong title={slide.title || `Slide ${slide.index + 1}`}>{slide.title || `Slide ${slide.index + 1}`}</strong><span>{slideRoleLabel(slide.role)} · {slide.shapes.length} elemen</span></div>
+              <label className="template-repeat-control"><input type="checkbox" checked={slide.repeat} onChange={(event) => setRepeat(slide.index, event.target.checked)} /><span>Ulangi untuk setiap pasien</span></label>
+            </article>;
+          })}
         </div>
-        <div className="template-analysis-status"><CircleCheck size={16} /><span>Form, ekstraksi, dan generator memakai kontrak ini</span></div>
-      </section>}
-      <div className="template-summary-grid"><div className="template-summary"><div className="summary-icon"><FileArchive size={18} /></div><div><span>File template</span><strong>{template.name}</strong></div><span className="summary-meta">{template.fileName}</span></div><div className="template-summary"><div className="summary-icon purple"><Layers3 size={18} /></div><div><span>Slide terdeteksi</span><strong>{template.slideCount} slide</strong></div><span className="summary-meta">OOXML parsed</span></div><div className="template-summary"><div className="summary-icon orange"><Map size={18} /></div><div><span>Patient repeat</span><strong>{template.slides.filter((slide) => slide.repeat).length} slide</strong></div><span className="summary-meta">toggle per slide</span></div></div>
-      <div className="mapper-layout">
-        <section className="panel slide-list-panel">
-          <div className="panel-heading compact-heading"><div><h3>Struktur slide</h3><p>Pilih slide untuk melihat shape dan mapping.</p></div><Search size={17} /></div>
-          <div className="slide-list">
-            {template.slides.map((slide) => <button key={slide.index} className={`slide-list-item ${selectedIndex === slide.index ? "selected" : ""}`} onClick={() => setSelectedIndex(slide.index)}><span className="slide-number">{String(slide.index + 1).padStart(2, "0")}</span><span className="slide-thumb"><span /></span><span className="slide-list-copy"><strong>{slide.title || `Slide ${slide.index + 1}`}</strong><span>{slideRoleLabel(slide.role)} · {slide.shapes.length} shape</span></span><span className={`repeat-toggle ${slide.repeat ? "on" : ""}`} title={slide.repeat ? "Diulang per pasien" : "Sekali per laporan"} onClick={(event) => { event.stopPropagation(); setRepeat(slide.index, !slide.repeat); }}>{slide.repeat ? <UsersRound size={13} /> : <ClipboardList size={13} />}</span></button>)}
-          </div>
-        </section>
-        <section className="panel mapping-panel">
-          {selectedSlide && <>
-            <div className="mapping-header"><div><span className="eyebrow">Slide {selectedSlide.index + 1} · {slideRoleLabel(selectedSlide.role)}</span><h3>{selectedSlide.title}</h3><p>{selectedSlide.text.slice(0, 180) || "Tidak ada teks yang terdeteksi pada slide ini."}</p></div><label className="repeat-check"><input type="checkbox" checked={selectedSlide.repeat} onChange={(event) => setRepeat(selectedSlide.index, event.target.checked)} /> <span>Repeat per patient</span></label></div>
-            <div className="shape-table-heading"><span>Element</span><span>Konten asli</span><span>Semantic field</span></div>
-            <div className="shape-table">
-              {selectedSlide.shapes.filter((shape) => shape.text || shape.placeholderType || bindingFor(selectedSlide.index, shape.id)).sort((left, right) => Number(Boolean(bindingFor(selectedSlide.index, right.id))) - Number(Boolean(bindingFor(selectedSlide.index, left.id)))).slice(0, 24).map((shape) => { const binding = bindingFor(selectedSlide.index, shape.id); return <div className="shape-row" key={shape.id}><div className="shape-id"><span className="shape-bullet" /> <strong>{shape.name || `Shape ${shape.id}`}</strong><small>#{shape.id} · {shape.kind}</small></div><div className="shape-original">{shape.text || <span className="muted">empty placeholder</span>}</div><div className="shape-select-wrap"><select value={binding?.semanticField ?? "static"} onChange={(event) => setBinding(selectedSlide.index, shape.id, event.target.value as SemanticField)}>{SEMANTIC_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select>{binding && <span className="mapping-score">{Math.round(binding.confidence * 100)}%</span>}</div></div>; })}
-              {!selectedSlide.shapes.length && <div className="table-empty">Shape belum terdeteksi pada slide ini.</div>}
-            </div>
-            <div className="mapping-footer"><div><ShieldCheck size={15} /> Mapping tersimpan di workspace lokal</div><span>Tip: pilih “Static text” untuk elemen dekoratif atau judul.</span></div>
-          </>}
-        </section>
-      </div>
-      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali</button><button className="button button-dark" onClick={onContinue}>Simpan mapping & lanjut <ArrowRight size={16} /></button></div>
+      </section>
+      <div className="template-overview-note"><ShieldCheck size={15} /><span>Field klinis dan mapping shape sudah dikendalikan oleh kontrak template. Anda tidak perlu memilih semantic field satu per satu.</span></div>
+      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke review</button><button className="button button-dark" onClick={onContinue}>Simpan struktur & lanjut ke generate <ArrowRight size={16} /></button></div>
     </div>
   );
 }
@@ -580,8 +512,8 @@ function InboxPage({ template, drafts, onDraftTextChange, onDraftFile, onRemoveA
   const profileTags = profile.id === "lapjag" ? ["PAT terpisah", "WHO siap diplot"] : profile.id.startsWith("perina") ? ["Resusitasi 0–15 mnt", "S.T.A.B.L.E."] : profile.id === "rscm" ? ["PAT + AMPLE", "Diagnosis awal/akhir"] : profile.id === "rsui" ? ["PAT checklist", "Lab + AGD"] : ["Mapping slide", "Profile adaptif"];
   return (
     <div className="page">
-      <ProgressSteps active={2} />
-      <SectionHeading eyebrow={`Langkah 03 · Clinical inbox · ${profile.label}`} title="Masukkan data per pasien" description={`Setiap kartu pasien menerima free text atau evidence multimodal. Agent akan menata data mengikuti kontrak ${profile.label}, bukan memakai form klinis yang sama untuk semua template.`} action={<div className="privacy-chip"><LockKeyhole size={14} /> Jangan masukkan data yang tidak perlu</div>} />
+      <ProgressSteps active={1} />
+      <SectionHeading eyebrow={`Langkah 02 · Clinical inbox · ${profile.label}`} title="Masukkan data per pasien" description={`Setiap kartu pasien menerima free text atau evidence multimodal. Agent akan menata data mengikuti kontrak ${profile.label}, bukan memakai form klinis yang sama untuk semua template.`} action={<div className="privacy-chip"><LockKeyhole size={14} /> Jangan masukkan data yang tidak perlu</div>} />
       <section className="panel template-guide-panel"><div className="template-guide-icon"><ClipboardCheck size={18} /></div><div><span className="eyebrow">Kontrak ekstraksi aktif</span><h3>{profile.label}</h3><p>{profile.description} {profile.patientInputHint}</p></div><div className="template-guide-tags">{profileTags.map((tag) => <span key={tag}>{tag}</span>)}<span>Text + image</span><span>PDF + audio</span></div></section>
       <div className="inbox-layout">
         <section className="panel source-panel">
@@ -700,7 +632,7 @@ function ReviewPage({ template, patients, activePatientId, setActivePatientId, o
           <div className="review-note"><ShieldCheck size={15} /><div><strong>Traceability aktif</strong><span>Source snippet ditampilkan pada field yang berasal dari catatan. Nilai yang Anda edit menjadi user confirmed.</span></div></div>
         </section>
       </div>
-      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke inbox</button><button className="button button-dark" onClick={onContinue}>Lanjut ke generate <ArrowRight size={16} /></button></div>
+      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke inbox</button><button className="button button-dark" onClick={onContinue}>Lanjut ke struktur template <ArrowRight size={16} /></button></div>
     </div>
   );
 }
@@ -710,15 +642,15 @@ function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, err
   const expectedSlides = template ? template.slideCount + Math.max(0, patients.length - 1) * repeatCount : 0;
   return (
     <div className="page">
-      <ProgressSteps active={3} />
-      <SectionHeading eyebrow="Langkah 04 · Output" title="Generate laporan jaga" description="Semua input siap dirender ke salinan template. Setelah dibuat, JaMed akan merender ulang setiap slide untuk quality check visual sebelum download." action={<div className="privacy-chip"><ShieldCheck size={14} /> Review sebelum export</div>} />
+      <ProgressSteps active={4} />
+      <SectionHeading eyebrow="Langkah 05 · Output" title="Generate laporan jaga" description="Semua input siap dirender ke salinan template. Setelah dibuat, JaMed akan merender ulang setiap slide untuk quality check visual sebelum download." action={<div className="privacy-chip"><ShieldCheck size={14} /> Review sebelum export</div>} />
       <div className="generate-layout">
         <section className="panel generate-main-panel">
           <div className="generate-summary-head"><div><span className="eyebrow">Report plan</span><h3>{shift.title}</h3><p>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)} · {shift.hospital || "Rumah sakit belum diatur"}</p></div><div className="ready-badge"><CircleCheck size={14} /> Ready for render</div></div>
           <div className="plan-grid"><div className="plan-item"><span>Template</span><strong>{template?.name || "Belum ada template"}</strong><small>{template?.slideCount || 0} slide sumber</small></div><div className="plan-item"><span>Patient records</span><strong>{patients.length} pasien</strong><small>source-backed review</small></div><div className="plan-item"><span>Output estimate</span><strong>{expectedSlides || "—"} slide</strong><small>{repeatCount} slide repeat per pasien</small></div></div>
           <div className="generation-checklist"><div className="checklist-heading"><h4>Quality gates</h4><span>3 checks</span></div><div className="checklist-row"><Check size={15} /><span>Template mapping tersimpan</span><small>{template?.bindings.length || 0} binding</small></div><div className="checklist-row"><Check size={15} /><span>Setiap pasien punya record terstruktur</span><small>{patients.length} record</small></div><div className="checklist-row"><Check size={15} /><span>Field missing tidak diisi otomatis</span><small>Policy aktif</small></div></div>
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
-          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Review lagi</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !template || !patients.length}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><Sparkles size={16} /> Generate editable PPTX</>}</button></div>
+          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !template || !patients.length}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><Sparkles size={16} /> Generate editable PPTX</>}</button></div>
         </section>
         <aside className="panel safety-panel"><div className="safety-orb"><LockKeyhole size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>JaMed membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><ShieldCheck size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><ShieldCheck size={15} /> Output tetap editable di PowerPoint</div></aside>
       </div>
@@ -727,6 +659,16 @@ function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, err
 }
 
 function buildPreviewSlides(template: ParsedTemplate, patients: PatientRecord[]) {
+  const profile = getTemplateProfile(template);
+  const titleOf = (slide: ParsedSlide): string => {
+    const guide = template.profileId === "generic"
+      ? template.templateAnalysis?.slideGuides.find((item) => item.index === slide.index) || profile.slideGuides.find((item) => item.index === slide.index)
+      : profile.slideGuides.find((item) => item.index === slide.index) || template.templateAnalysis?.slideGuides.find((item) => item.index === slide.index);
+    let title = guide?.label || slide.title;
+    if (slide.role === "shift_summary" || /pasien baru/i.test(title)) title = title.replace(/pasien baru\s*:?\s*.*?\s+pasien/i, `PASIEN BARU: ${patients.length} PASIEN`);
+    if (slide.role === "management" && /gizi\s*buruk/i.test(title)) title = title.replace(/gizi\s*buruk/ig, "NUTRISI");
+    return title;
+  };
   const rows: Array<{ number: number; title: string; role: string; patient?: string; tag: string }> = [];
   let number = 1;
   const groups: ParsedSlide[][] = [];
@@ -736,7 +678,7 @@ function buildPreviewSlides(template: ParsedTemplate, patients: PatientRecord[])
   const repeatSet = new Set(groups.flat().map((slide) => slide.index));
   template.slides.forEach((slide) => {
     if (repeatSet.has(slide.index)) return;
-    rows.push({ number: number++, title: slide.title, role: slideRoleLabel(slide.role), tag: "Static" });
+    rows.push({ number: number++, title: titleOf(slide), role: slideRoleLabel(slide.role), tag: "Static" });
   });
   const sorted = [...rows];
   if (groups.length) {
@@ -744,9 +686,9 @@ function buildPreviewSlides(template: ParsedTemplate, patients: PatientRecord[])
     const staticBefore = template.slides.filter((slide) => slide.index < firstGroup[0].index && !repeatSet.has(slide.index));
     const staticAfter = template.slides.filter((slide) => slide.index > firstGroup[firstGroup.length - 1].index && !repeatSet.has(slide.index));
     sorted.length = 0;
-    staticBefore.forEach((slide) => sorted.push({ number: sorted.length + 1, title: slide.title, role: slideRoleLabel(slide.role), tag: "Static" }));
-    patients.forEach((patient, patientIndex) => firstGroup.forEach((slide) => sorted.push({ number: sorted.length + 1, title: slide.title, role: slideRoleLabel(slide.role), patient: patient.displayName, tag: `Patient ${patientIndex + 1}` })));
-    staticAfter.forEach((slide) => sorted.push({ number: sorted.length + 1, title: slide.title, role: slideRoleLabel(slide.role), tag: "Static" }));
+    staticBefore.forEach((slide) => sorted.push({ number: sorted.length + 1, title: titleOf(slide), role: slideRoleLabel(slide.role), tag: "Static" }));
+    patients.forEach((patient, patientIndex) => firstGroup.forEach((slide) => sorted.push({ number: sorted.length + 1, title: titleOf(slide), role: slideRoleLabel(slide.role), patient: patient.displayName, tag: `Patient ${patientIndex + 1}` })));
+    staticAfter.forEach((slide) => sorted.push({ number: sorted.length + 1, title: titleOf(slide), role: slideRoleLabel(slide.role), tag: "Static" }));
   }
   return sorted;
 }
@@ -830,7 +772,9 @@ export default function App() {
     try {
       const raw = await loadBuiltInTemplate(entry);
       const parsed = await parsePptx(raw, entry.fileName);
-      setTemplate({ ...parsed, name: entry.label });
+      const prepared = { ...parsed, name: entry.label };
+      const localAnalysis = buildLocalTemplateAnalysis(prepared);
+      setTemplate({ ...prepared, templateAnalysis: localAnalysis, analysisStatus: "ready" });
       setView("new-shift");
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Template bawaan tidak bisa dianalisis.");
@@ -990,7 +934,7 @@ export default function App() {
 
   const navTo = (next: View) => { setError(""); setView(next); };
 
-  const pageTitle = view === "dashboard" ? "Overview" : view === "new-shift" ? "Laporan baru" : view === "template" ? "Template mapping" : view === "inbox" ? "Data pasien" : view === "review" ? "Review klinis" : view === "generate" ? "Generate laporan" : "Preview";
+  const pageTitle = view === "dashboard" ? "Overview" : view === "new-shift" ? "Laporan baru" : view === "template" ? "Struktur template" : view === "inbox" ? "Data pasien" : view === "review" ? "Review klinis" : view === "generate" ? "Generate laporan" : "Preview";
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1002,11 +946,11 @@ export default function App() {
       <main className="main-content">
         <header className="topbar"><div className="breadcrumbs"><span>JaMed</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div><div className="topbar-right"><span className="environment-badge"><span /> Local preview</span><button className="icon-button"><Search size={17} /></button><button className="icon-button mobile-menu"><Menu size={18} /></button></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
-        {view === "new-shift" && <NewShiftPage shift={shift} setShift={setShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={() => { setTemplate(null); navTo("new-shift"); }} onContinue={() => navTo("template")} busy={templateBusy} error={error} />}
-        {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("inbox")} onBack={() => navTo("new-shift")} />}
+        {view === "new-shift" && <NewShiftPage shift={shift} setShift={setShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={() => { setTemplate(null); navTo("new-shift"); }} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
+        {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("generate")} onBack={() => navTo("review")} />}
         {view === "inbox" && <InboxPage template={template} drafts={patientDrafts} onDraftTextChange={updateDraftText} onDraftFile={handleDraftFile} onRemoveAttachment={removeAttachment} onAddDraft={addPatientDraft} onRemoveDraft={removePatientDraft} sources={sources} patients={patients} onAnalyze={analyze} onContinue={() => navTo("review")} analysisBusy={analysisBusy} analysisEngine={analysisEngine} error={error} />}
-        {view === "review" && <ReviewPage template={template} patients={patients} activePatientId={activePatientId} setActivePatientId={setActivePatientId} onUpdate={updatePatient} onContinue={() => navTo("generate")} onBack={() => navTo("inbox")} />}
-        {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} onGenerate={generate} onBack={() => navTo("review")} busy={generationBusy} error={error} />}
+        {view === "review" && <ReviewPage template={template} patients={patients} activePatientId={activePatientId} setActivePatientId={setActivePatientId} onUpdate={updatePatient} onContinue={() => navTo("template")} onBack={() => navTo("inbox")} />}
+        {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} onGenerate={generate} onBack={() => navTo("template")} busy={generationBusy} error={error} />}
         {view === "preview" && <PreviewPage template={template} patients={patients} generated={generated} onDownload={download} onBack={() => navTo("review")} onNew={startNew} visualReviewConfirmed={visualReviewConfirmed} onVisualReviewChange={setVisualReviewConfirmed} />}
       </main>
     </div>

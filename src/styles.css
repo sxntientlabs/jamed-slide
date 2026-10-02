@@ -287,6 +287,35 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .table-empty { color: #9aa5b7; font-size: 11px; padding: 28px 0; text-align: center; }
 .mapping-footer { display: flex; justify-content: space-between; gap: 15px; border-top: 1px solid var(--line); margin-top: 11px; padding-top: 14px; color: #a0aaba; font-size: 9px; }
 .mapping-footer div { display: flex; align-items: center; gap: 6px; color: #72a997; font-weight: 700; }
+.template-contract-strip { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 10px 13px; margin-bottom: 15px; color: #648071; border: 1px solid #d9eee7; border-radius: 10px; background: #f5fcf9; font-size: 10px; line-height: 1.4; }
+.template-contract-strip > svg { flex: 0 0 auto; color: #57aa91; }
+.template-contract-strip strong { color: #436a5e; }
+.template-contract-source { margin-left: auto; color: #77a493; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.template-overview-panel { overflow: hidden; }
+.template-preview-status { display: flex; align-items: center; gap: 7px; padding: 11px 20px 0; color: #8795a9; font-size: 9px; }
+.template-preview-status.warning { color: #b17b4c; }
+.template-slide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-height: 760px; overflow: auto; padding: 18px 20px 21px; }
+.template-slide-card { display: block; min-width: 0; padding: 10px; border: 1px solid #e2e7f0; border-radius: 12px; background: #fbfcff; transition: border-color .16s, box-shadow .16s, transform .16s; }
+.template-slide-card:hover { border-color: #bec9f1; box-shadow: 0 8px 20px rgba(52,68,112,.08); transform: translateY(-1px); }
+.template-slide-card.is-repeat { border-color: #cbd5ff; background: linear-gradient(145deg, #fbfcff, #f5f7ff); }
+.template-slide-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: #9aa6b8; font-size: 8px; font-weight: 800; letter-spacing: .09em; }
+.template-slide-status { padding: 4px 6px; border-radius: 999px; letter-spacing: 0; font-size: 8px; }
+.template-slide-status.repeat { color: #6477cf; background: #eaf0ff; }
+.template-slide-status.static { color: #8995a7; background: #f0f2f6; }
+.template-slide-preview { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #dfe5ee; border-radius: 8px; background: #f3f5f9; }
+.template-slide-preview img { display: block; width: 100%; height: 100%; object-fit: contain; background: #f4f6fa; }
+.template-slide-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 100%; padding: 14px; text-align: center; color: #8390a8; background: linear-gradient(145deg, #ffffff, #f0f3f8); }
+.template-slide-placeholder span { color: #a7b2c4; font-size: 18px; font-weight: 900; letter-spacing: .05em; }
+.template-slide-placeholder strong { max-width: 90%; overflow: hidden; color: #5f6d85; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.template-slide-placeholder small { color: #a0abbb; font-size: 8px; }
+.template-slide-copy { min-width: 0; padding: 9px 2px 7px; }
+.template-slide-copy strong, .template-slide-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-slide-copy strong { color: #4b5a74; font-size: 10px; }
+.template-slide-copy span { margin-top: 4px; color: #9ba6b7; font-size: 8px; }
+.template-repeat-control { display: flex; align-items: center; gap: 7px; padding-top: 8px; border-top: 1px solid #edf0f5; color: #70809b; font-size: 9px; font-weight: 700; cursor: pointer; }
+.template-repeat-control input { accent-color: var(--blue); }
+.template-overview-note { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #7890a4; font-size: 9px; line-height: 1.5; }
+.template-overview-note svg { flex: 0 0 auto; color: #71a995; }
 .page-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 19px; }
 
 .inbox-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr); gap: 17px; }
@@ -558,6 +587,9 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .shape-original { padding-left: 11px; }
   .shape-select-wrap { padding-left: 11px; }
   .mapping-header { flex-direction: column; }
+  .template-contract-strip { align-items: flex-start; flex-wrap: wrap; }
+  .template-contract-source { width: 100%; margin-left: 23px; }
+  .template-slide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; padding: 13px; }
   .inbox-layout { gap: 12px; }
   .detection-panel { flex-direction: column; }
   .detection-copy { min-width: 0; }

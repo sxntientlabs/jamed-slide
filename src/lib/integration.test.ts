@@ -7,7 +7,11 @@ import { generatePresentation } from "./pptxGenerator";
 import { parsePptx } from "./pptxParser";
 import { getTemplateProfile } from "./templateProfiles";
 import { applyTemplateAnalysis, buildTemplateSnapshot } from "./templateAnalyzer";
-import type { ShiftDetails } from "../types";
+import type { ClinicalField, InvestigationItem, OrganFinding, ShiftDetails } from "../types";
+
+function documented<T>(value: T): ClinicalField<T> {
+  return { value, status: "documented", confidence: 1, sources: [] };
+}
 
 const syntheticNotes = `Pasien 1
 Nama: An. A
@@ -188,4 +192,48 @@ test("custom upload starts from a generic snapshot and accepts an adaptive agent
   expect(getTemplateProfile(analyzed).shiftFields[0]?.key).toBe("supervisor");
   expect(analyzed.bindings).toHaveLength(1);
   expect(analyzed.bindings[0]?.semanticField).toBe("shift.custom");
+
+  const manuallyMapped = applyTemplateAnalysis({
+    ...custom,
+    bindings: [{ slideIndex: 0, shapeId: editableShape.id, semanticField: "shift.team", confidence: 1, source: "user" }],
+  }, {
+    bindings: [{ slideIndex: 0, shapeId: editableShape.id, semanticField: "shift.custom", templateKey: "supervisor", confidence: 0.95 }],
+  }, "agent", "test-model");
+  expect(manuallyMapped.bindings[0]?.semanticField).toBe("shift.team");
+});
+
+test("lapjag generation never carries sample diagnosis/radiology/nutrition into a new patient", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const templateEntry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] Lapjag.pptx"));
+  expect(templateEntry).toBeTruthy();
+  const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+  const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+  const template = await parsePptx(templateBuffer, "[TEMPLATE] Lapjag.pptx");
+  const patient = extractPatients(syntheticNotes, "guardrail-source").patients[0];
+  const labs: InvestigationItem[] = [
+    { name: "Hematokrit", result: "33.8", unit: "%" },
+    { name: "Leukosit", result: "18,700", unit: "/µL" },
+  ];
+  const organs: OrganFinding[] = [{ organ: "Thoraks", description: "Retraksi interkostal; ronki inspirasi halus basal kanan." }];
+  patient.investigations.laboratory = documented(labs);
+  patient.investigations.imaging = documented([{ name: "Foto toraks AP", result: "Konsolidasi lobus bawah kanan dengan air bronchogram; tanpa efusi." }]);
+  patient.physicalExam.organFindings = documented(organs);
+  patient.templateData = {
+    ...patient.templateData,
+    nutritionConclusion: documented("Cukup gizi; tidak terdapat wasting yang jelas."),
+  };
+  const shift: ShiftDetails = { title: "Laporan Jaga Guardrail", date: "2026-10-01", department: "Pediatri", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  const generated = await generatePresentation(template, [patient], template.bindings, shift);
+  const output = await JSZip.loadAsync(new Uint8Array(await generated.blob.arrayBuffer()));
+  const slideFiles = Object.keys(output.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const text = (await Promise.all(slideFiles.map((name) => output.file(name)!.async("string")))).join(" ");
+
+  expect(text).toContain("PASIEN BARU: 1 PASIEN");
+  expect(text).toContain("Konsolidasi lobus bawah kanan dengan air bronchogram; tanpa efusi.");
+  expect(text).toContain("Retraksi interkostal; ronki inspirasi halus basal kanan.");
+  expect(text).toContain("33.8");
+  expect(text).not.toContain("CTI 0,62");
+  expect(text).not.toContain("GIZI BURUK");
+  expect(text).not.toContain("Syok hipovolemia e.c. diare akut");
 });

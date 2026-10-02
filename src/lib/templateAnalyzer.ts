@@ -11,6 +11,8 @@ import type {
 } from "../types";
 import { buildLocalTemplateAnalysis } from "./templateProfiles";
 
+export { buildLocalTemplateAnalysis } from "./templateProfiles";
+
 type JsonObject = Record<string, unknown>;
 
 export interface TemplateSnapshot {
@@ -247,7 +249,22 @@ function mergeBindings(template: ParsedTemplate, agentBindings: TemplateBinding[
   const merged = new Map(template.bindings
     .filter((binding) => binding.source === "user")
     .map((binding) => [`${binding.slideIndex}:${binding.shapeId}`, binding]));
-  agentBindings.forEach((binding) => merged.set(`${binding.slideIndex}:${binding.shapeId}`, binding));
+  agentBindings.forEach((binding) => {
+    const key = `${binding.slideIndex}:${binding.shapeId}`;
+    if (!merged.has(key)) merged.set(key, binding);
+  });
+  return Array.from(merged.values());
+}
+
+function mergeKnownProfileBindings(template: ParsedTemplate, agentBindings: TemplateBinding[]): TemplateBinding[] {
+  const merged = new Map(template.bindings.map((binding) => [`${binding.slideIndex}:${binding.shapeId}`, binding]));
+  agentBindings.forEach((binding) => {
+    const key = `${binding.slideIndex}:${binding.shapeId}`;
+    // Built-in profiles contain an explicit clinical contract. The template
+    // agent may add a previously unknown editable shape, but it must not
+    // replace a known profile mapping with a looser keyword guess.
+    if (!merged.has(key)) merged.set(key, binding);
+  });
   return Array.from(merged.values());
 }
 
@@ -288,7 +305,10 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
   const root = isRecord(raw) && isRecord(raw.analysis) ? raw.analysis : (isRecord(raw) ? raw : {});
   const guides = normalizeGuides(root.slides ?? root.slideGuides, template, local.slideGuides);
   const agentBindings = normalizeBindings(root.bindings, template);
-  const bindings = source === "agent" && agentBindings.length ? mergeBindings(template, agentBindings) : local.bindings;
+  const knownProfile = template.profileId !== "generic";
+  const bindings = source === "agent" && agentBindings.length
+    ? (knownProfile ? mergeKnownProfileBindings(template, agentBindings) : mergeBindings(template, agentBindings))
+    : local.bindings;
   const fieldGroups = normalizeGroups(root.fieldGroups, local.fieldGroups);
   const shiftFields = normalizeShiftFields(root.shiftFields, local.shiftFields);
   const warnings = Array.isArray(root.warnings) ? root.warnings.map((warning) => text(warning)).filter(Boolean).slice(0, 12) : [];
@@ -309,8 +329,9 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
   };
   return {
     ...template,
-    profileId: "generic",
+    profileId: knownProfile ? template.profileId : "generic",
     slides: template.slides.map((slide) => {
+      if (knownProfile) return slide;
       const guide = guides.find((item) => item.index === slide.index);
       return guide ? { ...slide, role: guide.role, repeat: guide.repeat } : slide;
     }),

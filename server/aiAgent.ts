@@ -97,7 +97,7 @@ The JSON must have this exact top-level shape:
       "weightBeforeIllness": string|null,
       "patBehaviour": string|null, "patInteractiveness": string|null, "patConsolability": string|null, "patLookOrGaze": string|null,
       "patBreathing": string|null, "patRetraction": string|null, "patNasalFlaring": string|null, "patAddedBreathSounds": string|null, "patAbnormalPosition": string|null,
-      "primarySurvey": string|null, "secondarySurvey": string|null, "organFindingsNote": string|null,
+      "primarySurvey": string|null, "secondarySurvey": string|null, "lastMeal": string|null, "event": string|null, "organFindingsNote": string|null,
       "initialDiagnosis": string|null, "finalDiagnosis": string|null,
       "initialManagement": string|null, "finalManagement": string|null, "nutritionManagement": string|null,
       "<profile_specific_key>": string|null
@@ -107,20 +107,21 @@ The JSON must have this exact top-level shape:
 
 Use null for missing scalar values and [] for missing lists. Keep clinical wording and units from the source. The source represents one patient, so return one patient record.
 
-When a template profile and slide contract are provided, follow that contract as the source of truth: place each fact only in the named slide/field, keep repeated patient slides per patient, and preserve panel/table/timeline boundaries. For PERINA, preserve the neonatal resuscitation timepoints and S.T.A.B.L.E. sections. For RSCM and RSUI, keep PAT, primary/secondary survey, anthropometry, organ findings, investigations, initial/final diagnosis, and initial/final management separate. Populate templateData with every profile-specific key requested by the contract when the source explicitly supports it; missing keys remain null. When the template profile is Lapjag, preserve the template's clinical separation: do not merge PAT with ABCDE or AMPLE; keep RPS, RPD, birth, immunization, nutrition, and socioeconomic history in their own contexts; retain measurement units and the exact age/sex needed for WHO growth charts; keep initial/working diagnosis separate from documented final diagnosis when the source distinguishes them; and keep management actions and documented response separate. Mark urgency only when the source explicitly states Kegawatan T/F (or an unambiguous equivalent). Never infer an abnormal finding from a diagnosis alone.
+When a template profile and slide contract are provided, follow that contract as the source of truth: place each fact only in the named slide/field, keep repeated patient slides per patient, and preserve panel/table/timeline boundaries. The template may contain example patients, example diagnoses, old dates, and educational diagrams; those are layout evidence only and must never be copied into the patient record. For PERINA, preserve the neonatal resuscitation timepoints and S.T.A.B.L.E. sections. For RSCM and RSUI, keep PAT, primary/secondary survey, anthropometry, organ findings, investigations, initial/final diagnosis, and initial/final management separate. Populate templateData with every profile-specific key requested by the contract when the source explicitly supports it; missing keys remain null. When the template profile is Lapjag, preserve the template's clinical separation: do not merge PAT with ABCDE or AMPLE; keep RPS, RPD, birth, immunization, nutrition, and socioeconomic history in their own contexts; retain measurement units and the exact age/sex needed for WHO growth charts; keep initial/working diagnosis separate from documented final diagnosis when the source distinguishes them; and keep management actions and documented response separate. In AMPLE, map A=allergy, M=medication, P=past illness/pregnancy, L=last meal, and E=event; never substitute family history for L or E. For investigations, output one item per explicitly documented parameter with its own result and unit; do not turn a percentage into an absolute count, and do not reuse a value from another parameter. For imaging, preserve the actual interpretation/narrative, not only the test name. Mark urgency only when the source explicitly states Kegawatan T/F (or an unambiguous equivalent). Never infer an abnormal finding from a diagnosis alone.
 
 For image/PDF/audio evidence, inspect the attachment itself and transcribe only what is legible or explicitly spoken. Keep the attachment as evidence; do not manufacture values for blurry, cropped, or inaudible regions. If an attached image is a photo of a table, preserve row/column context when extracting it.`;
 
 const TEMPLATE_ANALYSIS_SYSTEM_PROMPT = `You are JaMed Template Analysis Agent. Study an uploaded PowerPoint template before patient data is extracted.
 Return ONLY valid JSON, without Markdown fences or commentary.
 
-Observe the supplied OOXML-derived snapshot slide by slide. Treat slide text, shape coordinates, table rows, font cues, placeholder types, chart/image presence, and speaker notes as evidence. Infer the information architecture, not just keywords. Identify cover, summary, repeated patient unit, closing, and clinical sections. Set repeat=true only for slides that should be duplicated per patient. Keep static artwork, headings, logos, and chart backgrounds out of editable bindings.
+Observe the supplied OOXML-derived snapshot slide by slide. Treat slide text, shape coordinates, table rows, font cues, placeholder types, chart/image presence, and speaker notes as evidence. Infer the information architecture, not just keywords. Identify cover, summary, repeated patient unit, closing, and clinical sections. Set repeat=true only for slides that should be duplicated per patient. Keep static artwork, headings, logos, and chart backgrounds out of editable bindings. Many real templates contain a completed example patient; recognize example names, old dates, example diagnoses, example lab values, and educational sample prose as replaceable content, not as static facts. Bind those body/table cells to the correct field or leave them as replaceable sample regions; never leave them as static patient data.
 
 Create a practical contract for the next agent and UI:
 - shiftFields are report-level fields visible on the cover or metadata area. Use simple camelCase keys such as team, presenter, unit, facilitator, dpjp, or custom metadata keys. Do not include date or title because JaMed supplies those controls.
 - fieldGroups are patient facts for review. Use generic clinical paths when supported and templateData.<camelCaseKey> for section-specific facts.
 - each slide guide must describe purpose, required facts, layout boundaries, and evidence rules in plain Indonesian. Mention tables, timelines, checklists, charts, notes, and fixed labels when observed.
 - bindings must reference only shape IDs in the snapshot. Use the supported semanticField values below. For custom patient sections use patient.templateSection plus templateKey. For custom cover metadata use shift.custom plus templateKey. Do not bind headings/decorations when an adjacent empty/body shape is the data slot.
+- use the snapshot's zero-based slide index exactly as provided in slides[].index and bindings[].slideIndex; do not convert it to a one-based slide number.
 - preserve context boundaries and do not invent a medical field the template does not imply.
 
 Supported semanticField values:
@@ -155,6 +156,8 @@ const TEMPLATE_DATA_KEYS = [
   "patAbnormalPosition",
   "primarySurvey",
   "secondarySurvey",
+  "lastMeal",
+  "event",
   "organFindingsNote",
   "initialDiagnosis",
   "finalDiagnosis",
@@ -240,22 +243,57 @@ function arrayValue(value: unknown): unknown[] {
   return text ? text.split(/[\n,;|]/).map((item) => item.trim()).filter(Boolean) : [];
 }
 
-function sourceSnippet(sourceText: string, value: unknown): string {
-  const needle = stringValue(value)?.toLowerCase();
+function evidenceText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(evidenceText).filter(Boolean).join(" ");
+  if (isRecord(value)) return Object.values(value).map(evidenceText).filter(Boolean).join(" ");
+  return "";
+}
+
+function evidenceTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}.%]+/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !/^(?:dan|atau|dengan|yang|pada|dari|untuk|tidak|ada|secara|saat|hari|bulan|tahun)$/i.test(token));
+}
+
+function sourceEvidenceLine(sourceText: string, value: unknown): string | undefined {
+  const needle = evidenceText(value).trim().toLowerCase();
+  if (!needle) return undefined;
   const lines = sourceText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const match = needle ? lines.find((line) => line.toLowerCase().includes(needle)) : undefined;
-  return (match || lines[0] || sourceText).slice(0, 220);
+  const direct = lines.find((line) => line.toLowerCase().includes(needle));
+  if (direct) return direct;
+  const tokens = evidenceTokens(needle);
+  if (!tokens.length) return undefined;
+  let best: { line: string; score: number } | undefined;
+  lines.forEach((line) => {
+    const haystack = line.toLowerCase();
+    const hits = tokens.filter((token) => haystack.includes(token)).length;
+    const score = hits / tokens.length;
+    if (hits >= (tokens.length === 1 ? 1 : Math.min(2, tokens.length)) && (!best || score > best.score)) {
+      best = { line, score };
+    }
+  });
+  return best && (best.score >= 0.34 || tokens.length <= 2) ? best.line : undefined;
+}
+
+function sourceSnippet(sourceText: string, value: unknown): string {
+  return sourceEvidenceLine(sourceText, value)?.slice(0, 220) || "";
 }
 
 function clinicalField<T>(value: T | undefined, sourceText: string, sourceId: string): ClinicalField<T> {
   if (value === undefined || value === null || (typeof value === "string" && !value.trim())) {
     return { status: "missing", confidence: 0, sources: [] };
   }
+  const snippet = sourceSnippet(sourceText, value);
   return {
     value,
     status: "documented",
-    confidence: 0.86,
-    sources: [{ sourceId, textSnippet: sourceSnippet(sourceText, value) }],
+    confidence: snippet ? 0.86 : 0.58,
+    sources: snippet ? [{ sourceId, textSnippet: snippet }] : [],
   };
 }
 
@@ -344,6 +382,207 @@ function treatmentField(root: JsonObject, paths: string[], sourceText: string, s
   return clinicalField(values.length ? values : undefined, sourceText, sourceId);
 }
 
+type EvidenceInvestigationRule = { key: string; name: string; aliases: RegExp[]; unit?: string };
+
+const EVIDENCE_INVESTIGATION_RULES: EvidenceInvestigationRule[] = [
+  { key: "hb", name: "Hb", aliases: [/\bhemoglobin\b/i, /\bhb\b/i], unit: "g/dL" },
+  { key: "hct", name: "Hematokrit", aliases: [/\bhematokrit\b/i, /\bhematocrit\b/i, /\bhct\b/i, /\bht\b/i], unit: "%" },
+  { key: "wbc", name: "Leukosit", aliases: [/\bleukosit\b/i, /\bleukocytes?\b/i, /\bwbc\b/i], unit: "/µL" },
+  { key: "platelet", name: "Trombosit", aliases: [/\btrombosit\b/i, /\bplatelets?\b/i, /\bplt\b/i], unit: "/µL" },
+  { key: "neutrophil", name: "Neutrofil", aliases: [/\bneutrofil(?:ia|s)?\b/i, /\bneutrophils?\b/i], unit: "%" },
+  { key: "lymphocyte", name: "Limfosit", aliases: [/\blimfosit(?:ia|s)?\b/i, /\blymphocytes?\b/i], unit: "%" },
+  { key: "monocyte", name: "Monosit", aliases: [/\bmonosit(?:s)?\b/i, /\bmonocytes?\b/i], unit: "%" },
+  { key: "eosinophil", name: "Eosinofil", aliases: [/\beosinofil(?:s)?\b/i, /\beosinophils?\b/i], unit: "%" },
+  { key: "crp", name: "CRP", aliases: [/\bcrp\b/i, /\bc-reactive protein\b/i] },
+  { key: "ph", name: "pH", aliases: [/\bpH\b/i] },
+  { key: "pco2", name: "pCO₂", aliases: [/\bpCO2\b/i, /\bpaCO2\b/i] },
+  { key: "po2", name: "pO₂", aliases: [/\bpO2\b/i, /\bpaO2\b/i] },
+  { key: "hco3", name: "HCO₃", aliases: [/\bHCO3\b/i, /\bbikarbonat\b/i] },
+  { key: "be", name: "Base excess", aliases: [/\bbase excess\b/i, /\bBE\b/i] },
+  { key: "lactate", name: "Laktat", aliases: [/\blaktat\b/i, /\blactate\b/i] },
+  { key: "sodium", name: "Natrium", aliases: [/\bnatrium\b/i, /\bsodium\b/i, /\bNa\b/i] },
+  { key: "potassium", name: "Kalium", aliases: [/\bkalium\b/i, /\bpotassium\b/i, /\bK\b/i] },
+  { key: "chloride", name: "Klorida", aliases: [/\bklorida\b/i, /\bchloride\b/i, /\bCl\b/i] },
+];
+
+function investigationRule(name: string): EvidenceInvestigationRule | undefined {
+  return EVIDENCE_INVESTIGATION_RULES.find((rule) => rule.aliases.some((alias) => alias.test(name)));
+}
+
+function investigationSourceLine(sourceText: string, name: string): string | undefined {
+  const rule = investigationRule(name);
+  if (rule) {
+    for (const alias of rule.aliases) {
+      const line = sourceText.split(/\r?\n/).map((item) => item.trim()).find((item) => alias.test(item));
+      if (line) return line;
+    }
+  }
+  return sourceEvidenceLine(sourceText, name);
+}
+
+function resultFromInvestigationLine(line: string, rule?: EvidenceInvestigationRule): string | undefined {
+  if (!line) return undefined;
+  const aliases = rule?.aliases || [];
+  for (const alias of aliases) {
+    const match = line.match(new RegExp(`${alias.source}\\s*[:=]?\\s*([-+]?\\d+(?:[.,]\\d+)?(?:\\s*[%a-zA-Zµ/]+)?)`, alias.flags.includes("i") ? "i" : undefined));
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
+}
+
+function sourceInvestigationItems(sourceText: string): InvestigationItem[] {
+  return EVIDENCE_INVESTIGATION_RULES.flatMap((rule) => {
+    const line = investigationSourceLine(sourceText, rule.name);
+    if (!line) return [];
+    const result = resultFromInvestigationLine(line, rule);
+    if (!result) return [];
+    const unit = /%/.test(result) ? "%" : rule.unit;
+    return [{ name: rule.name, result: result.replace(/\s*[a-zA-Zµ/%]+$/, "").trim(), unit }];
+  });
+}
+
+function sourceImagingItems(sourceText: string): InvestigationItem[] {
+  const lines = sourceText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const items: InvestigationItem[] = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^\s*(CXR|Foto\s+toraks(?:\s+AP|\s+PA)?|Radiologi|Rontgen|USG)\s*[:\-]\s*(.*)$/i);
+    if (!match) return;
+    const resultParts = [match[2]];
+    if (!match[2] && lines[index + 1] && !/^(?:##?\s+|[A-Z][\w ]+\s*[:\-])/.test(lines[index + 1])) resultParts.push(lines[index + 1]);
+    const result = resultParts.filter(Boolean).join(" ").trim();
+    items.push({ name: match[1].replace(/\s+/g, " ").trim(), result: result || undefined });
+  });
+  return items;
+}
+
+function sourceOrganFindings(sourceText: string): OrganFinding[] {
+  const organs = /kepala|mata|mulut|hidung|leher|thoraks|dada|paru|jantung|abdomen|perut|ekstremitas|kulit|neurolog(?:i|is)/i;
+  return sourceText.split(/\r?\n/).map((line) => {
+    const match = line.trim().match(/^([^:：-]{2,40})\s*[:：-]\s*(.+)$/);
+    if (!match || !organs.test(match[1])) return undefined;
+    return { organ: match[1].trim(), description: match[2].trim() } satisfies OrganFinding;
+  }).filter((item): item is OrganFinding => Boolean(item));
+}
+
+function investigationKey(name: string): string {
+  return investigationRule(name)?.key || name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function mergeInvestigationEvidence(items: InvestigationItem[], sourceText: string, imaging = false): InvestigationItem[] {
+  const sourceItems = imaging ? sourceImagingItems(sourceText) : sourceInvestigationItems(sourceText);
+  const output = new Map<string, InvestigationItem>();
+  items.forEach((item) => {
+    const sourceLine = investigationSourceLine(sourceText, item.name);
+    if (!sourceLine && !imaging) return;
+    if (!sourceLine && imaging && !sourceImagingItems(sourceText).some((source) => investigationKey(source.name) === investigationKey(item.name))) return;
+    const sourceItem = sourceItems.find((candidate) => investigationKey(candidate.name) === investigationKey(item.name));
+    const rule = investigationRule(item.name);
+    const resultEvidence = item.result && sourceLine && sourceLine.toLowerCase().includes(String(item.result).toLowerCase().replace(/,/g, "."));
+    const merged: InvestigationItem = {
+      ...item,
+      name: sourceItem?.name || item.name,
+      result: sourceItem?.result || (resultEvidence ? item.result : undefined),
+      unit: sourceItem?.unit || item.unit,
+      reference: item.reference,
+    };
+    if (rule && !merged.result && sourceItem?.result) merged.result = sourceItem.result;
+    output.set(investigationKey(merged.name), merged);
+  });
+  sourceItems.forEach((item) => {
+    if (!output.has(investigationKey(item.name))) output.set(investigationKey(item.name), item);
+  });
+  return Array.from(output.values());
+}
+
+function missingTemplateField(): ClinicalField<string> {
+  return { status: "missing", confidence: 0, sources: [] };
+}
+
+function hasExplicitSourceHeading(sourceText: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(sourceText));
+}
+
+function sanitizeTemplateData(fields: Record<string, ClinicalField<string>>, sourceText: string): Record<string, ClinicalField<string>> {
+  const guarded = { ...fields };
+  const explicitOnly: Record<string, RegExp[]> = {
+    initialDiagnosis: [/diagnosis\s+awal/i, /initial\s+diagnos/i],
+    finalDiagnosis: [/diagnosis\s+(?:akhir|final)/i, /final\s+diagnos/i],
+    initialManagement: [/tata\s*laksana\s+awal/i, /rencana\s+tata\s*laksana\s+awal/i, /initial\s+management/i],
+    finalManagement: [/tata\s*laksana\s+(?:akhir|final)/i, /final\s+management/i, /respons\s+(?:terapi|pengobatan)/i],
+  };
+  Object.entries(explicitOnly).forEach(([key, patterns]) => {
+    if (guarded[key]?.value && !hasExplicitSourceHeading(sourceText, patterns)) guarded[key] = missingTemplateField();
+  });
+  if (guarded.secondarySurvey?.value) {
+    const value = guarded.secondarySurvey.value.toLowerCase();
+    if (/(?:airway|breathing|circulation|disability|exposure)/.test(value) && !/(?:allerg|medication|past\s+illness|last\s+meal|event)/.test(value)) guarded.secondarySurvey = missingTemplateField();
+  }
+  if (guarded.urgency?.value && !hasExplicitSourceHeading(sourceText, [/kegawatan\s*[:：-]?\s*(?:t|f|true|false)\b/i, /emergency\s*[:：-]?\s*(?:t|f|true|false)\b/i])) {
+    guarded.urgency = missingTemplateField();
+  }
+  return guarded;
+}
+
+function sanitizeTreatmentItems(items: TreatmentItem[], sourceText: string): TreatmentItem[] {
+  const treatmentAliases: Array<[RegExp, RegExp]> = [
+    [/oksigen|oxygen|nasal\s+kanul|\bNC\b/i, /oksigen|oxygen|nasal\s+kanul|\bNC\b/i],
+    [/paracetamol/i, /paracetamol/i],
+    [/antibiotik|antibiotic|antimicrobial|antimikroba/i, /antibiotik|antibiotic|antimicrobial|antimikroba/i],
+    [/iv\s+access|akses\s+(?:intravena|iv)|infus|cairan/i, /iv\s+access|akses\s+(?:intravena|iv)|infus|cairan/i],
+  ];
+  const treatmentSourceLine = (name: string): string | undefined => {
+    const direct = sourceEvidenceLine(sourceText, name);
+    if (direct) return direct;
+    const alias = treatmentAliases.find(([pattern]) => pattern.test(name));
+    return alias ? sourceText.split(/\r?\n/).map((line) => line.trim()).find((line) => alias[1].test(line)) : undefined;
+  };
+  return items
+    .filter((item) => Boolean(treatmentSourceLine(item.name)))
+    .map((item) => ({
+      ...item,
+      dose: item.dose && (sourceEvidenceLine(sourceText, item.dose) || treatmentSourceLine(item.dose)) ? item.dose : undefined,
+      route: item.route && (sourceEvidenceLine(sourceText, item.route) || treatmentSourceLine(item.route)) ? item.route : undefined,
+      frequency: item.frequency && sourceEvidenceLine(sourceText, item.frequency) ? item.frequency : undefined,
+      notes: item.notes && sourceEvidenceLine(sourceText, item.notes) ? item.notes : undefined,
+    }));
+}
+
+function reconcilePatientEvidence(patient: PatientRecord, sourceText: string, sourceId: string): PatientRecord {
+  const urgency = hasExplicitSourceHeading(sourceText, [/kegawatan\s*[:：-]?\s*(?:t|f|true|false)\b/i, /emergency\s*[:：-]?\s*(?:t|f|true|false)\b/i])
+    ? patient.urgency
+    : missingTemplateField();
+  const laboratory = mergeInvestigationEvidence(patient.investigations.laboratory?.value || [], sourceText);
+  const imaging = mergeInvestigationEvidence(patient.investigations.imaging?.value || [], sourceText, true);
+  const organFindings = sourceOrganFindings(sourceText);
+  const mergedOrganFindings = [...(patient.physicalExam.organFindings?.value || [])];
+  organFindings.forEach((finding) => {
+    const existing = mergedOrganFindings.find((item) => /thoraks|dada|paru/i.test(item.organ) && /thoraks|dada|paru/i.test(finding.organ) || item.organ.toLowerCase() === finding.organ.toLowerCase());
+    if (!existing) mergedOrganFindings.push(finding);
+  });
+  const templateData = sanitizeTemplateData(patient.templateData || {}, sourceText);
+  return {
+    ...patient,
+    urgency,
+    physicalExam: {
+      ...patient.physicalExam,
+      organFindings: clinicalField(mergedOrganFindings.length ? mergedOrganFindings : undefined, sourceText, sourceId),
+    },
+    investigations: {
+      ...patient.investigations,
+      laboratory: clinicalField(laboratory.length ? laboratory : undefined, sourceText, sourceId),
+      imaging: clinicalField(imaging.length ? imaging : undefined, sourceText, sourceId),
+    },
+    templateData,
+    management: {
+      ...patient.management,
+      medications: clinicalField(sanitizeTreatmentItems(patient.management.medications?.value || [], sourceText), sourceText, sourceId),
+      fluids: clinicalField(sanitizeTreatmentItems(patient.management.fluids?.value || [], sourceText), sourceText, sourceId),
+      procedures: clinicalField(sanitizeTreatmentItems(patient.management.procedures?.value || [], sourceText), sourceText, sourceId),
+      oxygenTherapy: clinicalField(sanitizeTreatmentItems(patient.management.oxygenTherapy?.value || [], sourceText), sourceText, sourceId),
+    },
+  };
+}
+
 function normalizeTemplateData(root: JsonObject, sourceText: string, sourceId: string): Record<string, ClinicalField<string>> {
   const raw = asRecord(pick(root, ["templateData", "template_data"]));
   const keys = Array.from(new Set([...TEMPLATE_DATA_KEYS, ...Object.keys(raw)]));
@@ -394,7 +633,7 @@ function normalizePatient(raw: unknown, sourceText: string, sourceId: string, pa
   const medicalRecordNumber = stringField(root, ["identifiers.medicalRecordNumber", "identifiers.medical_record_number", "medicalRecordNumber", "medical_record_number", "noRm", "no_rm"], sourceText, sourceId);
   const displayName = name.value || initials.value || stringValue(pick(root, ["displayName", "display_name"])) || patientLabel || `Pasien ${index + 1}`;
 
-  return {
+  const patient: PatientRecord = {
     id: `${sourceId}-patient-${index + 1}`,
     displayName,
     identifiers: { name, initials, medicalRecordNumber },
@@ -462,6 +701,7 @@ function normalizePatient(raw: unknown, sourceText: string, sourceId: string, pa
     timeline: normalizeTimeline(pick(root, ["timeline", "kronologi", "events"]), sourceText, sourceId),
     sourceId,
   };
+  return reconcilePatientEvidence(patient, sourceText, sourceId);
 }
 
 function parseJsonContent(content: string): unknown {
