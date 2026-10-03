@@ -632,7 +632,7 @@ export function buildLocalTemplateAnalysis(template: ParsedTemplate): TemplateAn
   return {
     version: 1,
     label: `Template custom · ${template.name}`,
-    description: `JaMed membaca ${slides.length} slide, termasuk role, pengulangan per pasien, shape, tabel, dan speaker notes yang tersedia.`,
+    description: `Koasis membaca ${slides.length} slide, termasuk role, pengulangan per pasien, shape, tabel, dan speaker notes yang tersedia.`,
     extractionInstructions: `Ikuti urutan dan konteks setiap slide pada template ${template.name}. Jangan memindahkan fakta antar-panel. Gunakan field klinis yang terdeteksi, pertahankan satuan dan format tabel, dan simpan bagian yang belum terpetakan sebagai templateData tanpa mengarang nilai.`,
     patientInputHint: "Tempel catatan klinis atau upload evidence pasien; agent akan menyesuaikan ekstraksi dengan panduan slide custom ini.",
     shiftFields: localShiftFields(template),

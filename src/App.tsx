@@ -337,7 +337,7 @@ function Dashboard({ shift, template, patients, onCreate, onNavigate }: { shift:
       <div className="dashboard-topline">
         <div>
           <div className="eyebrow">Ruang kerja laporan jaga</div>
-          <h1>Selamat datang di <span>JaMed</span></h1>
+          <h1>Selamat datang di <span>Koasis</span></h1>
           <p>Susun data jaga yang tercecer menjadi presentasi klinis yang siap direview.</p>
         </div>
         <div className="topline-actions">
@@ -382,7 +382,7 @@ function Dashboard({ shift, template, patients, onCreate, onNavigate }: { shift:
         </section>
         <section className="panel principle-panel">
           <div className="principle-quote">“</div>
-          <span className="eyebrow">Prinsip JaMed</span>
+          <span className="eyebrow">Prinsip Koasis</span>
           <h3>AI membaca informasi.<br /><span>Kode menjaga bentuknya.</span></h3>
           <p>Data klinis dinormalisasi dan diverifikasi dulu, baru dipetakan kembali ke template asli.</p>
           <div className="principle-footer"><ShieldCheck size={16} /> Tidak ada nilai yang diisi diam-diam</div>
@@ -397,14 +397,14 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
     return (
       <div className="page">
         <ProgressSteps active={0} />
-        <SectionHeading eyebrow="Langkah 01 · Template" title="Pilih template laporan dulu" description="JaMed akan membaca struktur template terlebih dahulu, lalu menyesuaikan panduan pengisian dan mapping klinisnya." action={<div className="autosave"><CircleCheck size={14} /> Tersimpan di perangkat ini</div>} />
+        <SectionHeading eyebrow="Langkah 01 · Template" title="Pilih template laporan dulu" description="Koasis akan membaca struktur template terlebih dahulu, lalu menyesuaikan panduan pengisian dan mapping klinisnya." action={<div className="autosave"><CircleCheck size={14} /> Tersimpan di perangkat ini</div>} />
         <section className="panel template-first-panel">
           <div className="template-first-grid">
             <div>
-              <div className="panel-heading"><div><span className="eyebrow">Template bawaan JaMed</span><h3>Mulai dari format yang sudah dipelajari</h3><p>Template Lapjag sudah memiliki panduan slide, chart WHO, dan aturan pengisian yang spesifik.</p></div><FileArchive size={20} /></div>
+              <div className="panel-heading"><div><span className="eyebrow">Template bawaan Koasis</span><h3>Mulai dari format yang sudah dipelajari</h3><p>Template Lapjag sudah memiliki panduan slide, chart WHO, dan aturan pengisian yang spesifik.</p></div><FileArchive size={20} /></div>
               <BuiltInTemplateList templates={builtInTemplates} loading={builtInLoading} onSelect={onBuiltInTemplate} />
             </div>
-            <div className="template-first-upload"><div className="template-empty-divider"><span>atau</span></div><span className="eyebrow">Template sendiri</span><h3>Upload PPTX departemen</h3><p>Template lain tetap bisa dipakai; JaMed akan menganalisis shape dan mapping dari awal.</p><UploadDropzone accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" label="Upload template sendiri" hint="Maks. 20 MB · file PPTX" onFile={onTemplate} busy={busy} /></div>
+            <div className="template-first-upload"><div className="template-empty-divider"><span>atau</span></div><span className="eyebrow">Template sendiri</span><h3>Upload PPTX departemen</h3><p>Template lain tetap bisa dipakai; Koasis akan menganalisis shape dan mapping dari awal.</p><UploadDropzone accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" label="Upload template sendiri" hint="Maks. 20 MB · file PPTX" onFile={onTemplate} busy={busy} /></div>
           </div>
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
         </section>
@@ -432,7 +432,7 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
         </section>
         <aside className="panel side-info-panel">
           <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><Layers3 size={20} /></div>
-          <p>JaMed membaca struktur shape, layout, dan teks dari template. File asli tetap menjadi sumber desain.</p>
+          <p>Koasis membaca struktur shape, layout, dan teks dari template. File asli tetap menjadi sumber desain.</p>
           <div className="attached-template"><div className="file-icon"><FileArchive size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · kontrak klinis siap · {profile.label}</span></div><CircleCheck className="success-icon" size={18} /></div>
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
           <div className="side-info-list"><div><Check size={14} /> Layout asli dipertahankan</div><div><Check size={14} /> Shape bisa dikoreksi manual</div><div><Check size={14} /> Output tetap editable</div></div>
@@ -645,7 +645,7 @@ function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, err
   return (
     <div className="page">
       <ProgressSteps active={4} />
-      <SectionHeading eyebrow="Langkah 05 · Output" title="Generate laporan jaga" description="Semua input siap dirender ke salinan template. Setelah dibuat, JaMed akan merender ulang setiap slide untuk quality check visual sebelum download." action={<div className="privacy-chip"><ShieldCheck size={14} /> Review sebelum export</div>} />
+      <SectionHeading eyebrow="Langkah 05 · Output" title="Generate laporan jaga" description="Semua input siap dirender ke salinan template. Setelah dibuat, Koasis akan merender ulang setiap slide untuk quality check visual sebelum download." action={<div className="privacy-chip"><ShieldCheck size={14} /> Review sebelum export</div>} />
       <div className="generate-layout">
         <section className="panel generate-main-panel">
           <div className="generate-summary-head"><div><span className="eyebrow">Report plan</span><h3>{shift.title}</h3><p>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)} · {shift.hospital || "Rumah sakit belum diatur"}</p></div><div className="ready-badge"><CircleCheck size={14} /> Ready for render</div></div>
@@ -654,7 +654,7 @@ function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, err
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
           <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !template || !patients.length}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><Sparkles size={16} /> Generate editable PPTX</>}</button></div>
         </section>
-        <aside className="panel safety-panel"><div className="safety-orb"><LockKeyhole size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>JaMed membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><ShieldCheck size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><ShieldCheck size={15} /> Output tetap editable di PowerPoint</div></aside>
+        <aside className="panel safety-panel"><div className="safety-orb"><LockKeyhole size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>Koasis membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><ShieldCheck size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><ShieldCheck size={15} /> Output tetap editable di PowerPoint</div></aside>
       </div>
     </div>
   );
@@ -706,7 +706,7 @@ function PreviewPage({ template, patients, generated, onDownload, onBack, onNew,
   const hasVisualRender = previewSlides.length > 0;
   return (
     <div className="page">
-      <SectionHeading eyebrow="Langkah 05 · Visual quality check" title="Preview laporan jaga" description="JaMed merender PPTX final di server agar setiap slide bisa diperiksa sebelum file diunduh." action={<div className={`ready-badge ${hasVisualRender ? "" : "warning"}`}><CircleCheck size={14} /> {hasVisualRender ? "Render siap direview" : "Render belum tersedia"}</div>} />
+      <SectionHeading eyebrow="Langkah 05 · Visual quality check" title="Preview laporan jaga" description="Koasis merender PPTX final di server agar setiap slide bisa diperiksa sebelum file diunduh." action={<div className={`ready-badge ${hasVisualRender ? "" : "warning"}`}><CircleCheck size={14} /> {hasVisualRender ? "Render siap direview" : "Render belum tersedia"}</div>} />
       <div className="preview-toolbar"><div className="preview-file"><div className="file-icon large"><FileArchive size={20} /></div><div><strong>{generated?.fileName || "laporan-jaga.pptx"}</strong><span>{generated?.slideCount || previewRows.length} slide · editable PPTX · {generated?.previewEngine || "visual render"}</span></div></div><div className="toolbar-actions"><button className="button button-ghost" onClick={onBack}><Pencil size={14} /> Edit review</button><button className="button button-dark" onClick={onDownload} disabled={!visualReviewConfirmed || !hasVisualRender}><Download size={15} /> Download PPTX</button></div></div>
       {generated?.previewError && <div className="inline-error preview-error"><AlertTriangle size={15} /> {generated.previewError}</div>}
       <div className="preview-layout"><section className="panel preview-stage"><div className="preview-stage-head"><div><span className="eyebrow">Actual PowerPoint render</span><h3>{selectedMeta?.title || "Tampilan per slide"}</h3></div><span>{hasVisualRender ? `${selectedSlide + 1} / ${previewSlides.length}` : "Menunggu render"}</span></div>{hasVisualRender ? <><div className="preview-focus"><button className="preview-nav-button" onClick={() => setSelectedSlide((current) => Math.max(0, current - 1))} disabled={selectedSlide === 0} aria-label="Slide sebelumnya"><ArrowLeft size={17} /></button><img src={previewSlides[selectedSlide]} alt={`Render slide ${selectedSlide + 1}`} /><button className="preview-nav-button" onClick={() => setSelectedSlide((current) => Math.min(previewSlides.length - 1, current + 1))} disabled={selectedSlide === previewSlides.length - 1} aria-label="Slide berikutnya"><ArrowRight size={17} /></button></div><div className="preview-slide-grid rendered-slide-grid">{previewSlides.map((source, index) => { const row = previewRows[index]; return <button className={`preview-slide-card rendered-slide-card ${index === selectedSlide ? "selected" : ""}`} key={`${index}-${row?.title || "slide"}`} onClick={() => setSelectedSlide(index)}><img src={source} alt={`Thumbnail slide ${index + 1}`} /><span className="preview-slide-number">{String(index + 1).padStart(2, "0")}</span><div className="preview-slide-meta"><strong>{row?.title || `Slide ${index + 1}`}</strong><span>{row?.role || "Render PPTX"}</span></div></button>; })}</div></> : <div className="preview-render-empty"><CircleDashed size={24} /><strong>Render visual belum berhasil</strong><span>Perbaiki masalah render lalu generate ulang. Download ditahan sampai slide dapat diperiksa.</span></div>}</section><aside className="panel preview-side"><div className="panel-heading"><div><span className="eyebrow">Quality gate</span><h3>Review sebelum final</h3></div><ClipboardCheck size={19} /></div><div className="export-check"><Check size={14} /><span>Struktur PPTX tervalidasi</span></div><div className={`export-check ${hasVisualRender ? "" : "pending"}`}>{hasVisualRender ? <Check size={14} /> : <CircleDashed size={14} />}<span>Visual render {hasVisualRender ? "tersedia" : "menunggu"}</span></div><div className={`export-check ${generated && generated.slideCount === previewSlides.length ? "" : "pending"}`}>{generated && generated.slideCount === previewSlides.length ? <Check size={14} /> : <CircleDashed size={14} />}<span>Jumlah slide konsisten</span></div><label className="visual-review-control"><input type="checkbox" checked={visualReviewConfirmed} onChange={(event) => onVisualReviewChange(event.target.checked)} disabled={!hasVisualRender} /><span>Saya sudah memeriksa tampilan setiap slide dan menyetujui hasilnya.</span></label><div className="preview-disclaimer"><AlertTriangle size={14} /><span>Periksa teks terpotong, tabel kosong, data yang tertukar, dan elemen yang bertabrakan. Edit review jika ada temuan.</span></div><button className="button button-ghost full-width" onClick={onNew}><Plus size={15} /> Mulai laporan lain</button></aside></div>
@@ -776,7 +776,7 @@ export default function App() {
       const customTemplate: ParsedTemplate = { ...parsed, profileId: "generic", analysisStatus: "analyzing" };
       const analyzed = await analyzeTemplateWithAi(customTemplate);
       setTemplate(analyzed.template);
-      if (analyzed.error) setError("Agent template belum bisa dihubungi; JaMed memakai observasi lokal sementara.");
+      if (analyzed.error) setError("Agent template belum bisa dihubungi; Koasis memakai observasi lokal sementara.");
       setView("new-shift");
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Template tidak bisa dianalisis.");
@@ -957,14 +957,14 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}>
-        <div className="brand"><div className="brand-mark"><img src="/JaMed.png" alt="JaMed" /></div><div><strong>JaMed</strong><span>jaga, made clear</span></div></div>
+        <div className="brand"><img className="brand-lockup" src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div>
         <div className="workspace-switcher"><div className="workspace-avatar">J</div><div><span>Workspace</span><strong>{shift.title === EMPTY_SHIFT.title ? "Laporan baru" : shift.title}</strong></div><ChevronDown size={14} /></div>
         <nav className="main-nav"><span className="nav-label">Ruang kerja</span>{NAV_ITEMS.map(({ id, label, icon: Icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><Icon size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-mini-card"><div className="mini-orb"><ShieldCheck size={16} /></div><div><strong>Data aman di sini</strong><span>MVP local-first</span></div></div><button className="nav-item"><Settings2 size={17} /><span>Pengaturan</span></button><button className="nav-item"><LifeBuoy size={17} /><span>Bantuan</span></button><div className="sidebar-user"><div className="user-avatar">R</div><div><strong>Rafael</strong><span>Medical clerk</span></div><button className="icon-button"><ChevronRight size={15} /></button></div></div>
       </aside>
       {mobileNavOpen && <button className="sidebar-scrim" aria-label="Tutup menu navigasi" onClick={() => setMobileNavOpen(false)} />}
       <main className="main-content">
-        <header className="topbar"><div className="breadcrumbs"><span>JaMed</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div><div className="topbar-right"><span className="environment-badge"><span /> Local preview</span><button className="icon-button topbar-search" aria-label="Cari"><Search size={17} /></button><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button></div></header>
+        <header className="topbar"><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div><div className="topbar-right"><span className="environment-badge"><span /> Local preview</span><button className="icon-button topbar-search" aria-label="Cari"><Search size={17} /></button><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
         {view === "new-shift" && <NewShiftPage shift={shift} setShift={setShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={() => { setTemplate(null); navTo("new-shift"); }} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
         {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("generate")} onBack={() => navTo("review")} />}

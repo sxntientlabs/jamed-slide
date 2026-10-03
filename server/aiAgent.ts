@@ -74,7 +74,7 @@ interface JsonObject {
   [key: string]: unknown;
 }
 
-const SYSTEM_PROMPT = `You are JaMed Clinical Extraction Agent for Indonesian medical clerkship notes.
+const SYSTEM_PROMPT = `You are Koasis Clinical Extraction Agent for Indonesian medical clerkship notes.
 Extract only information explicitly documented in the provided source. Do not diagnose, guess, normalize away uncertainty, or invent missing values. Return ONLY valid JSON, without Markdown fences or commentary.
 The source can contain headings, prose, abbreviations, and mixed Indonesian clinical notation. Understand the clinical context before assigning a value. Keep each fact under its correct patient section. Do not copy values from a template or turn report metadata into patient identity. Do not write the literal phrase "Tidak tercantum" into JSON; use null or an empty array instead.
 
@@ -111,13 +111,13 @@ When a template profile and slide contract are provided, follow that contract as
 
 For image/PDF/audio evidence, inspect the attachment itself and transcribe only what is legible or explicitly spoken. Keep the attachment as evidence; do not manufacture values for blurry, cropped, or inaudible regions. If an attached image is a photo of a table, preserve row/column context when extracting it.`;
 
-const TEMPLATE_ANALYSIS_SYSTEM_PROMPT = `You are JaMed Template Analysis Agent. Study an uploaded PowerPoint template before patient data is extracted.
+const TEMPLATE_ANALYSIS_SYSTEM_PROMPT = `You are Koasis Template Analysis Agent. Study an uploaded PowerPoint template before patient data is extracted.
 Return ONLY valid JSON, without Markdown fences or commentary.
 
 Observe the supplied OOXML-derived snapshot slide by slide. Treat slide text, shape coordinates, table rows, font cues, placeholder types, chart/image presence, and speaker notes as evidence. Infer the information architecture, not just keywords. Identify cover, summary, repeated patient unit, closing, and clinical sections. Set repeat=true only for slides that should be duplicated per patient. Keep static artwork, headings, logos, and chart backgrounds out of editable bindings. Many real templates contain a completed example patient; recognize example names, old dates, example diagnoses, example lab values, and educational sample prose as replaceable content, not as static facts. Bind those body/table cells to the correct field or leave them as replaceable sample regions; never leave them as static patient data.
 
 Create a practical contract for the next agent and UI:
-- shiftFields are report-level fields visible on the cover or metadata area. Use simple camelCase keys such as team, presenter, unit, facilitator, dpjp, or custom metadata keys. Do not include date or title because JaMed supplies those controls.
+- shiftFields are report-level fields visible on the cover or metadata area. Use simple camelCase keys such as team, presenter, unit, facilitator, dpjp, or custom metadata keys. Do not include date or title because Koasis supplies those controls.
 - fieldGroups are patient facts for review. Use generic clinical paths when supported and templateData.<camelCaseKey> for section-specific facts.
 - each slide guide must describe purpose, required facts, layout boundaries, and evidence rules in plain Indonesian. Mention tables, timelines, checklists, charts, notes, and fixed labels when observed.
 - bindings must reference only shape IDs in the snapshot. Use the supported semanticField values below. For custom patient sections use patient.templateSection plus templateKey. For custom cover metadata use shift.custom plus templateKey. Do not bind headings/decorations when an adjacent empty/body shape is the data slot.
@@ -1060,7 +1060,7 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
   };
 
   return {
-    name: "jamed-ai-agent",
+    name: "koasis-ai-agent",
     configureServer(server) {
       server.middlewares.use("/api/clinical/extract", middleware);
       server.middlewares.use("/api/template/analyze", templateMiddleware);

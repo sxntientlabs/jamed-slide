@@ -1,4 +1,4 @@
-# Firebase App Hosting runtime configuration for the JaMed backend.
+# Firebase App Hosting runtime configuration for the Koasis backend.
 runConfig:
   cpu: 2
   memoryMiB: 2048
