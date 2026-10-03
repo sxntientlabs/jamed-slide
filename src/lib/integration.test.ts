@@ -7,7 +7,7 @@ import { extractDocxText, extractWordXmlText } from "./docxParser";
 import { generatePresentation } from "./pptxGenerator";
 import { parsePptx } from "./pptxParser";
 import { getTemplateProfile } from "./templateProfiles";
-import { applyTemplateAnalysis, buildTemplateSnapshot } from "./templateAnalyzer";
+import { applyTemplateAnalysis, buildLocalTemplateAnalysis, buildTemplateSnapshot, validateTemplateContract } from "./templateAnalyzer";
 import type { ClinicalField, InvestigationItem, OrganFinding, ShiftDetails } from "../types";
 
 function documented<T>(value: T): ClinicalField<T> {
@@ -123,7 +123,8 @@ test("lapjag template keeps composite identity and clinical blocks mapped to the
   expect(coverXml).toContain("DPJP Jaga: DPJP Test");
   expect(text).not.toContain("Nama : 2026-10-01");
   expect(output.file("ppt/slides/_rels/slide11.xml.rels")).toBeTruthy();
-  expect(await output.file("ppt/slides/_rels/slide11.xml.rels")!.async("string")).toContain("jamed-who-lhfa-boys.png");
+  const chartRelationships = await output.file("ppt/slides/_rels/slide11.xml.rels")!.async("string");
+  expect(chartRelationships).toContain("Target=\"../media/jamed-who-lhfa-boys.png\"");
   expect(await output.file("ppt/slides/slide11.xml")!.async("string")).toContain("JaMed WHO plot marker");
 });
 
@@ -167,6 +168,58 @@ test("built-in department profiles map their slide contracts and generate indepe
     const outputText = await Promise.all(slideFiles.map((name) => output.file(name)!.async("string")));
     expect(outputText.join(" "), item.fileName).toContain("An. A");
   }
+});
+
+test("every built-in template passes the same contract gate used before generation", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const files = [
+    "[TEMPLATE] Lapjag.pptx",
+    "[TEMPLATE} PERINA Lapjag.pptx",
+    "[TEMPLATE] PERINA RSAB.pptx",
+    "[TEMPLATE] RSCM.pptx",
+    "[TEMPLATE] RSUI.pptx",
+  ];
+
+  for (const fileName of files) {
+    const entry = Object.keys(archive.files).find((name) => name.endsWith(fileName));
+    expect(entry, fileName).toBeTruthy();
+    const bytes = await archive.file(entry!)!.async("uint8array");
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const parsed = await parsePptx(buffer, fileName);
+    const analyzed = applyTemplateAnalysis(parsed, buildLocalTemplateAnalysis(parsed), "local");
+    const validation = validateTemplateContract(analyzed);
+
+    expect(analyzed.templateAnalysis?.learningStatus, fileName).toBe("trusted_profile");
+    expect(validation.valid, `${fileName}: ${validation.errors.join(" | ")}`).toBe(true);
+    expect(validation.errors, fileName).toEqual([]);
+  }
+});
+
+test("a new custom upload cannot generate from a local or partial learning fallback", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const entry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] RSUI.pptx"));
+  expect(entry).toBeTruthy();
+  const bytes = await archive.file(entry!)!.async("uint8array");
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const custom = await parsePptx(buffer, "future-department-template.pptx", "generic");
+
+  const localFallback = applyTemplateAnalysis(custom, buildLocalTemplateAnalysis(custom), "local");
+  expect(localFallback.analysisStatus).toBe("needs_review");
+  expect(localFallback.templateValidation?.valid).toBe(false);
+  expect(localFallback.templateValidation?.errors.some((message) => /pembelajaran agent|dipelajari agent/i.test(message))).toBe(true);
+
+  const partialAgent = applyTemplateAnalysis(custom, {
+    slides: [{ index: 0, label: "Cover saja", role: "cover", repeat: false, fields: ["shift.title"], instructions: "Cover" }],
+    bindings: [],
+    warnings: [],
+    confidence: 0.95,
+  }, "agent", "test-model");
+  expect(partialAgent.templateAnalysis?.learningStatus).toBe("local_fallback");
+  expect(partialAgent.analysisStatus).toBe("needs_review");
+  expect(partialAgent.templateValidation?.valid).toBe(false);
+  expect(partialAgent.templateValidation?.errors.some((message) => /pembelajaran agent|dipelajari agent|panduan konteks/i.test(message))).toBe(true);
 });
 
 test("PERINA RSAB plots neonatal measurements and embeds radiology evidence", async () => {

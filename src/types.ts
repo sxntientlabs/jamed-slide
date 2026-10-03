@@ -178,6 +178,24 @@ export interface TemplateSlideGuide {
   speakerNote?: string;
 }
 
+export type TemplateContractCheckStatus = "pass" | "warning" | "error";
+
+export interface TemplateContractCheck {
+  id: string;
+  label: string;
+  status: TemplateContractCheckStatus;
+  message: string;
+  slideIndex?: number;
+}
+
+export interface TemplateContractValidation {
+  valid: boolean;
+  score: number;
+  checks: TemplateContractCheck[];
+  errors: string[];
+  warnings: string[];
+}
+
 export interface TemplateAnalysis {
   version: 1;
   label: string;
@@ -192,6 +210,8 @@ export interface TemplateAnalysis {
   confidence: number;
   source: "agent" | "local";
   model?: string;
+  validation?: TemplateContractValidation;
+  learningStatus?: "agent" | "trusted_profile" | "local_fallback";
 }
 
 export interface TemplateProfile {
@@ -352,6 +372,7 @@ export interface ParsedTemplate {
   raw: ArrayBuffer;
   profileId: TemplateProfileId;
   templateAnalysis?: TemplateAnalysis;
+  templateValidation?: TemplateContractValidation;
   analysisStatus: "uploaded" | "analyzing" | "ready" | "needs_review";
 }
 

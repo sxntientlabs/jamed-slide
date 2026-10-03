@@ -58,7 +58,7 @@ import { extractDocxText } from "./lib/docxParser";
 import { generatePresentation } from "./lib/pptxGenerator";
 import { parsePptx } from "./lib/pptxParser";
 import { renderPresentationForPreview } from "./lib/presentationRenderer";
-import { analyzeTemplateWithAi, buildLocalTemplateAnalysis } from "./lib/templateAnalyzer";
+import { analyzeTemplateWithAi, applyTemplateAnalysis, buildLocalTemplateAnalysis, validateTemplateContract } from "./lib/templateAnalyzer";
 import { getTemplateProfile } from "./lib/templateProfiles";
 import "./styles.css";
 
@@ -434,7 +434,7 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
         <aside className="panel side-info-panel">
           <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><Layers3 size={20} /></div>
           <p>Koasis membaca struktur shape, layout, dan teks dari template. File asli tetap menjadi sumber desain.</p>
-          <div className="attached-template"><div className="file-icon"><FileArchive size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · kontrak klinis siap · {profile.label}</span></div><CircleCheck className="success-icon" size={18} /></div>
+          <div className="attached-template"><div className="file-icon"><FileArchive size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · {template.templateValidation?.valid ? "kontrak klinis tervalidasi" : "menunggu validasi kontrak"} · {profile.label}</span></div>{template.templateValidation?.valid ? <CircleCheck className="success-icon" size={18} /> : <AlertTriangle className="warning-icon" size={18} />}</div>
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
           <div className="side-info-list"><div><Check size={14} /> Layout asli dipertahankan</div><div><Check size={14} /> Shape bisa dikoreksi manual</div><div><Check size={14} /> Output tetap editable</div></div>
         </aside>
@@ -451,7 +451,14 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
     if (!template) return;
     const slides = template.slides.map((slide) => slide.index === slideIndex ? { ...slide, repeat } : slide);
     const templateAnalysis = template.templateAnalysis ? { ...template.templateAnalysis, slideGuides: template.templateAnalysis.slideGuides.map((guide) => guide.index === slideIndex ? { ...guide, repeat } : guide) } : undefined;
-    setTemplate({ ...template, slides, templateAnalysis });
+    const nextTemplate = { ...template, slides, templateAnalysis };
+    const validation = validateTemplateContract(nextTemplate);
+    setTemplate({
+      ...nextTemplate,
+      templateValidation: validation,
+      templateAnalysis: templateAnalysis ? { ...templateAnalysis, validation } : undefined,
+      analysisStatus: validation.valid ? "ready" : "needs_review",
+    });
   };
 
   useEffect(() => {
@@ -477,11 +484,16 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
   }, [template?.id, template?.raw]);
 
   if (!template) return <div className="page"><ProgressSteps active={3} /><SectionHeading eyebrow="Langkah 04 · Struktur template" title="Template belum dipilih" description="Pemilihan template dilakukan di awal laporan baru." /><section className="panel template-empty-picker"><EmptyState icon={FileArchive} title="Belum ada template aktif" description="Kembali ke data laporan untuk memilih template bawaan atau upload template sendiri." action={<button className="button button-dark" onClick={onBack}>Kembali ke data laporan</button>} /></section></div>;
+  const validation = validateTemplateContract(template);
+  const learningStatus = template.templateAnalysis?.learningStatus;
+  const contractLabel = learningStatus === "agent" ? "Dipelajari agent" : learningStatus === "trusted_profile" ? "Kontrak bawaan tervalidasi" : "Perlu dipelajari agent";
   return (
     <div className="page">
       <ProgressSteps active={3} />
       <SectionHeading eyebrow="Langkah 04 · Struktur template" title="Konfirmasi struktur template" description="Tinjau urutan slide dan pilih slide yang perlu diulang untuk setiap pasien sebelum membuat PPTX." action={<div className="template-confidence"><span className="confidence-dot" /> {template.slides.filter((slide) => slide.repeat).length} slide per pasien</div>} />
-      <div className="template-contract-strip"><CircleCheck size={15} /><span>Mapping klinis otomatis sudah aktif untuk <strong>{template.name}</strong>. Di halaman ini Anda hanya perlu mengatur urutan pengulangan slide.</span><span className="template-contract-source">{template.templateAnalysis?.source === "agent" ? "Kontrak dipelajari dari file" : "Kontrak lokal tervalidasi"}</span></div>
+      <div className={`template-contract-strip ${validation.valid ? "" : "warning"}`}><span className="template-contract-icon">{validation.valid ? <CircleCheck size={15} /> : <AlertTriangle size={15} />}</span><span>{validation.valid ? <>Mapping klinis otomatis sudah aktif untuk <strong>{template.name}</strong>. Di halaman ini Anda hanya perlu mengatur urutan pengulangan slide.</> : <>Template <strong>{template.name}</strong> belum aman untuk generate. Koasis menahan render sampai kontrak slide dan field dipelajari serta divalidasi.</>}</span><span className="template-contract-source">{contractLabel}</span></div>
+      {!validation.valid && <div className="template-validation-panel error"><div><AlertTriangle size={15} /><strong>Quality gate template</strong></div><ul>{validation.errors.slice(0, 5).map((message) => <li key={message}>{message}</li>)}</ul>{validation.warnings.length > 0 && <p>{validation.warnings.slice(0, 3).join(" ")}</p>}</div>}
+      {validation.valid && validation.warnings.length > 0 && <div className="template-validation-panel warning"><div><AlertTriangle size={15} /><strong>Catatan kontrak</strong></div><p>{validation.warnings.slice(0, 4).join(" ")}</p></div>}
       <div className="template-summary-grid"><div className="template-summary"><div className="summary-icon"><FileArchive size={18} /></div><div><span>File template</span><strong>{template.name}</strong></div><span className="summary-meta">{template.fileName}</span></div><div className="template-summary"><div className="summary-icon purple"><Layers3 size={18} /></div><div><span>Slide terdeteksi</span><strong>{template.slideCount} slide</strong></div><span className="summary-meta">struktur terbaca</span></div><div className="template-summary"><div className="summary-icon orange"><Map size={18} /></div><div><span>Diulang per pasien</span><strong>{template.slides.filter((slide) => slide.repeat).length} slide</strong></div><span className="summary-meta">bisa diubah di bawah</span></div></div>
       <section className="panel template-overview-panel">
         <div className="panel-heading compact-heading"><div><h3>Overview slide template</h3><p>Preview menunjukkan layout asli. Teks yang terlihat adalah contoh dari template, bukan data pasien baru.</p></div><Layers3 size={18} /></div>
@@ -500,7 +512,7 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
         </div>
       </section>
       <div className="template-overview-note"><ShieldCheck size={15} /><span>Field klinis dan mapping shape sudah dikendalikan oleh kontrak template. Anda tidak perlu memilih semantic field satu per satu.</span></div>
-      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke review</button><button className="button button-dark" onClick={onContinue}>Simpan struktur & lanjut ke generate <ArrowRight size={16} /></button></div>
+      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke review</button><button className="button button-dark" onClick={onContinue} disabled={!validation.valid}>Simpan struktur & lanjut ke generate <ArrowRight size={16} /></button></div>
     </div>
   );
 }
@@ -643,6 +655,8 @@ function ReviewPage({ template, patients, activePatientId, setActivePatientId, o
 function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, error }: { shift: ShiftDetails; template: ParsedTemplate | null; patients: PatientRecord[]; onGenerate: () => void; onBack: () => void; busy: boolean; error: string }) {
   const repeatCount = template?.slides.filter((slide) => slide.repeat).length ?? 0;
   const expectedSlides = template ? template.slideCount + Math.max(0, patients.length - 1) * repeatCount : 0;
+  const validation = template ? validateTemplateContract(template) : undefined;
+  const canGenerate = Boolean(template && patients.length && validation?.valid);
   return (
     <div className="page">
       <ProgressSteps active={4} />
@@ -651,9 +665,10 @@ function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, err
         <section className="panel generate-main-panel">
           <div className="generate-summary-head"><div><span className="eyebrow">Report plan</span><h3>{shift.title}</h3><p>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)} · {shift.hospital || "Rumah sakit belum diatur"}</p></div><div className="ready-badge"><CircleCheck size={14} /> Ready for render</div></div>
           <div className="plan-grid"><div className="plan-item"><span>Template</span><strong>{template?.name || "Belum ada template"}</strong><small>{template?.slideCount || 0} slide sumber</small></div><div className="plan-item"><span>Patient records</span><strong>{patients.length} pasien</strong><small>source-backed review</small></div><div className="plan-item"><span>Output estimate</span><strong>{expectedSlides || "—"} slide</strong><small>{repeatCount} slide repeat per pasien</small></div></div>
-          <div className="generation-checklist"><div className="checklist-heading"><h4>Quality gates</h4><span>3 checks</span></div><div className="checklist-row"><Check size={15} /><span>Template mapping tersimpan</span><small>{template?.bindings.length || 0} binding</small></div><div className="checklist-row"><Check size={15} /><span>Setiap pasien punya record terstruktur</span><small>{patients.length} record</small></div><div className="checklist-row"><Check size={15} /><span>Field missing tidak diisi otomatis</span><small>Policy aktif</small></div></div>
+          <div className="generation-checklist"><div className="checklist-heading"><h4>Quality gates</h4><span>4 checks</span></div><div className="checklist-row">{validation?.valid ? <Check size={15} /> : <AlertTriangle size={15} />}<span>Kontrak template dipelajari & tervalidasi</span><small>{validation?.valid ? "Lulus" : "Ditahan"}</small></div><div className="checklist-row"><Check size={15} /><span>Template mapping tersimpan</span><small>{template?.bindings.length || 0} binding</small></div><div className="checklist-row"><Check size={15} /><span>Setiap pasien punya record terstruktur</span><small>{patients.length} record</small></div><div className="checklist-row"><Check size={15} /><span>Field missing tidak diisi otomatis</span><small>Policy aktif</small></div></div>
+          {validation && !validation.valid && <div className="inline-error"><AlertTriangle size={15} /> {validation.errors.slice(0, 2).join(" ")}</div>}
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
-          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !template || !patients.length}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><Sparkles size={16} /> Generate editable PPTX</>}</button></div>
+          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !canGenerate}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><Sparkles size={16} /> Generate editable PPTX</>}</button></div>
         </section>
         <aside className="panel safety-panel"><div className="safety-orb"><LockKeyhole size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>Koasis membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><ShieldCheck size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><ShieldCheck size={15} /> Output tetap editable di PowerPoint</div></aside>
       </div>
@@ -777,7 +792,11 @@ export default function App() {
       const customTemplate: ParsedTemplate = { ...parsed, profileId: "generic", analysisStatus: "analyzing" };
       const analyzed = await analyzeTemplateWithAi(customTemplate);
       setTemplate(analyzed.template);
-      if (analyzed.error) setError("Agent template belum bisa dihubungi; Koasis memakai observasi lokal sementara.");
+      if (analyzed.error || !analyzed.template.templateValidation?.valid) {
+        setError(analyzed.error
+          ? "Agent template belum bisa dihubungi. Generate ditahan sampai kontrak template dipelajari agent."
+          : "Agent template menemukan bagian yang belum aman untuk dirender. Periksa warning kontrak sebelum melanjutkan.");
+      }
       setView("new-shift");
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Template tidak bisa dianalisis.");
@@ -793,8 +812,15 @@ export default function App() {
       const raw = await loadBuiltInTemplate(entry);
       const parsed = await parsePptx(raw, entry.fileName);
       const prepared = { ...parsed, name: entry.label };
-      const localAnalysis = buildLocalTemplateAnalysis(prepared);
-      setTemplate({ ...prepared, templateAnalysis: localAnalysis, analysisStatus: "ready" });
+      const analyzed = prepared.profileId === "generic"
+        ? await analyzeTemplateWithAi({ ...prepared, analysisStatus: "analyzing" })
+        : { template: applyTemplateAnalysis(prepared, buildLocalTemplateAnalysis(prepared), "local"), analysis: undefined, error: undefined };
+      setTemplate(analyzed.template);
+      if (analyzed.error || !analyzed.template.templateValidation?.valid) {
+        setError(analyzed.error
+          ? "Template bawaan baru belum bisa dipelajari agent. Generate ditahan sampai analisis template berhasil."
+          : `Kontrak template bawaan perlu diperiksa: ${analyzed.template.templateValidation?.errors.slice(0, 2).join(" ") || "struktur belum aman untuk dirender."}`);
+      }
       setView("new-shift");
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Template bawaan tidak bisa dianalisis.");
@@ -885,6 +911,7 @@ export default function App() {
             bindings: template?.bindings || [],
             warnings: template?.templateAnalysis?.warnings || [],
             confidence: template?.templateAnalysis?.confidence,
+            validation: template?.templateValidation,
           }, draft.attachments ?? []);
           extractedPatients.push(...aiPatients.map((patient) => ({ ...patient, attachments: draft.attachments ?? [] })));
         } catch (aiError) {

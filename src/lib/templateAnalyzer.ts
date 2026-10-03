@@ -10,8 +10,10 @@ import type {
   TemplateSlideGuide,
 } from "../types";
 import { buildLocalTemplateAnalysis } from "./templateProfiles";
+import { validateTemplateContract } from "./templateContract";
 
 export { buildLocalTemplateAnalysis } from "./templateProfiles";
+export { validateTemplateContract } from "./templateContract";
 
 type JsonObject = Record<string, unknown>;
 
@@ -306,12 +308,24 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
   const guides = normalizeGuides(root.slides ?? root.slideGuides, template, local.slideGuides);
   const agentBindings = normalizeBindings(root.bindings, template);
   const knownProfile = template.profileId !== "generic";
-  const bindings = source === "agent" && agentBindings.length
-    ? (knownProfile ? mergeKnownProfileBindings(template, agentBindings) : mergeBindings(template, agentBindings))
+  const bindings = source === "agent"
+    ? (knownProfile
+      ? (agentBindings.length ? mergeKnownProfileBindings(template, agentBindings) : local.bindings)
+      : (agentBindings.length ? mergeBindings(template, agentBindings) : template.bindings.filter((binding) => binding.source === "user")))
     : local.bindings;
   const fieldGroups = normalizeGroups(root.fieldGroups, local.fieldGroups);
   const shiftFields = normalizeShiftFields(root.shiftFields, local.shiftFields);
   const warnings = Array.isArray(root.warnings) ? root.warnings.map((warning) => text(warning)).filter(Boolean).slice(0, 12) : [];
+  const rawAgentGuides = root.slides ?? root.slideGuides;
+  const agentGuideIndexes = Array.isArray(rawAgentGuides)
+    ? rawAgentGuides.map((item) => isRecord(item) ? normalizedSlideIndex(item.index ?? item.slideIndex ?? item.slideNumber, template.slideCount) : undefined).filter((index): index is number => index !== undefined)
+    : [];
+  const agentProvidedGuides = Array.isArray(rawAgentGuides)
+    && rawAgentGuides.length === template.slideCount
+    && new Set(agentGuideIndexes).size === template.slideCount;
+  const learningStatus = source === "agent"
+    ? (agentBindings.length && agentProvidedGuides ? "agent" : "local_fallback")
+    : (knownProfile ? "trusted_profile" : "local_fallback");
   const analysis: TemplateAnalysis = {
     version: 1,
     label: text(root.label, source === "agent" ? `Template custom · ${template.name}` : local.label),
@@ -322,12 +336,13 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
     fieldGroups,
     slideGuides: guides,
     bindings,
-    warnings: source === "local" ? Array.from(new Set([...local.warnings, ...warnings])) : warnings,
+    warnings: source === "local" ? Array.from(new Set([...local.warnings.filter((warning) => !knownProfile), ...warnings])) : warnings,
     confidence: clamp(root.confidence, source === "agent" ? 0.84 : local.confidence),
     source,
     model,
+    learningStatus,
   };
-  return {
+  const candidate: ParsedTemplate = {
     ...template,
     profileId: knownProfile ? template.profileId : "generic",
     slides: template.slides.map((slide) => {
@@ -337,7 +352,16 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
     }),
     bindings,
     templateAnalysis: analysis,
-    analysisStatus: "ready",
+    analysisStatus: "needs_review",
+  };
+  const validation = validateTemplateContract(candidate);
+  const mergedWarnings = Array.from(new Set([...analysis.warnings, ...validation.warnings]));
+  const finalizedAnalysis: TemplateAnalysis = { ...analysis, warnings: mergedWarnings, validation };
+  return {
+    ...candidate,
+    templateAnalysis: finalizedAnalysis,
+    templateValidation: validation,
+    analysisStatus: validation.valid ? "ready" : "needs_review",
   };
 }
 

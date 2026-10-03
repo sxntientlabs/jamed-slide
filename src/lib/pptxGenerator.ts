@@ -16,6 +16,7 @@ import type {
 import { decodeXml, escapeXml } from "./pptxParser";
 import { formatFieldValue } from "./clinicalParser";
 import { getTemplateProfile } from "./templateProfiles";
+import { validateTemplateContract } from "./templateContract";
 
 interface GeneratedPresentation {
   blob: Blob;
@@ -138,7 +139,10 @@ function growthChartPoint(patient: PatientRecord, kind: GrowthChartKind, bounds:
 function replaceImageRelationshipTarget(xml: string, assetName: string): string {
   return xml.replace(/<Relationship\b[^>]*>/g, (tag) => {
     if (!/Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/image"/.test(tag)) return tag;
-    return tag.replace(/Target="[^"]*"/, `Target="../../media/${assetName}"`);
+    // A slide relationship is resolved relative to ppt/slides/slideN.xml.
+    // Using ../../media escapes the ppt directory and makes LibreOffice drop
+    // the chart image while the XML still appears structurally valid.
+    return tag.replace(/Target="[^"]*"/, `Target="../media/${assetName}"`);
   });
 }
 
@@ -607,7 +611,7 @@ function templateSectionText(patient: PatientRecord, key: string): string {
     case "otherExaminations": return investigationLines(patient, "investigations.other").join("\n");
     case "emergencyManagement": return formatPatientBlock("patient.managementBlock", patient);
     case "growthDevelopment": return patientText(patient, "templateData.growthDevelopment", 1000);
-    default: return "Tidak tercantum";
+    default: return patientText(patient, `templateData.${key}`, 1400);
   }
 }
 
@@ -1345,7 +1349,27 @@ function contiguousRepeatGroups(slides: ParsedSlide[]): Array<ParsedSlide[]> {
 }
 
 function isRadiologySlide(slide: ParsedSlide): boolean {
-  return slide.role === "investigation" && /radiologi|radiology|foto\s+toraks|imaging|usg/i.test(`${slide.title} ${slide.text}`);
+  return slide.role === "investigation" && /radiologi|radiology|foto|rontgen|x[- ]?ray|xray|cxr|imaging|usg/i.test(`${slide.title} ${slide.text}`);
+}
+
+function replacePictureRelationship(xml: string, shapeId: string, relationshipId: string): string {
+  const pictureMatcher = /<p:pic\b[\s\S]*?<\/p:pic>/g;
+  return xml.replace(pictureMatcher, (block) => {
+    const cNvPr = block.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "";
+    if (readAttribute(cNvPr, "id") !== shapeId) return block;
+    return block.replace(/<a:blip\b[^>]*>/, (tag) => {
+      if (/\br:embed="[^"]*"/.test(tag)) return tag.replace(/r:embed="[^"]*"/, `r:embed="${relationshipId}"`);
+      return tag.replace(/>$/, ` r:embed="${relationshipId}">`);
+    });
+  });
+}
+
+function removePictureShapes(xml: string, shapeIds: Set<string>): string {
+  const pictureMatcher = /<p:pic\b[\s\S]*?<\/p:pic>/g;
+  return xml.replace(pictureMatcher, (block) => {
+    const cNvPr = block.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "";
+    return shapeIds.has(readAttribute(cNvPr, "id") || "") ? "" : block;
+  });
 }
 
 async function applyPatientEvidenceImages(
@@ -1355,16 +1379,44 @@ async function applyPatientEvidenceImages(
   xml: string,
   relationshipPath: string,
   patientIndex: number,
+  bindings: TemplateBinding[],
 ): Promise<string> {
   if (!isRadiologySlide(slide)) return xml;
   const imageAttachments = (patient.attachments ?? []).filter((attachment) => attachment.kind === "image");
-  if (!imageAttachments.length) return xml;
+  const pictureSlotIds = new Set(bindings
+    .filter((binding) => binding.slideIndex === slide.index && binding.semanticField === "patient.investigations.imaging")
+    .map((binding) => binding.shapeId)
+    .filter((shapeId) => slide.shapes.some((shape) => shape.id === shapeId && shape.kind === "picture")));
   const slots = slide.shapes
     .filter((shape) => shape.kind === "text" && shape.placeholderType === "body" && shape.x !== undefined && shape.y !== undefined && shape.width !== undefined && shape.height !== undefined)
     .sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
-  if (!slots.length) return xml;
   const relationshipsFile = zip.file(relationshipPath);
   if (!relationshipsFile) return xml;
+  if (pictureSlotIds.size) {
+    if (!imageAttachments.length) return removePictureShapes(xml, pictureSlotIds);
+    let relationships = await relationshipsFile.async("string");
+    let result = xml;
+    const pictureSlots = slide.shapes
+      .filter((shape) => pictureSlotIds.has(shape.id))
+      .sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
+    for (const [imageIndex, attachment] of imageAttachments.slice(0, pictureSlots.length).entries()) {
+      const decoded = decodeImageDataUrl(attachment.dataUrl);
+      if (!decoded) continue;
+      const extension = imageFileExtension(attachment, decoded.mimeType);
+      if (!extension) continue;
+      const assetName = `koasis-radiology-${patientIndex + 1}-${imageIndex + 1}.${extension}`;
+      const relationshipId = `rId${maxRelationshipNumber(relationships) + 1}`;
+      relationships = addImageRelationship(relationships, relationshipId, `../media/${assetName}`);
+      zip.file(`ppt/media/${assetName}`, decoded.bytes);
+      result = replacePictureRelationship(result, pictureSlots[imageIndex].id, relationshipId);
+    }
+    if (pictureSlots.length > imageAttachments.length) {
+      result = removePictureShapes(result, new Set(pictureSlots.slice(imageAttachments.length).map((shape) => shape.id)));
+    }
+    zip.file(relationshipPath, relationships);
+    return result;
+  }
+  if (!imageAttachments.length || !slots.length) return xml;
   const useDedicatedImageColumn = imageAttachments.length === 1 && slots.length >= 2;
   const imageSlots = useDedicatedImageColumn ? [slots[slots.length - 1]] : slots.slice(0, imageAttachments.length);
   let relationships = await relationshipsFile.async("string");
@@ -1395,6 +1447,10 @@ export async function generatePresentation(
   shift: ShiftDetails,
 ): Promise<GeneratedPresentation> {
   if (!patients.length) throw new Error("Tambahkan minimal satu pasien sebelum membuat laporan.");
+  const contract = validateTemplateContract({ ...template, bindings });
+  if (!contract.valid) {
+    throw new Error(`Template belum siap untuk generate: ${contract.errors.slice(0, 3).join(" ")}`);
+  }
   const zip = await JSZip.loadAsync(template.raw);
   const presentationFile = zip.file("ppt/presentation.xml");
   const relsFile = zip.file("ppt/_rels/presentation.xml.rels");
@@ -1440,7 +1496,7 @@ export async function generatePresentation(
     }
     const chartXml = await applyLapjagChartAssets(zip, template, slide, patient, generatedXml, newRelsPath);
     const finalXml = applyPerinaChartAssets(template, slide, patient, chartXml);
-    const evidenceXml = await applyPatientEvidenceImages(zip, slide, patient, finalXml, newRelsPath, patientIndex);
+    const evidenceXml = await applyPatientEvidenceImages(zip, slide, patient, finalXml, newRelsPath, patientIndex, bindings);
     zip.file(newSlideFile, evidenceXml);
     presentationRels = addRelationship(presentationRels, newRelationshipId, `slides/slide${nextSlideFileNumber}.xml`);
     contentTypesXml = addContentType(contentTypesXml, newSlideFile);
@@ -1461,7 +1517,7 @@ export async function generatePresentation(
             const relationshipPath = rawSlideRelationshipPath(item.fileName);
             const chartXml = await applyLapjagChartAssets(zip, template, item, patients[patientIndex], generatedXml, relationshipPath);
             const finalXml = applyPerinaChartAssets(template, item, patients[patientIndex], chartXml);
-            const evidenceXml = await applyPatientEvidenceImages(zip, item, patients[patientIndex], finalXml, relationshipPath, patientIndex);
+            const evidenceXml = await applyPatientEvidenceImages(zip, item, patients[patientIndex], finalXml, relationshipPath, patientIndex, bindings);
             zip.file(item.fileName, evidenceXml);
             slideOrder.push({
               slideId: originalSlideIds[item.index] ?? String(256 + item.index),
