@@ -367,7 +367,7 @@ export interface ShiftDetails {
 export interface SourceItem {
   id: string;
   name: string;
-  type: "raw_text" | "txt" | "pdf" | "image" | "audio";
+  type: "raw_text" | "txt" | "docx" | "pdf" | "image" | "audio";
   sizeLabel?: string;
   status: "ready" | "processing" | "unsupported";
   text?: string;

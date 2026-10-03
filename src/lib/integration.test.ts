@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { extractPatients } from "./clinicalParser";
+import { extractDocxText, extractWordXmlText } from "./docxParser";
 import { generatePresentation } from "./pptxGenerator";
 import { parsePptx } from "./pptxParser";
 import { getTemplateProfile } from "./templateProfiles";
@@ -39,6 +40,23 @@ test("clinical extraction separates patients and preserves missing fields", () =
   expect(result.patients[0].demographics.weightKg?.value).toBe(15);
   expect(result.patients[0].physicalExam.vitalSigns.spo2?.status).toBe("missing");
   expect(result.patients[0].timeline[0]?.timestamp).toBe("02:15");
+});
+
+test("DOCX extraction preserves clinical paragraphs, line breaks, and table cells", async () => {
+  const archive = new JSZip();
+  archive.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+      <w:p><w:r><w:t>Nama: An. DOCX &amp; Test</w:t></w:r></w:p>
+      <w:p><w:r><w:t>Keluhan Utama: Sesak</w:t><w:br/><w:t>napas</w:t></w:r></w:p>
+      <w:tbl><w:tr><w:tc><w:p><w:r><w:t>Usia</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>5 tahun</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+    </w:body></w:document>`);
+  const bytes = await archive.generateAsync({ type: "uint8array" });
+
+  const text = await extractDocxText(bytes);
+  expect(text).toContain("Nama: An. DOCX & Test");
+  expect(text).toContain("Keluhan Utama: Sesak\nnapas");
+  expect(text).toContain("Usia\t5 tahun");
+  expect(extractWordXmlText("<w:document xmlns:w=\"urn:test\"><w:body><w:p><w:r><w:t>A &amp; B</w:t></w:r></w:p></w:body></w:document>")).toBe("A & B");
 });
 
 test("Lapjag profile carries template-specific extraction guidance", () => {

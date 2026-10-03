@@ -35,7 +35,6 @@ import {
   ShieldCheck,
   Sparkles,
   Stethoscope,
-  Upload,
   UserRound,
   UsersRound,
   X,
@@ -55,6 +54,7 @@ import type { BuiltInTemplateEntry } from "./lib/builtInTemplates";
 import { loadBuiltInTemplate, loadBuiltInTemplateCatalog } from "./lib/builtInTemplates";
 import { extractPatientsWithAi } from "./lib/aiClinicalClient";
 import { extractPatients, formatFieldValue } from "./lib/clinicalParser";
+import { extractDocxText } from "./lib/docxParser";
 import { generatePresentation } from "./lib/pptxGenerator";
 import { parsePptx } from "./lib/pptxParser";
 import { renderPresentationForPreview } from "./lib/presentationRenderer";
@@ -281,26 +281,27 @@ function ProgressSteps({ active }: { active: number }) {
   );
 }
 
-function UploadDropzone({ accept, label, hint, onFile, busy = false }: { accept: string; label: string; hint: string; onFile: (file: File) => void; busy?: boolean }) {
+function UploadDropzone({ accept, label, hint, onFile, busy = false, className = "" }: { accept: string; label: string; hint: string; onFile: (file: File) => void; busy?: boolean; className?: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   return (
     <div
-      className={`upload-dropzone ${dragging ? "dragging" : ""} ${busy ? "busy" : ""}`}
+      className={`upload-dropzone ${className} ${dragging ? "dragging" : ""} ${busy ? "busy" : ""}`}
       onDragOver={(event) => {
         event.preventDefault();
-        setDragging(true);
+        if (!busy) setDragging(true);
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={(event) => {
         event.preventDefault();
         setDragging(false);
+        if (busy) return;
         const file = event.dataTransfer.files[0];
         if (file) onFile(file);
       }}
       onClick={() => inputRef.current?.click()}
     >
-      <input ref={inputRef} type="file" accept={accept} hidden onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} />
+      <input ref={inputRef} type="file" accept={accept} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.currentTarget.value = ""; }} />
       <div className="upload-icon"><CloudUpload size={22} /></div>
       <div className="upload-copy">
         <strong>{busy ? "Menganalisis file…" : label}</strong>
@@ -516,7 +517,7 @@ function InboxPage({ template, drafts, onDraftTextChange, onDraftFile, onRemoveA
     <div className="page">
       <ProgressSteps active={1} />
       <SectionHeading eyebrow={`Langkah 02 · Clinical inbox · ${profile.label}`} title="Masukkan data per pasien" description={`Setiap kartu pasien menerima free text atau evidence multimodal. Agent akan menata data mengikuti kontrak ${profile.label}, bukan memakai form klinis yang sama untuk semua template.`} action={<div className="privacy-chip"><LockKeyhole size={14} /> Jangan masukkan data yang tidak perlu</div>} />
-      <section className="panel template-guide-panel"><div className="template-guide-icon"><ClipboardCheck size={18} /></div><div><span className="eyebrow">Kontrak ekstraksi aktif</span><h3>{profile.label}</h3><p>{profile.description} {profile.patientInputHint}</p></div><div className="template-guide-tags">{profileTags.map((tag) => <span key={tag}>{tag}</span>)}<span>Text + image</span><span>PDF + audio</span></div></section>
+      <section className="panel template-guide-panel"><div className="template-guide-icon"><ClipboardCheck size={18} /></div><div><span className="eyebrow">Kontrak ekstraksi aktif</span><h3>{profile.label}</h3><p>{profile.description} {profile.patientInputHint}</p></div><div className="template-guide-tags">{profileTags.map((tag) => <span key={tag}>{tag}</span>)}<span>TXT + DOCX</span><span>PDF + gambar + audio</span></div></section>
       <div className="inbox-layout">
         <section className="panel source-panel">
           <div className="panel-heading"><div><h3>Data pasien per kartu</h3><p>Setiap kartu dikirim sebagai satu record pasien ke agent. Tambahkan kartu baru untuk pasien berikutnya.</p></div><UsersRound size={20} /></div>
@@ -525,7 +526,7 @@ function InboxPage({ template, drafts, onDraftTextChange, onDraftFile, onRemoveA
               <div className="patient-input-head"><div className="patient-input-title"><span className="patient-input-number">{String(index + 1).padStart(2, "0")}</span><div><strong>{draft.label}</strong><span>Source khusus pasien ini</span></div></div>{drafts.length > 1 && <button className="icon-button remove-patient" title="Hapus pasien" onClick={() => onRemoveDraft(draft.id)}><X size={15} /></button>}</div>
               <div className="free-text-source"><div className="free-text-heading"><div><strong>Catatan klinis pasien</strong><span>Tempel catatan mentah apa adanya. Agent akan mengekstrak, memahami konteks, dan menata ke slide sesuai template.</span></div><span className="source-mode-badge">free text</span></div><textarea className="clinical-textarea patient-textarea" value={draft.text} onChange={(event) => onDraftTextChange(draft.id, event.target.value)} placeholder={profile.patientInputHint} /></div>
               <AttachmentList attachments={draft.attachments ?? []} onRemove={(attachmentId) => onRemoveAttachment(draft.id, attachmentId)} />
-              <div className="patient-input-actions"><label className="button button-ghost button-small" htmlFor={`patient-file-${draft.id}`}><Upload size={14} /> Tambah evidence</label><input id={`patient-file-${draft.id}`} type="file" accept=".txt,.pdf,image/*,audio/*" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onDraftFile(draft.id, file); event.currentTarget.value = ""; }} /><span className="source-help">Dukungan: TXT, gambar, PDF, dan audio. Semua tetap terikat ke pasien ini.</span></div>
+              <UploadDropzone className="patient-evidence-dropzone" accept=".txt,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,image/*,audio/*" label="Tambah evidence pasien" hint="Tarik & lepas file atau klik · TXT, DOCX, PDF, gambar, audio" onFile={(file) => { void onDraftFile(draft.id, file); }} busy={analysisBusy} />
             </div>)}
           </div>
           <button className="add-patient-button add-patient-input" onClick={onAddDraft}><Plus size={14} /> Tambah pasien</button>
@@ -817,12 +818,22 @@ export default function App() {
     if (file.type === "text/plain" || /\.txt$/i.test(file.name)) {
       const text = await file.text();
       updateDraftText(draftId, text);
-      setSources((current) => [...current.filter((source) => source.patientId !== draftId || source.type !== "txt"), { id: `file-${draftId}-${Date.now()}`, name: file.name, type: "txt", sizeLabel: fileSizeLabel(file.size), status: "ready", text, patientId: draftId, patientLabel }]);
+      setSources((current) => [...current.filter((source) => source.patientId !== draftId || (source.type !== "txt" && source.type !== "docx")), { id: `file-${draftId}-${Date.now()}`, name: file.name, type: "txt", sizeLabel: fileSizeLabel(file.size), status: "ready", text, patientId: draftId, patientLabel }]);
+      return;
+    }
+    if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(file.name)) {
+      try {
+        const text = await extractDocxText(file);
+        updateDraftText(draftId, text);
+        setSources((current) => [...current.filter((source) => source.patientId !== draftId || (source.type !== "txt" && source.type !== "docx")), { id: `file-${draftId}-${Date.now()}`, name: file.name, type: "docx", sizeLabel: fileSizeLabel(file.size), status: "ready", text, patientId: draftId, patientLabel }]);
+      } catch (fileError) {
+        setError(fileError instanceof Error ? fileError.message : `${file.name} tidak bisa dibaca sebagai DOCX.`);
+      }
       return;
     }
     const kind = attachmentKind(file);
     if (!kind) {
-      setError(`Format ${file.name} belum didukung. Gunakan TXT, gambar, PDF, atau audio.`);
+      setError(`Format ${file.name} belum didukung. Gunakan TXT, DOCX, gambar, PDF, atau audio.`);
       return;
     }
     try {
