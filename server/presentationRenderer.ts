@@ -8,6 +8,7 @@ import type { Plugin } from "vite";
 
 const execFileAsync = promisify(execFile);
 const MAX_RENDER_BYTES = 45_000_000;
+const REMOTE_RENDER_TIMEOUT_MS = 180_000;
 
 type Next = (error?: unknown) => void;
 
@@ -47,6 +48,37 @@ function numericSuffix(fileName: string): number {
   return Number(fileName.match(/-(\d+)\.png$/)?.[1] ?? 0);
 }
 
+async function renderWithRemoteRenderer(encoded: string, env: Record<string, string>): Promise<unknown> {
+  const baseUrl = (env.JAMED_RENDERER_URL || "").replace(/\/+$/, "");
+  if (!baseUrl) throw new Error("JAMED_RENDERER_URL belum dikonfigurasi.");
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (env.JAMED_RENDERER_TOKEN) headers["X-Renderer-Token"] = env.JAMED_RENDERER_TOKEN;
+  const response = await fetch(`${baseUrl}/render`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ pptxBase64: encoded }),
+    signal: AbortSignal.timeout(REMOTE_RENDER_TIMEOUT_MS),
+  });
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    payload = {};
+  }
+  if (!response.ok) {
+    const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+      ? payload.error
+      : `Renderer VPS mengembalikan HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+  if (!payload || typeof payload !== "object" || !("slides" in payload) || !Array.isArray(payload.slides) || payload.slides.length === 0) {
+    throw new Error("Renderer VPS tidak mengembalikan slide PNG.");
+  }
+  return payload;
+}
+
 async function renderPresentation(request: IncomingMessage, response: ServerResponse, env: Record<string, string>): Promise<void> {
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Gunakan POST /api/presentation/render." });
@@ -63,6 +95,10 @@ async function renderPresentation(request: IncomingMessage, response: ServerResp
     const bytes = Buffer.from(encoded.replace(/^data:.*?;base64,/, ""), "base64");
     if (!bytes.length || bytes.length > MAX_RENDER_BYTES) {
       sendJson(response, 400, { error: "Data PPTX tidak valid atau terlalu besar." });
+      return;
+    }
+    if (env.JAMED_RENDERER_URL) {
+      sendJson(response, 200, await renderWithRemoteRenderer(encoded, env));
       return;
     }
     directory = await mkdtemp(join(tmpdir(), "jamed-render-"));
