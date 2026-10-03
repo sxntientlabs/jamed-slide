@@ -20,3 +20,7 @@ env:
     value: "*"
     availability:
       - RUNTIME
+  - variable: JAMED_RENDERER_URL
+    value: "https://server.eltexlabs.com/koasis-renderer"
+    availability:
+      - RUNTIME
