@@ -237,3 +237,22 @@ test("lapjag generation never carries sample diagnosis/radiology/nutrition into 
   expect(text).not.toContain("GIZI BURUK");
   expect(text).not.toContain("Syok hipovolemia e.c. diare akut");
 });
+
+test("generated PPTX removes XML-invalid control characters from clinical notes", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const templateEntry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] Lapjag.pptx"));
+  expect(templateEntry).toBeTruthy();
+  const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+  const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+  const template = await parsePptx(templateBuffer, "[TEMPLATE] Lapjag.pptx");
+  const patient = extractPatients("Pasien 1\nNama: An. Kontrol\nKeluhan Utama: Sesak\u000bnapas\nRPS: Catatan\u000ccopy-paste", "control-source").patients[0];
+  const shift: ShiftDetails = { title: "Laporan Jaga Kontrol", date: "2026-10-01", department: "Pediatri", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  const generated = await generatePresentation(template, [patient], template.bindings, shift);
+  const output = await JSZip.loadAsync(new Uint8Array(await generated.blob.arrayBuffer()));
+  const slideFiles = Object.keys(output.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const text = (await Promise.all(slideFiles.map((name) => output.file(name)!.async("string")))).join(" ");
+  expect(text).toContain("Sesaknapas");
+  expect(text).toContain("Catatancopy-paste");
+  expect(text).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+});

@@ -129,7 +129,7 @@ function growthChartPoint(patient: PatientRecord, kind: GrowthChartKind, bounds:
 function replaceImageRelationshipTarget(xml: string, assetName: string): string {
   return xml.replace(/<Relationship\b[^>]*>/g, (tag) => {
     if (!/Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/image"/.test(tag)) return tag;
-    return tag.replace(/Target="[^"]*"/, `Target="../media/${assetName}"`);
+    return tag.replace(/Target="[^"]*"/, `Target="../../media/${assetName}"`);
   });
 }
 
@@ -627,7 +627,7 @@ function isAbnormalClinicalLine(line: string): boolean {
 function highlightedRunProperties(runProperties: string): string {
   const highlight = '<a:highlight><a:srgbClr val="F4CCCC"/></a:highlight>';
   if (runProperties.includes("</a:rPr>")) return runProperties.replace("</a:rPr>", `${highlight}</a:rPr>`);
-  if (runProperties.endsWith("/>") || runProperties.endsWith(" />")) return runProperties.replace(/\s*\/>s*$/, `>${highlight}</a:rPr>`);
+  if (runProperties.endsWith("/>") || runProperties.endsWith(" />")) return runProperties.replace(/\s*\/\>\s*$/, `>${highlight}</a:rPr>`);
   return `<a:rPr>${highlight}</a:rPr>`;
 }
 

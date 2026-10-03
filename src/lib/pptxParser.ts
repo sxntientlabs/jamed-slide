@@ -23,7 +23,19 @@ export function decodeXml(value: string): string {
 }
 
 export function escapeXml(value: string): string {
-  return value
+  // PowerPoint XML is XML 1.0. Clinical notes often come from copied text
+  // and may contain vertical tabs, form feeds, or other control characters
+  // that are illegal in XML even though JavaScript strings accept them.
+  const xmlSafeValue = Array.from(value)
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d
+        || (codePoint >= 0x20 && codePoint <= 0xd7ff)
+        || (codePoint >= 0xe000 && codePoint <= 0xfffd)
+        || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+    })
+    .join("");
+  return xmlSafeValue
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
