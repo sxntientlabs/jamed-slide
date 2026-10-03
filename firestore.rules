@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedInAs(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validWorkspaceMetadata() {
+      return request.resource.data.keys().hasOnly([
+          'schemaVersion',
+          'shift',
+          'template',
+          'updatedAt'
+        ])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.shift.keys().hasOnly([
+          'title',
+          'date',
+          'department',
+          'hospital',
+          'team',
+          'facilitator',
+          'dpjp'
+        ])
+        && request.resource.data.template.keys().hasOnly([
+          'id',
+          'name',
+          'fileName',
+          'profileId',
+          'slideCount',
+          'analysisStatus'
+        ])
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    // Products are published by the backend. The browser may only read active
+    // product metadata and can never change prices or availability.
+    match /products/{productId} {
+      allow read: if resource.data.active == true;
+      allow write: if false;
+    }
+
+    // The app intentionally stores only non-clinical workspace metadata here.
+    // Patient notes, extracted records, evidence, and generated files remain local.
+    match /users/{userId}/workspaces/{workspaceId} {
+      allow read: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && workspaceId == 'default'
+        && validWorkspaceMetadata();
+      allow delete: if signedInAs(userId) && workspaceId == 'default';
+    }
+
+    // Export records are server-authoritative. A signed-in user can inspect only
+    // their own metadata; creation, payment state, and artifact state bypass these
+    // client rules through a protected backend/Admin SDK.
+    match /users/{userId}/outputs/{outputId} {
+      allow read: if signedInAs(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/billing/summary {
+      allow read: if signedInAs(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/billing/ledger/{entryId} {
+      allow read: if signedInAs(userId);
+      allow write: if false;
+    }
+
+    // Payment/webhook event indexes are backend-only. No payment credential or
+    // raw provider payload belongs in a client-readable Firestore document.
+    match /paymentEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,42 +1,20 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  BrainCircuit,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleCheck,
   CircleDashed,
-  ClipboardCheck,
-  ClipboardList,
-  Clock3,
-  CloudUpload,
   Download,
   Eye,
-  FileArchive,
-  FileAudio,
-  FileImage,
-  FileText,
-  Files,
-  Home,
-  Layers3,
-  LifeBuoy,
-  LockKeyhole,
-  Map,
+  LogOut,
   Menu,
   Pencil,
   Plus,
   RefreshCw,
-  Search,
-  Settings2,
-  ShieldCheck,
   Sparkles,
-  Stethoscope,
-  UserRound,
-  UsersRound,
   X,
 } from "lucide-react";
 import type {
@@ -52,6 +30,8 @@ import type {
 } from "./types";
 import type { BuiltInTemplateEntry } from "./lib/builtInTemplates";
 import { loadBuiltInTemplate, loadBuiltInTemplateCatalog } from "./lib/builtInTemplates";
+import { KoasisIcon, type KoasisIconName } from "./components/KoasisIcon";
+import { AuthGate, useAuth, userInitial } from "./components/AuthGate";
 import { extractPatientsWithAi } from "./lib/aiClinicalClient";
 import { extractPatients, formatFieldValue } from "./lib/clinicalParser";
 import { extractDocxText } from "./lib/docxParser";
@@ -60,6 +40,7 @@ import { parsePptx } from "./lib/pptxParser";
 import { renderPresentationForPreview } from "./lib/presentationRenderer";
 import { analyzeTemplateWithAi, applyTemplateAnalysis, buildLocalTemplateAnalysis, validateTemplateContract } from "./lib/templateAnalyzer";
 import { getTemplateProfile } from "./lib/templateProfiles";
+import { loadWorkspaceMetadata, saveWorkspaceMetadata, type FirebaseUser, type WorkspaceMetadata } from "./lib/firebase";
 import "./styles.css";
 
 type View = "dashboard" | "new-shift" | "template" | "inbox" | "review" | "generate" | "preview";
@@ -72,6 +53,13 @@ type GeneratedArtifact = {
   previewEngine: string;
   previewError: string;
 };
+
+type GenerationStage = "idle" | "building" | "rendering";
+type PaymentStatus = "unpaid" | "paid";
+
+// Temporary demo switch. Keep the real payment state and backend gate intact
+// so this can be flipped off when the payment gateway is connected.
+const DEMO_DOWNLOAD_MODE = true;
 
 const EMPTY_SHIFT: ShiftDetails = {
   title: "Laporan Jaga Baru",
@@ -122,17 +110,17 @@ function attachmentKind(file: File): PatientAttachment["kind"] | undefined {
   return undefined;
 }
 
-function attachmentIcon(kind: PatientAttachment["kind"]) {
-  return kind === "image" ? FileImage : kind === "audio" ? FileAudio : FileText;
+function attachmentIcon(kind: PatientAttachment["kind"]): KoasisIconName {
+  return kind === "image" ? "radiology" : kind === "audio" ? "audio" : kind === "pdf" ? "evidence" : "file";
 }
 
-const NAV_ITEMS: Array<{ id: View; label: string; icon: typeof Home; hint?: string }> = [
-  { id: "dashboard", label: "Overview", icon: Home },
-  { id: "new-shift", label: "Laporan baru", icon: Plus },
-  { id: "inbox", label: "Data pasien", icon: Files, hint: "01" },
-  { id: "review", label: "Review klinis", icon: ClipboardCheck, hint: "02" },
-  { id: "template", label: "Struktur template", icon: Map, hint: "03" },
-  { id: "generate", label: "Generate laporan", icon: Layers3, hint: "04" },
+const NAV_ITEMS: Array<{ id: View; label: string; icon: KoasisIconName; hint?: string }> = [
+  { id: "dashboard", label: "Overview", icon: "overview" },
+  { id: "new-shift", label: "Laporan baru", icon: "report" },
+  { id: "inbox", label: "Data pasien", icon: "patient", hint: "01" },
+  { id: "review", label: "Review klinis", icon: "review", hint: "02" },
+  { id: "template", label: "Struktur template", icon: "template", hint: "03" },
+  { id: "generate", label: "Generate laporan", icon: "generate", hint: "04" },
 ];
 
 const STATUS_META: Record<FieldStatus, { label: string; className: string; icon: typeof Check }> = {
@@ -302,7 +290,7 @@ function UploadDropzone({ accept, label, hint, onFile, busy = false, className =
       onClick={() => inputRef.current?.click()}
     >
       <input ref={inputRef} type="file" accept={accept} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.currentTarget.value = ""; }} />
-      <div className="upload-icon"><CloudUpload size={22} /></div>
+      <div className="upload-icon"><KoasisIcon name="upload" size={22} /></div>
       <div className="upload-copy">
         <strong>{busy ? "Menganalisis file…" : label}</strong>
         <span>{hint}</span>
@@ -316,17 +304,108 @@ function UploadDropzone({ accept, label, hint, onFile, busy = false, className =
 
 function BuiltInTemplateList({ templates, loading, activeName, onSelect, compact = false }: { templates: BuiltInTemplateEntry[]; loading: boolean; activeName?: string; onSelect: (entry: BuiltInTemplateEntry) => void; compact?: boolean }) {
   if (loading) return <div className="built-in-loading"><RefreshCw size={14} className="spin" /> Memuat template bawaan…</div>;
-  if (!templates.length) return <div className="built-in-empty"><FileArchive size={15} /> Arsip template bawaan belum tersedia.</div>;
-  return <div className={`built-in-list ${compact ? "compact" : ""}`}>{templates.map((entry) => <button className={`built-in-template-row ${activeName === entry.label ? "selected" : ""}`} key={entry.archivePath} onClick={() => onSelect(entry)}><span className="built-in-mini-icon"><FileArchive size={15} /></span><span className="built-in-template-copy"><strong>{entry.label}</strong><small>Template bawaan · PPTX editable</small></span>{activeName === entry.label ? <Check size={14} className="built-in-selected" /> : <ChevronRight size={14} className="built-in-arrow" />}</button>)}</div>;
+  if (!templates.length) return <div className="built-in-empty"><KoasisIcon name="archive" size={15} /> Arsip template bawaan belum tersedia.</div>;
+  return <div className={`built-in-list ${compact ? "compact" : ""}`}>{templates.map((entry) => <button className={`built-in-template-row ${activeName === entry.label ? "selected" : ""}`} key={entry.archivePath} onClick={() => onSelect(entry)}><span className="built-in-mini-icon"><KoasisIcon name="archive" size={15} /></span><span className="built-in-template-copy"><strong>{entry.label}</strong><small>Template bawaan · PPTX editable</small></span>{activeName === entry.label ? <Check size={14} className="built-in-selected" /> : <ChevronRight size={14} className="built-in-arrow" />}</button>)}</div>;
 }
 
-function EmptyState({ icon: Icon, title, description, action }: { icon: typeof Files; title: string; description: string; action?: React.ReactNode }) {
+function EmptyState({ icon, title, description, action }: { icon: KoasisIconName; title: string; description: string; action?: React.ReactNode }) {
   return (
     <div className="empty-state">
-      <div className="empty-icon"><Icon size={26} /></div>
+      <div className="empty-icon"><KoasisIcon name={icon} size={26} /></div>
       <h3>{title}</h3>
       <p>{description}</p>
       {action}
+    </div>
+  );
+}
+
+function ProcessingState({ variant, icon, eyebrow, title, description, steps, activeStep = 0 }: { variant: "ai" | "render"; icon: KoasisIconName; eyebrow: string; title: string; description: string; steps: string[]; activeStep?: number }) {
+  return (
+    <div className={`processing-state processing-state-${variant}`} role="status" aria-live="polite">
+      <div className="processing-visual" aria-hidden="true">
+        <span className="processing-orbit" />
+        <span className="processing-icon"><KoasisIcon name={icon} size={30} /></span>
+      </div>
+      <div className="processing-content">
+        <span className="processing-eyebrow">{eyebrow}</span>
+        <h4>{title}</h4>
+        <p>{description}</p>
+        <div className="processing-steps">
+          {steps.map((step, index) => <span className={`processing-step ${index === activeStep ? "active" : ""} ${index < activeStep ? "done" : ""}`} key={step}>
+            <span className="processing-step-dot">{index < activeStep ? <Check size={9} /> : index === activeStep ? <span /> : null}</span>
+            {step}
+          </span>)}
+        </div>
+        <div className="processing-bar" aria-label="Proses sedang berjalan"><span /></div>
+      </div>
+    </div>
+  );
+}
+
+type UtilityPanel = "settings" | "help";
+
+function UtilityModal({ panel, user, workspaceStatus, workspaceSyncError, onClose, onRetrySync, onStartReport, onSignOut }: {
+  panel: UtilityPanel;
+  user: FirebaseUser;
+  workspaceStatus: string;
+  workspaceSyncError: string;
+  onClose: () => void;
+  onRetrySync: () => void;
+  onStartReport: () => void;
+  onSignOut: () => void;
+}) {
+  const accountLabel = user.displayName?.trim() || user.email?.split("@")[0] || "Pengguna";
+  const isSettings = panel === "settings";
+  return (
+    <div className="utility-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="utility-modal" role="dialog" aria-modal="true" aria-labelledby="utility-modal-title">
+        <div className="utility-modal-header">
+          <div>
+            <span className="eyebrow">{isSettings ? "Preferensi workspace" : "Pusat bantuan"}</span>
+            <h2 id="utility-modal-title">{isSettings ? "Pengaturan" : "Bantuan Koasis"}</h2>
+          </div>
+          <button type="button" className="icon-button utility-modal-close" aria-label="Tutup" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {isSettings ? (
+          <>
+            <p className="utility-modal-lead">Kelola akun dan cek status metadata workspace yang disinkronkan.</p>
+            <div className="utility-account-card">
+              <div className="user-avatar">{userInitial(user)}</div>
+              <div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div>
+            </div>
+            <div className="utility-setting-list">
+              <div className="utility-setting-row">
+                <div className="utility-setting-icon"><KoasisIcon name="security" size={17} /></div>
+                <div><strong>Data klinis tetap lokal</strong><span>Catatan pasien, attachment, dan file PPTX tidak ditulis ke Firestore.</span></div>
+              </div>
+              <div className="utility-setting-row">
+                <div className="utility-setting-icon"><KoasisIcon name="safety" size={17} /></div>
+                <div><strong>Metadata workspace</strong><span>{workspaceSyncError || workspaceStatus}</span></div>
+                <span className={`utility-sync-dot ${workspaceSyncError ? "error" : workspaceStatus.startsWith("Menyinkronkan") ? "loading" : ""}`} />
+              </div>
+            </div>
+            <div className="utility-modal-footer">
+              <button type="button" className="button button-ghost" onClick={onRetrySync}><RefreshCw size={14} /> Cek sinkronisasi</button>
+              <button type="button" className="button button-dark" onClick={onSignOut}><LogOut size={14} /> Keluar</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="utility-modal-lead">Ikuti alur singkat ini untuk membuat laporan jaga pertama.</p>
+            <div className="utility-help-list">
+              <div><span>01</span><div><strong>Pilih template</strong><small>Upload PPTX sendiri atau gunakan template bawaan Koasis.</small></div></div>
+              <div><span>02</span><div><strong>Masukkan data pasien</strong><small>Tempel catatan atau tarik TXT, DOCX, PDF, gambar, dan audio ke kartu pasien.</small></div></div>
+              <div><span>03</span><div><strong>Review lalu generate</strong><small>Periksa field klinis dan evidence sebelum membuat preview serta PPTX.</small></div></div>
+            </div>
+            <div className="utility-help-note"><KoasisIcon name="insight" size={16} /><span>Jika preview atau ekstraksi gagal, periksa status template dan pastikan source pasien tidak kosong.</span></div>
+            <div className="utility-modal-footer utility-help-footer">
+              <button type="button" className="button button-ghost" onClick={onClose}>Tutup</button>
+              <button type="button" className="button button-dark" onClick={onStartReport}><Plus size={14} /> Mulai laporan baru</button>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }
@@ -338,12 +417,8 @@ function Dashboard({ shift, template, patients, onCreate, onNavigate }: { shift:
       <div className="dashboard-topline">
         <div>
           <div className="eyebrow">Ruang kerja laporan jaga</div>
-          <h1>Selamat datang di <span>Koasis</span></h1>
+          <h1>Selamat datang, <span>Dek Koas!</span></h1>
           <p>Susun data jaga yang tercecer menjadi presentasi klinis yang siap direview.</p>
-        </div>
-        <div className="topline-actions">
-          <div className="privacy-chip"><LockKeyhole size={14} /> Local-first workspace</div>
-          <button className="avatar-button" aria-label="Profil"><UserRound size={17} /></button>
         </div>
       </div>
 
@@ -351,15 +426,15 @@ function Dashboard({ shift, template, patients, onCreate, onNavigate }: { shift:
         <div className="hero-card">
           <div className="hero-pattern" />
           <div className="hero-content">
-            <div className="hero-kicker"><Sparkles size={15} /> Clinical information compiler</div>
+            <div className="hero-kicker"><KoasisIcon name="spark" size={15} /> Clinical information compiler</div>
             <h2>Jaga selesai.<br /><em>Laporan lebih siap.</em></h2>
             <p>Upload template departemen, masukkan catatan pasien, lalu review setiap fakta sebelum diekspor ke PowerPoint.</p>
             <button className="button button-light" onClick={onCreate}><Plus size={16} /> Buat laporan baru <ArrowRight size={16} /></button>
           </div>
-          <div className="hero-mark"><Stethoscope size={44} /></div>
+          <div className="hero-mark"><img src="/koasis-favicon.png" alt="" /></div>
         </div>
         <div className="workflow-card">
-          <div className="card-heading"><div><span className="eyebrow">Cara kerja</span><h3>Dari catatan ke deck</h3></div><BrainCircuit size={20} /></div>
+          <div className="card-heading"><div><span className="eyebrow">Cara kerja</span><h3>Dari catatan ke deck</h3></div><KoasisIcon name="workflow" size={20} /></div>
           <div className="workflow-list">
             {[
               ["01", "Parse template", "Shape & layout dibaca langsung dari PPTX"],
@@ -371,22 +446,22 @@ function Dashboard({ shift, template, patients, onCreate, onNavigate }: { shift:
       </div>
 
       <div className="metric-grid">
-        <div className="metric-card"><div className="metric-icon blue"><FileArchive size={18} /></div><div><span>Template aktif</span><strong>{template ? template.slideCount : "—"}<small>{template ? " slides" : " belum ada"}</small></strong></div><span className="metric-note">{template ? "Siap dipetakan" : "Upload PPTX"}</span></div>
-        <div className="metric-card"><div className="metric-icon mint"><UsersRound size={18} /></div><div><span>Pasien terdeteksi</span><strong>{patients.length || "—"}</strong></div><span className="metric-note">{patients.length ? "Perlu direview" : "Belum ada data"}</span></div>
-        <div className="metric-card"><div className="metric-icon peach"><ClipboardList size={18} /></div><div><span>Status laporan</span><strong>{hasReport ? "Draft" : "Kosong"}</strong></div><span className="metric-note">{hasReport ? "Local workspace" : "Mulai dari nol"}</span></div>
+        <div className="metric-card"><div className="metric-icon blue"><KoasisIcon name="archive" size={18} /></div><div><span>Template aktif</span><strong>{template ? template.slideCount : "—"}<small>{template ? " slides" : " belum ada"}</small></strong></div><span className="metric-note">{template ? "Siap dipetakan" : "Upload PPTX"}</span></div>
+        <div className="metric-card"><div className="metric-icon mint"><KoasisIcon name="patient" size={18} /></div><div><span>Pasien terdeteksi</span><strong>{patients.length || "—"}</strong></div><span className="metric-note">{patients.length ? "Perlu direview" : "Belum ada data"}</span></div>
+        <div className="metric-card"><div className="metric-icon peach"><KoasisIcon name="report" size={18} /></div><div><span>Status laporan</span><strong>{hasReport ? "Draft" : "Kosong"}</strong></div><span className="metric-note">{hasReport ? "Local workspace" : "Mulai dari nol"}</span></div>
       </div>
 
       <div className="dashboard-lower">
         <section className="panel recent-panel">
           <div className="panel-heading"><div><span className="eyebrow">Workspace terakhir</span><h3>{hasReport ? shift.title : "Belum ada laporan"}</h3></div><button className="icon-button" onClick={() => onNavigate(hasReport ? "new-shift" : "new-shift")}><ChevronRight size={17} /></button></div>
-          {hasReport ? <div className="recent-report"><div className="report-type-icon"><Activity size={20} /></div><div className="report-info"><strong>{shift.title}</strong><span>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)}</span><div className="report-progress"><span style={{ width: `${template ? (patients.length ? 72 : 38) : 16}%` }} /></div></div><span className="draft-label">Draft</span></div> : <EmptyState icon={ClipboardList} title="Mulai laporan jaga pertama" description="Satu workspace untuk template, sumber, review, dan hasil akhir." action={<button className="button button-dark button-small" onClick={onCreate}><Plus size={14} /> Buat laporan</button>} />}
+          {hasReport ? <div className="recent-report"><div className="report-type-icon"><KoasisIcon name="activity" size={20} /></div><div className="report-info"><strong>{shift.title}</strong><span>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)}</span><div className="report-progress"><span style={{ width: `${template ? (patients.length ? 72 : 38) : 16}%` }} /></div></div><span className="draft-label">Draft</span></div> : <EmptyState icon="report" title="Mulai laporan jaga pertama" description="Satu workspace untuk template, sumber, review, dan hasil akhir." action={<button className="button button-dark button-small" onClick={onCreate}><Plus size={14} /> Buat laporan</button>} />}
         </section>
         <section className="panel principle-panel">
           <div className="principle-quote">“</div>
           <span className="eyebrow">Prinsip Koasis</span>
           <h3>AI membaca informasi.<br /><span>Kode menjaga bentuknya.</span></h3>
           <p>Data klinis dinormalisasi dan diverifikasi dulu, baru dipetakan kembali ke template asli.</p>
-          <div className="principle-footer"><ShieldCheck size={16} /> Tidak ada nilai yang diisi diam-diam</div>
+          <div className="principle-footer"><KoasisIcon name="safety" size={16} /> Tidak ada nilai yang diisi diam-diam</div>
         </section>
       </div>
     </div>
@@ -402,7 +477,7 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
         <section className="panel template-first-panel">
           <div className="template-first-grid">
             <div>
-              <div className="panel-heading"><div><span className="eyebrow">Template bawaan Koasis</span><h3>Mulai dari format yang sudah dipelajari</h3><p>Template Lapjag sudah memiliki panduan slide, chart WHO, dan aturan pengisian yang spesifik.</p></div><FileArchive size={20} /></div>
+              <div className="panel-heading"><div><span className="eyebrow">Template bawaan Koasis</span><h3>Mulai dari format yang sudah dipelajari</h3><p>Template Lapjag sudah memiliki panduan slide, chart WHO, dan aturan pengisian yang spesifik.</p></div><KoasisIcon name="archive" size={20} /></div>
               <BuiltInTemplateList templates={builtInTemplates} loading={builtInLoading} onSelect={onBuiltInTemplate} />
             </div>
             <div className="template-first-upload"><div className="template-empty-divider"><span>atau</span></div><span className="eyebrow">Template sendiri</span><h3>Upload PPTX departemen</h3><p>Template lain tetap bisa dipakai; Koasis akan menganalisis shape dan mapping dari awal.</p><UploadDropzone accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" label="Upload template sendiri" hint="Maks. 20 MB · file PPTX" onFile={onTemplate} busy={busy} /></div>
@@ -413,28 +488,34 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
     );
   }
   const profile = getTemplateProfile(template);
+  const genericContextFields = profile.id === "generic" && !template.templateAnalysis
+    ? [
+        { key: "department", label: "Departemen", placeholder: "Contoh: Pediatri" },
+        { key: "hospital", label: "Rumah sakit", placeholder: "Nama rumah sakit" },
+      ]
+    : [];
+  const contextFieldCount = 1 + profile.shiftFields.length + genericContextFields.length;
   return (
     <div className="page">
       <ProgressSteps active={0} />
       <SectionHeading eyebrow={`Langkah 01 · ${profile.label}`} title="Atur konteks laporan jaga" description={`${profile.description} Field di bawah mengikuti metadata yang dibutuhkan template ini.`} action={<div className="autosave"><CircleCheck size={14} /> Tersimpan di perangkat ini</div>} />
       <div className="form-layout">
         <section className="panel form-panel">
-          <div className="panel-heading"><div><h3>Detail laporan</h3><p>Informasi ini akan mengisi cover dan metadata presentasi.</p></div><ClipboardList size={20} /></div>
+          <div className="panel-heading"><div><h3>Detail laporan</h3><p>Informasi ini akan mengisi cover dan metadata presentasi.</p></div><KoasisIcon name="report" size={20} /></div>
           <div className="form-grid">
-            <label className="field-label full">Judul laporan<input value={shift.title} onChange={(event) => setShift({ ...shift, title: event.target.value })} placeholder="Contoh: Laporan Jaga Pediatri" /></label>
-            <label className="field-label">Tanggal jaga<input type="date" value={shift.date} onChange={(event) => setShift({ ...shift, date: event.target.value })} /></label>
-            {profile.shiftFields.map((fieldSpec) => <label className="field-label" key={fieldSpec.key}>{fieldSpec.label}{fieldSpec.required && <span className="required-mark">*</span>}<input value={shiftFieldValue(shift, fieldSpec.key)} onChange={(event) => setShift(setShiftFieldValue(shift, fieldSpec.key, event.target.value))} placeholder={fieldSpec.placeholder} /></label>)}
-            {profile.id === "generic" && !template.templateAnalysis && <>
-              <label className="field-label">Departemen<input value={shift.department} onChange={(event) => setShift({ ...shift, department: event.target.value })} placeholder="Contoh: Pediatri" /></label>
-              <label className="field-label">Rumah sakit<input value={shift.hospital} onChange={(event) => setShift({ ...shift, hospital: event.target.value })} placeholder="Nama rumah sakit" /></label>
-            </>}
+            <label className="field-label full"><span className="field-label-text">Judul laporan</span><input value={shift.title} onChange={(event) => setShift({ ...shift, title: event.target.value })} placeholder="Contoh: Laporan Jaga Pediatri" /></label>
+            <div className={`context-field-grid ${contextFieldCount % 2 === 1 ? "has-odd" : ""}`}>
+              <label className="field-label"><span className="field-label-text">Tanggal jaga</span><input type="date" value={shift.date} onChange={(event) => setShift({ ...shift, date: event.target.value })} /></label>
+              {profile.shiftFields.map((fieldSpec) => <label className="field-label" key={fieldSpec.key}><span className="field-label-text">{fieldSpec.label}{fieldSpec.required && <span className="required-mark">*</span>}</span><input value={shiftFieldValue(shift, fieldSpec.key)} onChange={(event) => setShift(setShiftFieldValue(shift, fieldSpec.key, event.target.value))} placeholder={fieldSpec.placeholder} aria-required={fieldSpec.required || undefined} /></label>)}
+              {genericContextFields.map((fieldSpec) => <label className="field-label" key={fieldSpec.key}><span className="field-label-text">{fieldSpec.label}</span><input value={shiftFieldValue(shift, fieldSpec.key)} onChange={(event) => setShift(setShiftFieldValue(shift, fieldSpec.key, event.target.value))} placeholder={fieldSpec.placeholder} /></label>)}
+            </div>
           </div>
-          <div className="form-footer"><div className="form-footer-left"><button className="button button-ghost button-small" onClick={onChangeTemplate}><ArrowLeft size={14} /> Ganti template</button><div className="secure-note"><LockKeyhole size={14} /> Data tetap di browser pada tahap MVP</div></div><button className="button button-dark" onClick={onContinue}>Lanjutkan <ArrowRight size={16} /></button></div>
+          <div className="form-footer"><div className="form-footer-left"><button className="button button-ghost button-small" onClick={onChangeTemplate}><ArrowLeft size={14} /> Ganti template</button><div className="secure-note"><KoasisIcon name="security" size={14} /> Data tetap di browser pada tahap MVP</div></div><button className="button button-dark" onClick={onContinue}>Lanjutkan <ArrowRight size={16} /></button></div>
         </section>
         <aside className="panel side-info-panel">
-          <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><Layers3 size={20} /></div>
+          <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><KoasisIcon name="template" size={20} /></div>
           <p>Koasis membaca struktur shape, layout, dan teks dari template. File asli tetap menjadi sumber desain.</p>
-          <div className="attached-template"><div className="file-icon"><FileArchive size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · {template.templateValidation?.valid ? "kontrak klinis tervalidasi" : "menunggu validasi kontrak"} · {profile.label}</span></div>{template.templateValidation?.valid ? <CircleCheck className="success-icon" size={18} /> : <AlertTriangle className="warning-icon" size={18} />}</div>
+          <div className="attached-template"><div className="file-icon"><KoasisIcon name="archive" size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · {template.templateValidation?.valid ? "kontrak klinis tervalidasi" : "menunggu validasi kontrak"} · {profile.label}</span></div>{template.templateValidation?.valid ? <CircleCheck className="success-icon" size={18} /> : <AlertTriangle className="warning-icon" size={18} />}</div>
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
           <div className="side-info-list"><div><Check size={14} /> Layout asli dipertahankan</div><div><Check size={14} /> Shape bisa dikoreksi manual</div><div><Check size={14} /> Output tetap editable</div></div>
         </aside>
@@ -483,7 +564,7 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
     return () => { cancelled = true; };
   }, [template?.id, template?.raw]);
 
-  if (!template) return <div className="page"><ProgressSteps active={3} /><SectionHeading eyebrow="Langkah 04 · Struktur template" title="Template belum dipilih" description="Pemilihan template dilakukan di awal laporan baru." /><section className="panel template-empty-picker"><EmptyState icon={FileArchive} title="Belum ada template aktif" description="Kembali ke data laporan untuk memilih template bawaan atau upload template sendiri." action={<button className="button button-dark" onClick={onBack}>Kembali ke data laporan</button>} /></section></div>;
+  if (!template) return <div className="page"><ProgressSteps active={3} /><SectionHeading eyebrow="Langkah 04 · Struktur template" title="Template belum dipilih" description="Pemilihan template dilakukan di awal laporan baru." /><section className="panel template-empty-picker"><EmptyState icon="archive" title="Belum ada template aktif" description="Kembali ke data laporan untuk memilih template bawaan atau upload template sendiri." action={<button className="button button-dark" onClick={onBack}>Kembali ke data laporan</button>} /></section></div>;
   const validation = validateTemplateContract(template);
   const learningStatus = template.templateAnalysis?.learningStatus;
   const contractLabel = learningStatus === "agent" ? "Dipelajari agent" : learningStatus === "trusted_profile" ? "Kontrak bawaan tervalidasi" : "Perlu dipelajari agent";
@@ -494,10 +575,10 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
       <div className={`template-contract-strip ${validation.valid ? "" : "warning"}`}><span className="template-contract-icon">{validation.valid ? <CircleCheck size={15} /> : <AlertTriangle size={15} />}</span><span>{validation.valid ? <>Mapping klinis otomatis sudah aktif untuk <strong>{template.name}</strong>. Di halaman ini Anda hanya perlu mengatur urutan pengulangan slide.</> : <>Template <strong>{template.name}</strong> belum aman untuk generate. Koasis menahan render sampai kontrak slide dan field dipelajari serta divalidasi.</>}</span><span className="template-contract-source">{contractLabel}</span></div>
       {!validation.valid && <div className="template-validation-panel error"><div><AlertTriangle size={15} /><strong>Quality gate template</strong></div><ul>{validation.errors.slice(0, 5).map((message) => <li key={message}>{message}</li>)}</ul>{validation.warnings.length > 0 && <p>{validation.warnings.slice(0, 3).join(" ")}</p>}</div>}
       {validation.valid && validation.warnings.length > 0 && <div className="template-validation-panel warning"><div><AlertTriangle size={15} /><strong>Catatan kontrak</strong></div><p>{validation.warnings.slice(0, 4).join(" ")}</p></div>}
-      <div className="template-summary-grid"><div className="template-summary"><div className="summary-icon"><FileArchive size={18} /></div><div><span>File template</span><strong>{template.name}</strong></div><span className="summary-meta">{template.fileName}</span></div><div className="template-summary"><div className="summary-icon purple"><Layers3 size={18} /></div><div><span>Slide terdeteksi</span><strong>{template.slideCount} slide</strong></div><span className="summary-meta">struktur terbaca</span></div><div className="template-summary"><div className="summary-icon orange"><Map size={18} /></div><div><span>Diulang per pasien</span><strong>{template.slides.filter((slide) => slide.repeat).length} slide</strong></div><span className="summary-meta">bisa diubah di bawah</span></div></div>
+      <div className="template-summary-grid"><div className="template-summary"><div className="summary-icon"><KoasisIcon name="archive" size={18} /></div><div><span>File template</span><strong>{template.name}</strong></div><span className="summary-meta">{template.fileName}</span></div><div className="template-summary"><div className="summary-icon purple"><KoasisIcon name="template" size={18} /></div><div><span>Slide terdeteksi</span><strong>{template.slideCount} slide</strong></div><span className="summary-meta">struktur terbaca</span></div><div className="template-summary"><div className="summary-icon orange"><KoasisIcon name="overview" size={18} /></div><div><span>Diulang per pasien</span><strong>{template.slides.filter((slide) => slide.repeat).length} slide</strong></div><span className="summary-meta">bisa diubah di bawah</span></div></div>
       <section className="panel template-overview-panel">
-        <div className="panel-heading compact-heading"><div><h3>Overview slide template</h3><p>Preview menunjukkan layout asli. Teks yang terlihat adalah contoh dari template, bukan data pasien baru.</p></div><Layers3 size={18} /></div>
-        {previewBusy && <div className="template-preview-status"><RefreshCw size={14} className="spin" /> Menyiapkan preview slide…</div>}
+        <div className="panel-heading compact-heading"><div><h3>Overview slide template</h3><p>Preview menunjukkan layout asli. Teks yang terlihat adalah contoh dari template, bukan data pasien baru.</p></div><KoasisIcon name="template" size={18} /></div>
+        {previewBusy && <ProcessingState variant="render" icon="template" eyebrow="Template preview · proses aktif" title="Menyiapkan overview slide" description="Koasis sedang membaca layout asli dan menyiapkan thumbnail agar struktur template bisa kamu periksa sebelum lanjut." steps={["Membaca layout", "Menyiapkan thumbnail", "Menampilkan mapping"]} activeStep={1} />}
         {previewError && <div className="template-preview-status warning"><AlertTriangle size={14} /> Preview visual belum tersedia; struktur slide tetap bisa diatur.</div>}
         <div className="template-slide-grid">
           {template.slides.map((slide) => {
@@ -511,7 +592,7 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
           })}
         </div>
       </section>
-      <div className="template-overview-note"><ShieldCheck size={15} /><span>Field klinis dan mapping shape sudah dikendalikan oleh kontrak template. Anda tidak perlu memilih semantic field satu per satu.</span></div>
+      <div className="template-overview-note"><KoasisIcon name="safety" size={15} /><span>Field klinis dan mapping shape sudah dikendalikan oleh kontrak template. Anda tidak perlu memilih semantic field satu per satu.</span></div>
       <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke review</button><button className="button button-dark" onClick={onContinue} disabled={!validation.valid}>Simpan struktur & lanjut ke generate <ArrowRight size={16} /></button></div>
     </div>
   );
@@ -519,7 +600,7 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
 
 function AttachmentList({ attachments, onRemove }: { attachments: PatientAttachment[]; onRemove: (attachmentId: string) => void }) {
   if (!attachments.length) return null;
-  return <div className="attachment-list"><span className="attachment-list-label">Evidence multimodal</span>{attachments.map((attachment) => { const Icon = attachmentIcon(attachment.kind); return <div className="attachment-item" key={attachment.id}><Icon size={15} /><span><strong>{attachment.name}</strong><small>{attachment.kind.toUpperCase()} · {fileSizeLabel(attachment.sizeBytes)}</small></span><button type="button" className="icon-button" title="Hapus attachment" onClick={() => onRemove(attachment.id)}><X size={14} /></button></div>; })}</div>;
+  return <div className="attachment-list"><span className="attachment-list-label">Evidence multimodal</span>{attachments.map((attachment) => { const icon = attachmentIcon(attachment.kind); return <div className="attachment-item" key={attachment.id}><KoasisIcon name={icon} size={15} /><span><strong>{attachment.name}</strong><small>{attachment.kind.toUpperCase()} · {fileSizeLabel(attachment.sizeBytes)}</small></span><button type="button" className="icon-button" title="Hapus attachment" onClick={() => onRemove(attachment.id)}><X size={14} /></button></div>; })}</div>;
 }
 
 function InboxPage({ template, drafts, onDraftTextChange, onDraftFile, onRemoveAttachment, onAddDraft, onRemoveDraft, sources, patients, onAnalyze, onContinue, analysisBusy, analysisEngine, error }: { template: ParsedTemplate | null; drafts: PatientDraft[]; onDraftTextChange: (draftId: string, text: string) => void; onDraftFile: (draftId: string, file: File) => void; onRemoveAttachment: (draftId: string, attachmentId: string) => void; onAddDraft: () => void; onRemoveDraft: (draftId: string) => void; sources: SourceItem[]; patients: PatientRecord[]; onAnalyze: () => void; onContinue: () => void; analysisBusy: boolean; analysisEngine: "none" | "ai" | "local" | "mixed"; error: string }) {
@@ -528,11 +609,11 @@ function InboxPage({ template, drafts, onDraftTextChange, onDraftFile, onRemoveA
   return (
     <div className="page">
       <ProgressSteps active={1} />
-      <SectionHeading eyebrow={`Langkah 02 · Clinical inbox · ${profile.label}`} title="Masukkan data per pasien" description={`Setiap kartu pasien menerima free text atau evidence multimodal. Agent akan menata data mengikuti kontrak ${profile.label}, bukan memakai form klinis yang sama untuk semua template.`} action={<div className="privacy-chip"><LockKeyhole size={14} /> Jangan masukkan data yang tidak perlu</div>} />
-      <section className="panel template-guide-panel"><div className="template-guide-icon"><ClipboardCheck size={18} /></div><div><span className="eyebrow">Kontrak ekstraksi aktif</span><h3>{profile.label}</h3><p>{profile.description} {profile.patientInputHint}</p></div><div className="template-guide-tags">{profileTags.map((tag) => <span key={tag}>{tag}</span>)}<span>TXT + DOCX</span><span>PDF + gambar + audio</span></div></section>
+      <SectionHeading eyebrow={`Langkah 02 · Clinical inbox · ${profile.label}`} title="Masukkan data per pasien" description={`Setiap kartu pasien menerima free text atau evidence multimodal. Agent akan menata data mengikuti kontrak ${profile.label}, bukan memakai form klinis yang sama untuk semua template.`} action={<div className="privacy-chip"><KoasisIcon name="security" size={14} /> Jangan masukkan data yang tidak perlu</div>} />
+      <section className="panel template-guide-panel"><div className="template-guide-icon"><KoasisIcon name="review" size={18} /></div><div><span className="eyebrow">Kontrak ekstraksi aktif</span><h3>{profile.label}</h3><p>{profile.description} {profile.patientInputHint}</p></div><div className="template-guide-tags">{profileTags.map((tag) => <span key={tag}>{tag}</span>)}<span>TXT + DOCX</span><span>PDF + gambar + audio</span></div></section>
       <div className="inbox-layout">
         <section className="panel source-panel">
-          <div className="panel-heading"><div><h3>Data pasien per kartu</h3><p>Setiap kartu dikirim sebagai satu record pasien ke agent. Tambahkan kartu baru untuk pasien berikutnya.</p></div><UsersRound size={20} /></div>
+          <div className="panel-heading"><div><h3>Data pasien per kartu</h3><p>Setiap kartu dikirim sebagai satu record pasien ke agent. Tambahkan kartu baru untuk pasien berikutnya.</p></div><KoasisIcon name="patient" size={20} /></div>
           <div className="patient-input-list">
             {drafts.map((draft, index) => <div className="patient-input-card" key={draft.id}>
               <div className="patient-input-head"><div className="patient-input-title"><span className="patient-input-number">{String(index + 1).padStart(2, "0")}</span><div><strong>{draft.label}</strong><span>Source khusus pasien ini</span></div></div>{drafts.length > 1 && <button className="icon-button remove-patient" title="Hapus pasien" onClick={() => onRemoveDraft(draft.id)}><X size={15} /></button>}</div>
@@ -546,13 +627,13 @@ function InboxPage({ template, drafts, onDraftTextChange, onDraftFile, onRemoveA
         </section>
         <aside className="panel sources-panel">
           <div className="panel-heading"><div><span className="eyebrow">Evidence inbox</span><h3>Sumber masuk</h3></div><span className="source-count">{sources.length}</span></div>
-          {sources.length ? <div className="source-list">{sources.map((source) => { const SourceIcon = source.type === "image" ? FileImage : source.type === "audio" ? FileAudio : source.type === "pdf" ? FileText : FileText; return <div className="source-item" key={source.id}><div className="source-file-icon"><SourceIcon size={16} /></div><div><strong>{source.name}</strong><span>{source.patientLabel ? `${source.patientLabel} · ` : ""}{source.sizeLabel || "Raw text"}</span></div><StatusBadge status={source.status === "ready" ? "documented" : source.status === "unsupported" ? "missing" : "inferred"} compact /></div>; })}</div> : <div className="mini-empty"><Files size={19} /><span>Belum ada source.<br />Setiap kartu pasien akan muncul di sini.</span></div>}
-          <div className="source-policy"><ShieldCheck size={15} /><span>Setiap nilai hasil ekstraksi menyimpan snippet sumber untuk review.</span></div>
+          {sources.length ? <div className="source-list">{sources.map((source) => { const sourceIcon: KoasisIconName = source.type === "image" ? "radiology" : source.type === "audio" ? "audio" : source.type === "pdf" ? "evidence" : "file"; return <div className="source-item" key={source.id}><div className="source-file-icon"><KoasisIcon name={sourceIcon} size={16} /></div><div><strong>{source.name}</strong><span>{source.patientLabel ? `${source.patientLabel} · ` : ""}{source.sizeLabel || "Raw text"}</span></div><StatusBadge status={source.status === "ready" ? "documented" : source.status === "unsupported" ? "missing" : "inferred"} compact /></div>; })}</div> : <div className="mini-empty"><KoasisIcon name="evidence" size={19} /><span>Belum ada source.<br />Setiap kartu pasien akan muncul di sini.</span></div>}
+          <div className="source-policy"><KoasisIcon name="safety" size={15} /><span>Setiap nilai hasil ekstraksi menyimpan snippet sumber untuk review.</span></div>
         </aside>
       </div>
-      <section className="panel detection-panel">
-        <div className="detection-copy"><div className="detection-icon"><BrainCircuit size={21} /></div><div><span className="eyebrow">{analysisEngine === "ai" ? "AI agent · backend extraction" : analysisEngine === "mixed" ? "AI agent + local fallback" : analysisEngine === "local" ? "Local fallback extraction" : "AI agent siap membaca"}</span><h3>{patients.length ? `${patients.length} pasien terdeteksi` : "Siap membaca catatan"}</h3><p>{patients.length ? "Pemisahan awal berhasil. Lanjutkan untuk meninjau setiap nilai dan konflik." : "Catatan dikirim ke AI agent melalui backend lokal. Nilai hasil ekstraksi tetap perlu direview sebelum export."}</p></div></div>
-        {patients.length ? <div className="detected-patients">{patients.map((patient) => <div className="detected-chip" key={patient.id}><span>{patient.displayName.slice(0, 1).toUpperCase()}</span>{patient.displayName}<Check size={13} /></div>)}</div> : <div className="detection-placeholder"><span>Pasien</span><span>Data klinis</span><span>Status field</span></div>}
+      <section className={`panel detection-panel ${analysisBusy ? "is-processing" : ""}`}>
+        <div className="detection-copy"><div className="detection-icon"><KoasisIcon name="insight" size={21} /></div><div><span className="eyebrow">{analysisEngine === "ai" ? "AI agent · backend extraction" : analysisEngine === "mixed" ? "AI agent + local fallback" : analysisEngine === "local" ? "Local fallback extraction" : "AI agent siap membaca"}</span><h3>{patients.length ? `${patients.length} pasien terdeteksi` : "Siap membaca catatan"}</h3><p>{patients.length ? "Pemisahan awal berhasil. Lanjutkan untuk meninjau setiap nilai dan konflik." : "Catatan dikirim ke AI agent melalui backend lokal. Nilai hasil ekstraksi tetap perlu direview sebelum export."}</p></div></div>
+        {analysisBusy ? <ProcessingState variant="ai" icon="insight" eyebrow="AI agent · proses aktif" title="Membaca catatan pasien" description="Koasis sedang memisahkan pasien, mencocokkan field dengan kontrak template, dan menyiapkan data untuk review." steps={["Membaca source", "Memetakan field", "Menyiapkan review"]} /> : patients.length ? <div className="detected-patients">{patients.map((patient) => <div className="detected-chip" key={patient.id}><span>{patient.displayName.slice(0, 1).toUpperCase()}</span>{patient.displayName}<Check size={13} /></div>)}</div> : <div className="detection-placeholder"><span>Pasien</span><span>Data klinis</span><span>Status field</span></div>}
         <div className="detection-actions"><button className="button button-dark" onClick={onAnalyze} disabled={analysisBusy}><RefreshCw size={15} className={analysisBusy ? "spin" : ""} /> {analysisBusy ? "AI sedang membaca…" : patients.length ? "Analisis ulang" : "Deteksi pasien"}</button>{patients.length > 0 && <button className="button button-ghost" onClick={onContinue}>Lanjut review <ArrowRight size={15} /></button>}</div>
       </section>
     </div>
@@ -625,7 +706,7 @@ function ReviewPage({ template, patients, activePatientId, setActivePatientId, o
     ],
     template: profile.fieldGroups.flatMap((group) => group.fields.map((spec) => ({ label: `${group.label} · ${spec.label}`, path: spec.key, multiline: spec.multiline }))),
   };
-  if (!patient) return <div className="page"><EmptyState icon={UsersRound} title="Belum ada pasien" description="Kembali ke data pasien untuk menjalankan ekstraksi." action={<button className="button button-dark" onClick={onBack}>Kembali ke inbox</button>} /></div>;
+  if (!patient) return <div className="page"><EmptyState icon="patient" title="Belum ada pasien" description="Kembali ke data pasien untuk menjalankan ekstraksi." action={<button className="button button-dark" onClick={onBack}>Kembali ke inbox</button>} /></div>;
   const tabs: ReviewTab[] = ["identity", "history", "exam", "assessment", ...(profile.fieldGroups.length ? ["template" as const] : [])];
   const fieldList = fields[tab] || fields.identity;
   const documented = fieldList.filter(({ path }) => fieldAt(patient, path)?.status === "documented" || fieldAt(patient, path)?.status === "user_confirmed").length;
@@ -635,16 +716,16 @@ function ReviewPage({ template, patients, activePatientId, setActivePatientId, o
       <SectionHeading eyebrow="Langkah 03 · Human review" title="Review informasi klinis" description="Konfirmasi nilai yang ingin dibawa ke slide. Nilai kosong tetap kosong sampai Anda mengisinya." action={<div className="review-counter"><CircleCheck size={14} /> {documented}/{fieldList.length} field terisi</div>} />
       <div className="review-layout">
         <aside className="panel patient-list-panel">
-          <div className="panel-heading compact-heading"><div><h3>Pasien</h3><p>{patients.length} terdeteksi dari source</p></div><UsersRound size={17} /></div>
+          <div className="panel-heading compact-heading"><div><h3>Pasien</h3><p>{patients.length} terdeteksi dari source</p></div><KoasisIcon name="patient" size={17} /></div>
           <div className="patient-list">{patients.map((item, index) => { const hasConflict = [...Object.values(item), ...Object.values(item.templateData ?? {})].some((value) => value && typeof value === "object" && "status" in value && (value as ClinicalField<unknown>).status === "conflicting"); return <button className={`patient-list-item ${item.id === patient.id ? "selected" : ""}`} key={item.id} onClick={() => setActivePatientId(item.id)}><span className="patient-avatar">{String(index + 1).padStart(2, "0")}</span><span><strong>{item.displayName}</strong><small>{item.demographics.age?.value || "Usia belum ada"} · {item.demographics.sex?.value || "Jenis kelamin belum ada"}</small></span>{hasConflict && <AlertTriangle size={15} className="conflict-icon" />}</button>; })}</div>
           <button className="add-patient-button"><Plus size={14} /> Tambah pasien manual</button>
         </aside>
         <section className="panel review-main-panel">
           <div className="review-patient-header"><div className="review-patient-title"><div className="large-patient-avatar">{patient.displayName.slice(0, 1).toUpperCase()}</div><div><span className="eyebrow">Patient record · {patient.sourceId}</span><h3>{patient.displayName}</h3><span>{patient.demographics.age?.value || "Usia belum tercantum"} · {patient.demographics.sex?.value || "Jenis kelamin belum tercantum"}</span></div></div><button className="button button-ghost button-small"><Eye size={14} /> Lihat source</button></div>
           <div className="review-tabs">{tabs.map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item === "identity" ? "Identitas" : item === "history" ? "Anamnesis" : item === "exam" ? "Pemeriksaan" : item === "assessment" ? "Assessment & terapi" : profile.label}</button>)}</div>
-          {lapjag && <div className="review-template-note"><ShieldCheck size={14} /><span><strong>Lapjag:</strong> tab <em>{profile.label}</em> menampilkan field yang akan dibaca langsung oleh slide PAT, WHO, diagnosis dan tata laksana.</span></div>}
+          {lapjag && <div className="review-template-note"><KoasisIcon name="safety" size={14} /><span><strong>Lapjag:</strong> tab <em>{profile.label}</em> menampilkan field yang akan dibaca langsung oleh slide PAT, WHO, diagnosis dan tata laksana.</span></div>}
           <div className="field-grid">{fieldList.map((field) => <FieldCard {...field} patient={patient} key={field.path} onChange={(path, value) => onUpdate(patient.id, path, value)} />)}</div>
-          <div className="review-note"><ShieldCheck size={15} /><div><strong>Traceability aktif</strong><span>Source snippet ditampilkan pada field yang berasal dari catatan. Nilai yang Anda edit menjadi user confirmed.</span></div></div>
+          <div className="review-note"><KoasisIcon name="safety" size={15} /><div><strong>Traceability aktif</strong><span>Source snippet ditampilkan pada field yang berasal dari catatan. Nilai yang Anda edit menjadi user confirmed.</span></div></div>
         </section>
       </div>
       <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke inbox</button><button className="button button-dark" onClick={onContinue}>Lanjut ke struktur template <ArrowRight size={16} /></button></div>
@@ -652,7 +733,7 @@ function ReviewPage({ template, patients, activePatientId, setActivePatientId, o
   );
 }
 
-function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, error }: { shift: ShiftDetails; template: ParsedTemplate | null; patients: PatientRecord[]; onGenerate: () => void; onBack: () => void; busy: boolean; error: string }) {
+function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, stage, error }: { shift: ShiftDetails; template: ParsedTemplate | null; patients: PatientRecord[]; onGenerate: () => void; onBack: () => void; busy: boolean; stage: GenerationStage; error: string }) {
   const repeatCount = template?.slides.filter((slide) => slide.repeat).length ?? 0;
   const expectedSlides = template ? template.slideCount + Math.max(0, patients.length - 1) * repeatCount : 0;
   const validation = template ? validateTemplateContract(template) : undefined;
@@ -660,17 +741,18 @@ function GeneratePage({ shift, template, patients, onGenerate, onBack, busy, err
   return (
     <div className="page">
       <ProgressSteps active={4} />
-      <SectionHeading eyebrow="Langkah 05 · Output" title="Generate laporan jaga" description="Semua input siap dirender ke salinan template. Setelah dibuat, Koasis akan merender ulang setiap slide untuk quality check visual sebelum download." action={<div className="privacy-chip"><ShieldCheck size={14} /> Review sebelum export</div>} />
+      <SectionHeading eyebrow="Langkah 05 · Output" title="Generate laporan jaga" description="Semua input siap dirender ke salinan template. Setelah dibuat, Koasis akan merender ulang setiap slide untuk quality check visual sebelum download." action={<div className="privacy-chip"><KoasisIcon name="safety" size={14} /> Review sebelum export</div>} />
       <div className="generate-layout">
         <section className="panel generate-main-panel">
           <div className="generate-summary-head"><div><span className="eyebrow">Report plan</span><h3>{shift.title}</h3><p>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)} · {shift.hospital || "Rumah sakit belum diatur"}</p></div><div className="ready-badge"><CircleCheck size={14} /> Ready for render</div></div>
           <div className="plan-grid"><div className="plan-item"><span>Template</span><strong>{template?.name || "Belum ada template"}</strong><small>{template?.slideCount || 0} slide sumber</small></div><div className="plan-item"><span>Patient records</span><strong>{patients.length} pasien</strong><small>source-backed review</small></div><div className="plan-item"><span>Output estimate</span><strong>{expectedSlides || "—"} slide</strong><small>{repeatCount} slide repeat per pasien</small></div></div>
           <div className="generation-checklist"><div className="checklist-heading"><h4>Quality gates</h4><span>4 checks</span></div><div className="checklist-row">{validation?.valid ? <Check size={15} /> : <AlertTriangle size={15} />}<span>Kontrak template dipelajari & tervalidasi</span><small>{validation?.valid ? "Lulus" : "Ditahan"}</small></div><div className="checklist-row"><Check size={15} /><span>Template mapping tersimpan</span><small>{template?.bindings.length || 0} binding</small></div><div className="checklist-row"><Check size={15} /><span>Setiap pasien punya record terstruktur</span><small>{patients.length} record</small></div><div className="checklist-row"><Check size={15} /><span>Field missing tidak diisi otomatis</span><small>Policy aktif</small></div></div>
+          {busy && <ProcessingState variant="render" icon="report" eyebrow={stage === "rendering" ? "Visual quality check · proses aktif" : "PPTX compiler · proses aktif"} title={stage === "rendering" ? "Menyiapkan preview slide" : "Menyusun laporan editable"} description={stage === "rendering" ? "File PPTX sudah dibuat. Koasis sedang mengambil gambar setiap slide untuk quality check visual." : "Koasis sedang menyalin template, mengisi field klinis, dan menjaga layout asli tetap editable."} steps={["Menyusun data", "Menyalin template", "Menyiapkan render"]} activeStep={stage === "rendering" ? 2 : 0} />}
           {validation && !validation.valid && <div className="inline-error"><AlertTriangle size={15} /> {validation.errors.slice(0, 2).join(" ")}</div>}
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
-          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !canGenerate}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><Sparkles size={16} /> Generate editable PPTX</>}</button></div>
+          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !canGenerate}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><KoasisIcon name="spark" size={16} /> Generate editable PPTX</>}</button></div>
         </section>
-        <aside className="panel safety-panel"><div className="safety-orb"><LockKeyhole size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>Koasis membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><ShieldCheck size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><ShieldCheck size={15} /> Output tetap editable di PowerPoint</div></aside>
+        <aside className="panel safety-panel"><div className="safety-orb"><KoasisIcon name="security" size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>Koasis membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><KoasisIcon name="safety" size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><KoasisIcon name="safety" size={15} /> Output tetap editable di PowerPoint</div></aside>
       </div>
     </div>
   );
@@ -711,26 +793,40 @@ function buildPreviewSlides(template: ParsedTemplate, patients: PatientRecord[])
   return sorted;
 }
 
-function PreviewPage({ template, patients, generated, onDownload, onBack, onNew, visualReviewConfirmed, onVisualReviewChange }: { template: ParsedTemplate | null; patients: PatientRecord[]; generated: GeneratedArtifact | null; onDownload: () => void; onBack: () => void; onNew: () => void; visualReviewConfirmed: boolean; onVisualReviewChange: (value: boolean) => void }) {
+function ProtectedPreviewFrame({ source, alt, compact = false, paid = false }: { source: string; alt: string; compact?: boolean; paid?: boolean }) {
+  return (
+    <div className={`protected-preview-frame ${compact ? "compact" : ""} ${paid ? "paid" : ""}`} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
+      <img src={source} alt={alt} draggable={false} />
+      {!paid && <><div className="preview-watermark-grid" aria-hidden="true">{Array.from({ length: compact ? 4 : 9 }, (_, index) => index % 3 === 1 ? <span className="preview-watermark-logo" key={index}><img src="/koasis-favicon.png" alt="" /></span> : <span className="preview-watermark-copy" key={index}>KOASIS PREVIEW</span>)}</div><span className="preview-protected-badge"><KoasisIcon name="security" size={compact ? 9 : 11} /> Preview</span></>}
+    </div>
+  );
+}
+
+function PreviewPage({ template, patients, generated, previewBusy, onDownload, onBack, onNew, visualReviewConfirmed, onVisualReviewChange, paymentStatus }: { template: ParsedTemplate | null; patients: PatientRecord[]; generated: GeneratedArtifact | null; previewBusy: boolean; onDownload: () => void; onBack: () => void; onNew: () => void; visualReviewConfirmed: boolean; onVisualReviewChange: (value: boolean) => void; paymentStatus: PaymentStatus }) {
   const previewRows = template ? buildPreviewSlides(template, patients) : [];
   const [selectedSlide, setSelectedSlide] = useState(0);
+  const [paymentNotice, setPaymentNotice] = useState("");
   const previewSlides = generated?.previewSlides || [];
   useEffect(() => {
     if (selectedSlide >= previewSlides.length) setSelectedSlide(Math.max(0, previewSlides.length - 1));
   }, [previewSlides.length, selectedSlide]);
   const selectedMeta = previewRows[selectedSlide];
   const hasVisualRender = previewSlides.length > 0;
+  const isPaid = paymentStatus === "paid";
+  const isDownloadAvailable = isPaid || DEMO_DOWNLOAD_MODE;
+  const downloadLabel = isPaid ? "Download PPTX" : "Free download";
   return (
     <div className="page">
-      <SectionHeading eyebrow="Langkah 05 · Visual quality check" title="Preview laporan jaga" description="Koasis merender PPTX final di server agar setiap slide bisa diperiksa sebelum file diunduh." action={<div className={`ready-badge ${hasVisualRender ? "" : "warning"}`}><CircleCheck size={14} /> {hasVisualRender ? "Render siap direview" : "Render belum tersedia"}</div>} />
-      <div className="preview-toolbar"><div className="preview-file"><div className="file-icon large"><FileArchive size={20} /></div><div><strong>{generated?.fileName || "laporan-jaga.pptx"}</strong><span>{generated?.slideCount || previewRows.length} slide · editable PPTX · {generated?.previewEngine || "visual render"}</span></div></div><div className="toolbar-actions"><button className="button button-ghost" onClick={onBack}><Pencil size={14} /> Edit review</button><button className="button button-dark" onClick={onDownload} disabled={!visualReviewConfirmed || !hasVisualRender}><Download size={15} /> Download PPTX</button></div></div>
+      <SectionHeading eyebrow="Langkah 05 · Visual quality check" title="Preview laporan jaga" description="Koasis merender PPTX final di server agar setiap slide bisa diperiksa sebelum file diunduh." action={<div className={`ready-badge ${previewBusy ? "loading" : hasVisualRender ? "" : "warning"}`}>{previewBusy ? <RefreshCw size={14} className="spin" /> : <CircleCheck size={14} />} {previewBusy ? "Merender slide…" : hasVisualRender ? "Render siap direview" : "Render belum tersedia"}</div>} />
+      <div className="preview-toolbar"><div className="preview-file"><div className="file-icon large"><KoasisIcon name="archive" size={20} /></div><div><strong>{generated?.fileName || "laporan-jaga.pptx"}</strong><span>{generated?.slideCount || previewRows.length} slide · editable PPTX · {generated?.previewEngine || "visual render"}</span></div></div><div className="toolbar-actions"><button className="button button-ghost" onClick={onBack}><Pencil size={14} /> Edit review</button><button className={`button ${isDownloadAvailable ? "button-dark" : "button-locked"}`} onClick={onDownload} disabled={!isDownloadAvailable || !visualReviewConfirmed || !hasVisualRender} title={isDownloadAvailable ? downloadLabel : "Selesaikan pembayaran untuk membuka download"}>{isDownloadAvailable ? <Download size={15} /> : <KoasisIcon name="security" size={15} />} {downloadLabel}</button></div></div>
       {generated?.previewError && <div className="inline-error preview-error"><AlertTriangle size={15} /> {generated.previewError}</div>}
-      <div className="preview-layout"><section className="panel preview-stage"><div className="preview-stage-head"><div><span className="eyebrow">Actual PowerPoint render</span><h3>{selectedMeta?.title || "Tampilan per slide"}</h3></div><span>{hasVisualRender ? `${selectedSlide + 1} / ${previewSlides.length}` : "Menunggu render"}</span></div>{hasVisualRender ? <><div className="preview-focus"><button className="preview-nav-button" onClick={() => setSelectedSlide((current) => Math.max(0, current - 1))} disabled={selectedSlide === 0} aria-label="Slide sebelumnya"><ArrowLeft size={17} /></button><img src={previewSlides[selectedSlide]} alt={`Render slide ${selectedSlide + 1}`} /><button className="preview-nav-button" onClick={() => setSelectedSlide((current) => Math.min(previewSlides.length - 1, current + 1))} disabled={selectedSlide === previewSlides.length - 1} aria-label="Slide berikutnya"><ArrowRight size={17} /></button></div><div className="preview-slide-grid rendered-slide-grid">{previewSlides.map((source, index) => { const row = previewRows[index]; return <button className={`preview-slide-card rendered-slide-card ${index === selectedSlide ? "selected" : ""}`} key={`${index}-${row?.title || "slide"}`} onClick={() => setSelectedSlide(index)}><img src={source} alt={`Thumbnail slide ${index + 1}`} /><span className="preview-slide-number">{String(index + 1).padStart(2, "0")}</span><div className="preview-slide-meta"><strong>{row?.title || `Slide ${index + 1}`}</strong><span>{row?.role || "Render PPTX"}</span></div></button>; })}</div></> : <div className="preview-render-empty"><CircleDashed size={24} /><strong>Render visual belum berhasil</strong><span>Perbaiki masalah render lalu generate ulang. Download ditahan sampai slide dapat diperiksa.</span></div>}</section><aside className="panel preview-side"><div className="panel-heading"><div><span className="eyebrow">Quality gate</span><h3>Review sebelum final</h3></div><ClipboardCheck size={19} /></div><div className="export-check"><Check size={14} /><span>Struktur PPTX tervalidasi</span></div><div className={`export-check ${hasVisualRender ? "" : "pending"}`}>{hasVisualRender ? <Check size={14} /> : <CircleDashed size={14} />}<span>Visual render {hasVisualRender ? "tersedia" : "menunggu"}</span></div><div className={`export-check ${generated && generated.slideCount === previewSlides.length ? "" : "pending"}`}>{generated && generated.slideCount === previewSlides.length ? <Check size={14} /> : <CircleDashed size={14} />}<span>Jumlah slide konsisten</span></div><label className="visual-review-control"><input type="checkbox" checked={visualReviewConfirmed} onChange={(event) => onVisualReviewChange(event.target.checked)} disabled={!hasVisualRender} /><span>Saya sudah memeriksa tampilan setiap slide dan menyetujui hasilnya.</span></label><div className="preview-disclaimer"><AlertTriangle size={14} /><span>Periksa teks terpotong, tabel kosong, data yang tertukar, dan elemen yang bertabrakan. Edit review jika ada temuan.</span></div><button className="button button-ghost full-width" onClick={onNew}><Plus size={15} /> Mulai laporan lain</button></aside></div>
+      <div className="preview-layout"><section className="panel preview-stage"><div className="preview-stage-head"><div><span className="eyebrow">Actual PowerPoint render · protected preview</span><h3>{selectedMeta?.title || "Tampilan per slide"}</h3></div><span>{previewBusy ? "Memproses…" : hasVisualRender ? `${selectedSlide + 1} / ${previewSlides.length}` : "Menunggu render"}</span></div>{previewBusy ? <ProcessingState variant="render" icon="radiology" eyebrow="Visual quality check · proses aktif" title="Merender preview slide" description="Koasis sedang mengubah setiap slide PowerPoint menjadi gambar yang bisa kamu periksa sebelum download." steps={["Membuat slide", "Mengambil gambar", "Menyiapkan review"]} activeStep={1} /> : hasVisualRender ? <><div className="preview-focus"><button className="preview-nav-button" onClick={() => setSelectedSlide((current) => Math.max(0, current - 1))} disabled={selectedSlide === 0} aria-label="Slide sebelumnya"><ArrowLeft size={17} /></button><ProtectedPreviewFrame paid={isPaid} source={previewSlides[selectedSlide]} alt={`Render slide ${selectedSlide + 1}`} /><button className="preview-nav-button" onClick={() => setSelectedSlide((current) => Math.min(previewSlides.length - 1, current + 1))} disabled={selectedSlide === previewSlides.length - 1} aria-label="Slide berikutnya"><ArrowRight size={17} /></button></div><div className="preview-slide-grid rendered-slide-grid">{previewSlides.map((source, index) => { const row = previewRows[index]; return <button className={`preview-slide-card rendered-slide-card ${index === selectedSlide ? "selected" : ""}`} key={`${index}-${row?.title || "slide"}`} onClick={() => setSelectedSlide(index)}><ProtectedPreviewFrame paid={isPaid} compact source={source} alt={`Thumbnail slide ${index + 1}`} /><span className="preview-slide-number">{String(index + 1).padStart(2, "0")}</span><div className="preview-slide-meta"><strong>{row?.title || `Slide ${index + 1}`}</strong><span>{row?.role || "Render PPTX"}</span></div></button>; })}</div></> : <div className="preview-render-empty"><CircleDashed size={24} /><strong>Render visual belum berhasil</strong><span>Perbaiki masalah render lalu generate ulang. Download ditahan sampai slide dapat diperiksa.</span></div>}</section><aside className="panel preview-side"><div className="panel-heading"><div><span className="eyebrow">Quality gate</span><h3>Review sebelum final</h3></div><KoasisIcon name="review" size={19} /></div><div className="export-check"><Check size={14} /><span>Struktur PPTX tervalidasi</span></div><div className={`export-check ${hasVisualRender ? "" : "pending"}`}>{hasVisualRender ? <Check size={14} /> : <CircleDashed size={14} />}<span>Visual render {hasVisualRender ? "tersedia" : previewBusy ? "sedang diproses" : "menunggu"}</span></div><div className={`export-check ${generated && generated.slideCount === previewSlides.length ? "" : "pending"}`}>{generated && generated.slideCount === previewSlides.length ? <Check size={14} /> : <CircleDashed size={14} />}<span>Jumlah slide konsisten</span></div><label className="visual-review-control"><input type="checkbox" checked={visualReviewConfirmed} onChange={(event) => onVisualReviewChange(event.target.checked)} disabled={!hasVisualRender} /><span>Saya sudah memeriksa tampilan setiap slide dan menyetujui hasilnya.</span></label><div className="preview-disclaimer"><AlertTriangle size={14} /><span>Periksa teks terpotong, tabel kosong, data yang tertukar, dan elemen yang bertabrakan. Edit review jika ada temuan.</span></div><div className={`paywall-card ${isPaid ? "paid" : ""} ${DEMO_DOWNLOAD_MODE && !isPaid ? "demo" : ""}`}><div className="paywall-card-head"><div className="paywall-icon"><KoasisIcon name={isPaid ? "safety" : DEMO_DOWNLOAD_MODE ? "generate" : "security"} size={19} /></div><div><span className="eyebrow">{isPaid ? "Output berbayar" : "Demo Koasis"}</span><h3>{isPaid ? "Download terbuka" : DEMO_DOWNLOAD_MODE ? "Free download" : "Bayar untuk download"}</h3></div><span className="paywall-status">{isPaid ? "Paid" : DEMO_DOWNLOAD_MODE ? "Demo" : "Locked"}</span></div><p>{isPaid ? "Pembayaran terverifikasi. File editable siap diunduh." : DEMO_DOWNLOAD_MODE ? "Selama masa demo, file editable dapat diunduh gratis setelah preview selesai direview." : "Preview tetap bisa direview dengan watermark. Download PPTX dibuka setelah pembayaran terverifikasi."}</p>{!isPaid && <button type="button" className="button button-dark full-width paywall-cta" onClick={() => DEMO_DOWNLOAD_MODE ? onDownload() : setPaymentNotice("Payment gateway belum dihubungkan. Tombol ini sudah disiapkan untuk checkout pada tahap berikutnya.")} disabled={!isDownloadAvailable || !visualReviewConfirmed || !hasVisualRender}>{DEMO_DOWNLOAD_MODE ? <Download size={15} /> : <KoasisIcon name="security" size={15} />} {DEMO_DOWNLOAD_MODE ? "Free download" : "Bayar & unlock download"}</button>}{paymentNotice && !isPaid && !DEMO_DOWNLOAD_MODE && <div className="paywall-notice" role="status"><AlertTriangle size={13} />{paymentNotice}</div>}</div><button className="button button-ghost full-width" onClick={onNew}><Plus size={15} /> Mulai laporan lain</button></aside></div>
     </div>
   );
 }
 
-export default function App() {
+function AuthenticatedApp() {
+  const { user, signOut } = useAuth();
   const [view, setView] = useState<View>("dashboard");
   const [shift, setShift] = useState<ShiftDetails>(EMPTY_SHIFT);
   const [template, setTemplate] = useState<ParsedTemplate | null>(null);
@@ -744,25 +840,48 @@ export default function App() {
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisEngine, setAnalysisEngine] = useState<"none" | "ai" | "local" | "mixed">("none");
   const [generationBusy, setGenerationBusy] = useState(false);
+  const [generationStage, setGenerationStage] = useState<GenerationStage>("idle");
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [error, setError] = useState("");
   const [generated, setGenerated] = useState<GeneratedArtifact | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("unpaid");
   const [visualReviewConfirmed, setVisualReviewConfirmed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const generatedUrl = useMemo(() => generated ? URL.createObjectURL(generated.blob) : "", [generated]);
+  const [utilityPanel, setUtilityPanel] = useState<UtilityPanel | null>(null);
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
+  const [workspaceSyncState, setWorkspaceSyncState] = useState<"loading" | "saved" | "error">("loading");
+  const [workspaceSyncError, setWorkspaceSyncError] = useState("");
+  const [workspaceReloadKey, setWorkspaceReloadKey] = useState(0);
+  // The demo intentionally exposes download. Once the gateway is connected,
+  // turn DEMO_DOWNLOAD_MODE off so only a server-verified paid state creates
+  // a download URL. Real enforcement must move the final artifact behind the backend.
+  const generatedUrl = useMemo(() => generated && (paymentStatus === "paid" || DEMO_DOWNLOAD_MODE) ? URL.createObjectURL(generated.blob) : "", [generated, paymentStatus]);
+
+  const storedTemplateMetadata = useMemo<WorkspaceMetadata["template"]>(() => ({
+    id: template?.id || "",
+    name: template?.name || "",
+    fileName: template?.fileName || "",
+    profileId: template?.profileId || "generic",
+    slideCount: template?.slideCount || 0,
+    analysisStatus: template?.analysisStatus || "uploaded",
+  }), [template?.analysisStatus, template?.fileName, template?.id, template?.name, template?.profileId, template?.slideCount]);
 
   useEffect(() => () => { if (generatedUrl) URL.revokeObjectURL(generatedUrl); }, [generatedUrl]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileNavOpen(false);
+      if (event.key === "Escape") {
+        setMobileNavOpen(false);
+        setUtilityPanel(null);
+      }
     };
     document.body.classList.toggle("mobile-nav-open", mobileNavOpen);
-    if (mobileNavOpen) window.addEventListener("keydown", handleKeyDown);
+    if (mobileNavOpen || utilityPanel) window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       document.body.classList.remove("mobile-nav-open");
     };
-  }, [mobileNavOpen]);
+  }, [mobileNavOpen, utilityPanel]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -776,6 +895,59 @@ export default function App() {
       .finally(() => { if (!cancelled) setBuiltInLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setWorkspaceHydrated(false);
+    setWorkspaceSyncState("loading");
+    setWorkspaceSyncError("");
+    loadWorkspaceMetadata(user.uid)
+      .then((metadata) => {
+        if (cancelled) return;
+        if (metadata?.shift) setShift({ ...EMPTY_SHIFT, ...metadata.shift });
+        setWorkspaceSyncState("saved");
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        setWorkspaceSyncState("error");
+        setWorkspaceSyncError(loadError instanceof Error ? loadError.message : "Metadata workspace belum bisa dibaca.");
+      })
+      .finally(() => {
+        if (!cancelled) setWorkspaceHydrated(true);
+      });
+    return () => { cancelled = true; };
+  }, [user.uid, workspaceReloadKey]);
+
+  useEffect(() => {
+    if (!workspaceHydrated) return undefined;
+    const metadata: WorkspaceMetadata = {
+      schemaVersion: 1,
+      // Deliberately whitelist shift metadata. Patient notes, extracted fields,
+      // sources, attachment data URLs, and generated files never enter Firestore.
+      shift: {
+        title: shift.title,
+        date: shift.date,
+        department: shift.department,
+        hospital: shift.hospital,
+        team: shift.team,
+        facilitator: shift.facilitator,
+        dpjp: shift.dpjp,
+      },
+      template: storedTemplateMetadata,
+    };
+    const timeout = window.setTimeout(() => {
+      saveWorkspaceMetadata(user.uid, metadata)
+        .then(() => {
+          setWorkspaceSyncState("saved");
+          setWorkspaceSyncError("");
+        })
+        .catch((saveError) => {
+          setWorkspaceSyncState("error");
+          setWorkspaceSyncError(saveError instanceof Error ? saveError.message : "Metadata workspace belum bisa disimpan.");
+        });
+    }, 650);
+    return () => window.clearTimeout(timeout);
+  }, [shift.date, shift.department, shift.dpjp, shift.facilitator, shift.hospital, shift.team, shift.title, storedTemplateMetadata, user.uid, workspaceHydrated]);
 
   const handleTemplate = async (file: File) => {
     setError("");
@@ -946,30 +1118,34 @@ export default function App() {
     if (!template) return;
     setError("");
     setGenerationBusy(true);
+    setGenerationStage("building");
     try {
       const result = await generatePresentation(template, patients, template.bindings, shift);
-      let previewSlides: string[] = [];
-      let previewEngine = "server renderer";
-      let previewError = "";
+      setGenerated({ ...result, previewSlides: [], previewEngine: "server renderer", previewError: "" });
+      setPaymentStatus("unpaid");
+      setVisualReviewConfirmed(false);
+      setPreviewBusy(true);
+      setGenerationStage("rendering");
+      setView("preview");
       try {
         const rendered = await renderPresentationForPreview(result.blob);
-        previewSlides = rendered.slides;
-        previewEngine = rendered.engine;
+        setGenerated((current) => current ? { ...current, previewSlides: rendered.slides, previewEngine: rendered.engine } : current);
       } catch (renderError) {
-        previewError = renderError instanceof Error ? renderError.message : "Preview visual gagal.";
+        const previewError = renderError instanceof Error ? renderError.message : "Preview visual gagal.";
+        setGenerated((current) => current ? { ...current, previewError } : current);
+      } finally {
+        setPreviewBusy(false);
       }
-      setGenerated({ ...result, previewSlides, previewEngine, previewError });
-      setVisualReviewConfirmed(false);
-      setView("preview");
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : "PPTX belum bisa dibuat.");
     } finally {
       setGenerationBusy(false);
+      setGenerationStage("idle");
     }
   };
 
   const download = () => {
-    if (!generated || !generatedUrl || !visualReviewConfirmed || !generated.previewSlides.length) return;
+    if ((!DEMO_DOWNLOAD_MODE && paymentStatus !== "paid") || !generated || !generatedUrl || !visualReviewConfirmed || !generated.previewSlides.length) return;
     const link = document.createElement("a");
     link.href = generatedUrl;
     link.download = generated.fileName;
@@ -984,33 +1160,42 @@ export default function App() {
     setPatients([]);
     setAnalysisEngine("none");
     setGenerated(null);
+    setPaymentStatus("unpaid");
+    setGenerationStage("idle");
+    setPreviewBusy(false);
     setVisualReviewConfirmed(false);
     setError("");
     setView("new-shift");
   };
 
-  const navTo = (next: View) => { setError(""); setView(next); setMobileNavOpen(false); };
+  const navTo = (next: View) => { setError(""); setView(next); setMobileNavOpen(false); setUtilityPanel(null); };
 
   const pageTitle = view === "dashboard" ? "Overview" : view === "new-shift" ? "Laporan baru" : view === "template" ? "Struktur template" : view === "inbox" ? "Data pasien" : view === "review" ? "Review klinis" : view === "generate" ? "Generate laporan" : "Preview";
+  const accountLabel = user.displayName?.trim() || user.email?.split("@")[0] || "Pengguna";
+  const workspaceStatus = workspaceSyncState === "loading" ? "Menyinkronkan metadata…" : workspaceSyncState === "error" ? "Sinkronisasi perlu dicek" : "Metadata tersimpan";
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}>
         <div className="brand"><img className="brand-lockup" src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div>
-        <div className="workspace-switcher"><div className="workspace-avatar">J</div><div><span>Workspace</span><strong>{shift.title === EMPTY_SHIFT.title ? "Laporan baru" : shift.title}</strong></div><ChevronDown size={14} /></div>
-        <nav className="main-nav"><span className="nav-label">Ruang kerja</span>{NAV_ITEMS.map(({ id, label, icon: Icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><Icon size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="sidebar-mini-card"><div className="mini-orb"><ShieldCheck size={16} /></div><div><strong>Data aman di sini</strong><span>MVP local-first</span></div></div><button className="nav-item"><Settings2 size={17} /><span>Pengaturan</span></button><button className="nav-item"><LifeBuoy size={17} /><span>Bantuan</span></button><div className="sidebar-user"><div className="user-avatar">R</div><div><strong>Rafael</strong><span>Medical clerk</span></div><button className="icon-button"><ChevronRight size={15} /></button></div></div>
+        <nav className="main-nav"><span className="nav-label">Ruang kerja</span>{NAV_ITEMS.map(({ id, label, icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><KoasisIcon name={icon} size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
+        <div className="sidebar-bottom"><div className="sidebar-utilities"><button className="nav-item" onClick={() => setUtilityPanel("settings")}><KoasisIcon name="settings" size={17} /><span>Pengaturan</span></button><button className="nav-item" onClick={() => setUtilityPanel("help")}><KoasisIcon name="help" size={17} /><span>Bantuan</span></button></div><div className="sidebar-user"><div className="user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div><button className="icon-button" aria-label="Keluar dari akun" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
       </aside>
       {mobileNavOpen && <button className="sidebar-scrim" aria-label="Tutup menu navigasi" onClick={() => setMobileNavOpen(false)} />}
       <main className="main-content">
-        <header className="topbar"><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div><div className="topbar-right"><span className="environment-badge"><span /> Local preview</span><button className="icon-button topbar-search" aria-label="Cari"><Search size={17} /></button><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button></div></header>
+        <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button><div className="topbar-brand-mobile"><img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
         {view === "new-shift" && <NewShiftPage shift={shift} setShift={setShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={() => { setTemplate(null); navTo("new-shift"); }} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
         {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("generate")} onBack={() => navTo("review")} />}
         {view === "inbox" && <InboxPage template={template} drafts={patientDrafts} onDraftTextChange={updateDraftText} onDraftFile={handleDraftFile} onRemoveAttachment={removeAttachment} onAddDraft={addPatientDraft} onRemoveDraft={removePatientDraft} sources={sources} patients={patients} onAnalyze={analyze} onContinue={() => navTo("review")} analysisBusy={analysisBusy} analysisEngine={analysisEngine} error={error} />}
         {view === "review" && <ReviewPage template={template} patients={patients} activePatientId={activePatientId} setActivePatientId={setActivePatientId} onUpdate={updatePatient} onContinue={() => navTo("template")} onBack={() => navTo("inbox")} />}
-        {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} onGenerate={generate} onBack={() => navTo("template")} busy={generationBusy} error={error} />}
-        {view === "preview" && <PreviewPage template={template} patients={patients} generated={generated} onDownload={download} onBack={() => navTo("review")} onNew={startNew} visualReviewConfirmed={visualReviewConfirmed} onVisualReviewChange={setVisualReviewConfirmed} />}
+        {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} onGenerate={generate} onBack={() => navTo("template")} busy={generationBusy} stage={generationStage} error={error} />}
+        {view === "preview" && <PreviewPage template={template} patients={patients} generated={generated} previewBusy={previewBusy} onDownload={download} onBack={() => navTo("review")} onNew={startNew} visualReviewConfirmed={visualReviewConfirmed} onVisualReviewChange={setVisualReviewConfirmed} paymentStatus={paymentStatus} />}
       </main>
+      {utilityPanel && <UtilityModal panel={utilityPanel} user={user} workspaceStatus={workspaceStatus} workspaceSyncError={workspaceSyncError} onClose={() => setUtilityPanel(null)} onRetrySync={() => { setWorkspaceReloadKey((current) => current + 1); }} onStartReport={() => navTo("new-shift")} onSignOut={() => { void signOut(); }} />}
     </div>
   );
+}
+
+export default function App() {
+  return <AuthGate><AuthenticatedApp /></AuthGate>;
 }
