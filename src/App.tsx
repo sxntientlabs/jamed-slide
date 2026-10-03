@@ -510,7 +510,7 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
               {genericContextFields.map((fieldSpec) => <label className="field-label" key={fieldSpec.key}><span className="field-label-text">{fieldSpec.label}</span><input value={shiftFieldValue(shift, fieldSpec.key)} onChange={(event) => setShift(setShiftFieldValue(shift, fieldSpec.key, event.target.value))} placeholder={fieldSpec.placeholder} /></label>)}
             </div>
           </div>
-          <div className="form-footer"><div className="form-footer-left"><button className="button button-ghost button-small" onClick={onChangeTemplate}><ArrowLeft size={14} /> Ganti template</button><div className="secure-note"><KoasisIcon name="security" size={14} /> Data tetap di browser pada tahap MVP</div></div><button className="button button-dark" onClick={onContinue}>Lanjutkan <ArrowRight size={16} /></button></div>
+          <div className="form-footer"><div className="form-footer-left"><button className="button button-ghost button-small" onClick={onChangeTemplate}><ArrowLeft size={14} /> Ganti template</button></div><button className="button button-dark" onClick={onContinue}>Lanjutkan <ArrowRight size={16} /></button></div>
         </section>
         <aside className="panel side-info-panel">
           <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><KoasisIcon name="template" size={20} /></div>

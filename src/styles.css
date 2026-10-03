@@ -281,7 +281,6 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .field-label input:focus, .field-label select:focus, .shape-select-wrap select:focus { border-color: #9aabf6; background: #fff; box-shadow: 0 0 0 3px rgba(91,118,232,.1); }
 .form-footer { border-top: 1px solid var(--line); margin-top: 27px; padding-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .form-footer-left { display: flex; align-items: center; gap: 13px; min-width: 0; }
-.secure-note { display: flex; align-items: center; gap: 6px; color: #8e9ab0; font-size: 10px; }
 .side-info-panel > p { color: var(--muted); font-size: 11px; line-height: 1.65; margin: 0 0 20px; }
 .upload-dropzone { display: flex; gap: 12px; align-items: center; border: 1px dashed #bac6df; background: #fafbff; border-radius: 11px; padding: 13px; transition: .18s; cursor: pointer; }
 .upload-dropzone:hover, .upload-dropzone.dragging { border-color: var(--blue); background: var(--blue-soft); }
@@ -765,7 +764,6 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .field-label { color: var(--muted); }
 .field-label input, .field-label select { background: var(--canvas); border-color: var(--line); }
 .field-label input:focus, .field-label select:focus, .shape-select-wrap select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0, 114, 251, .12); }
-.secure-note { color: var(--subtle); }
 .upload-dropzone { border-color: var(--blue-border); background: var(--canvas); }
 .upload-copy span { color: var(--subtle); }
 .attached-template { background: var(--blue-soft); border-color: var(--blue-border); }
@@ -952,7 +950,6 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .form-panel .panel-heading, .side-info-panel .panel-heading { margin-bottom: 18px; }
   .panel-heading, .card-heading { gap: 12px; }
   .form-footer-left { min-width: 0; }
-  .secure-note { line-height: 1.45; }
   .mapper-layout, .review-layout { grid-template-columns: 1fr; }
   .template-picker-body { grid-template-columns: 1fr; }
   .template-analysis-banner { grid-template-columns: auto minmax(0, 1fr); }
