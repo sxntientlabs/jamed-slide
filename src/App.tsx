@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -269,11 +269,13 @@ function ProgressSteps({ active }: { active: number }) {
   return (
     <div className="progress-steps">
       {steps.map((step, index) => (
-        <div className={`progress-step ${index < active ? "done" : ""} ${index === active ? "active" : ""}`} key={step}>
-          <span className="progress-dot">{index < active ? <Check size={13} /> : index + 1}</span>
-          <span>{step}</span>
+        <Fragment key={step}>
+          <div className={`progress-step ${index < active ? "done" : ""} ${index === active ? "active" : ""}`}>
+            <span className="progress-dot">{index < active ? <Check size={13} /> : index + 1}</span>
+            <span>{step}</span>
+          </div>
           {index < steps.length - 1 && <span className="progress-line" />}
-        </div>
+        </Fragment>
       ))}
     </div>
   );
@@ -729,9 +731,26 @@ export default function App() {
   const [error, setError] = useState("");
   const [generated, setGenerated] = useState<GeneratedArtifact | null>(null);
   const [visualReviewConfirmed, setVisualReviewConfirmed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const generatedUrl = useMemo(() => generated ? URL.createObjectURL(generated.blob) : "", [generated]);
 
   useEffect(() => () => { if (generatedUrl) URL.revokeObjectURL(generatedUrl); }, [generatedUrl]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    document.body.classList.toggle("mobile-nav-open", mobileNavOpen);
+    if (mobileNavOpen) window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.classList.remove("mobile-nav-open");
+    };
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -932,19 +951,20 @@ export default function App() {
     setView("new-shift");
   };
 
-  const navTo = (next: View) => { setError(""); setView(next); };
+  const navTo = (next: View) => { setError(""); setView(next); setMobileNavOpen(false); };
 
   const pageTitle = view === "dashboard" ? "Overview" : view === "new-shift" ? "Laporan baru" : view === "template" ? "Struktur template" : view === "inbox" ? "Data pasien" : view === "review" ? "Review klinis" : view === "generate" ? "Generate laporan" : "Preview";
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="/JaMed.png" alt="JaMed" /></div><div><strong>JaMed</strong><span>jaga, made clear</span></div></div>
         <div className="workspace-switcher"><div className="workspace-avatar">J</div><div><span>Workspace</span><strong>{shift.title === EMPTY_SHIFT.title ? "Laporan baru" : shift.title}</strong></div><ChevronDown size={14} /></div>
         <nav className="main-nav"><span className="nav-label">Ruang kerja</span>{NAV_ITEMS.map(({ id, label, icon: Icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><Icon size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-mini-card"><div className="mini-orb"><ShieldCheck size={16} /></div><div><strong>Data aman di sini</strong><span>MVP local-first</span></div></div><button className="nav-item"><Settings2 size={17} /><span>Pengaturan</span></button><button className="nav-item"><LifeBuoy size={17} /><span>Bantuan</span></button><div className="sidebar-user"><div className="user-avatar">R</div><div><strong>Rafael</strong><span>Medical clerk</span></div><button className="icon-button"><ChevronRight size={15} /></button></div></div>
       </aside>
+      {mobileNavOpen && <button className="sidebar-scrim" aria-label="Tutup menu navigasi" onClick={() => setMobileNavOpen(false)} />}
       <main className="main-content">
-        <header className="topbar"><div className="breadcrumbs"><span>JaMed</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div><div className="topbar-right"><span className="environment-badge"><span /> Local preview</span><button className="icon-button"><Search size={17} /></button><button className="icon-button mobile-menu"><Menu size={18} /></button></div></header>
+        <header className="topbar"><div className="breadcrumbs"><span>JaMed</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div><div className="topbar-right"><span className="environment-badge"><span /> Local preview</span><button className="icon-button topbar-search" aria-label="Cari"><Search size={17} /></button><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
         {view === "new-shift" && <NewShiftPage shift={shift} setShift={setShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={() => { setTemplate(null); navTo("new-shift"); }} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
         {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("generate")} onBack={() => navTo("review")} />}
