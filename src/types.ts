@@ -60,6 +60,8 @@ export interface OrganFinding {
 export interface PatientRecord {
   id: string;
   displayName: string;
+  /** Evidence uploaded for this patient and available to the PPTX renderer. */
+  attachments?: PatientAttachment[];
   identifiers: {
     name?: ClinicalField<string>;
     initials?: ClinicalField<string>;

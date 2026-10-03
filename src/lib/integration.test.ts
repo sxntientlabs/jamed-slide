@@ -169,6 +169,56 @@ test("built-in department profiles map their slide contracts and generate indepe
   }
 });
 
+test("PERINA RSAB plots neonatal measurements and embeds radiology evidence", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const templateEntry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] PERINA RSAB.pptx"));
+  expect(templateEntry).toBeTruthy();
+  const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+  const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+  const template = await parsePptx(templateBuffer, "[TEMPLATE] PERINA RSAB.pptx");
+  const templateZip = await JSZip.loadAsync(templateBytes);
+  const evidenceBytes = await templateZip.file("ppt/media/image4.png")!.async("uint8array");
+  const patient = extractPatients("Pasien 1\nNama: By. Test\nJenis kelamin: Perempuan", "perina-evidence-source").patients[0];
+  patient.demographics.weightKg = documented(1.45);
+  patient.demographics.heightCm = documented(40);
+  patient.templateData = {
+    ...(patient.templateData || {}),
+    gestationalAge: documented("30 minggu 5 hari"),
+    headCircumference: documented("28,5 cm"),
+    ballardScore: documented("18, ekuivalen sekitar 31 minggu"),
+    neonatalAnthropometryConclusion: documented("Prematur 30+5 minggu, AGA."),
+  };
+  patient.investigations.imaging = documented([{ name: "Foto toraks AP supine", result: "Gambaran sesuai dengan RDS neonatal." }]);
+  patient.attachments = [{
+    id: "radiology-test",
+    name: "foto-toraks.png",
+    mimeType: "image/png",
+    kind: "image",
+    sizeBytes: evidenceBytes.byteLength,
+    dataUrl: `data:image/png;base64,${Buffer.from(evidenceBytes).toString("base64")}`,
+  }];
+  const shift: ShiftDetails = { title: "Laporan Jaga PERINA Test", date: "2026-10-03", department: "Perinatologi", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test", metadata: { student: "Mahasiswa Test" } };
+  const generated = await generatePresentation(template, [patient], template.bindings, shift);
+  const generatedBytes = new Uint8Array(await generated.blob.arrayBuffer());
+  await writeFile("/tmp/jamed-perina-evidence.pptx", generatedBytes);
+  const output = await JSZip.loadAsync(generatedBytes);
+  const chartXml = await output.file("ppt/slides/slide8.xml")!.async("string");
+  const radiologyXml = await output.file("ppt/slides/slide13.xml")!.async("string");
+  const radiologyRels = await output.file("ppt/slides/_rels/slide13.xml.rels")!.async("string");
+  expect(chartXml).toContain('name="Koasis PERINA weight-for-gestational-age marker"');
+  expect(chartXml).toContain('name="Koasis PERINA length-for-gestational-age marker"');
+  expect(chartXml).toContain('name="Koasis PERINA head-circumference marker"');
+  expect(chartXml.match(/Prematur 30\+5 minggu, AGA\./g)).toHaveLength(1);
+  expect(chartXml).toContain("Ballard score: 18");
+  expect(chartXml).not.toContain("ekuivalen sekitar 31 minggu");
+  expect(radiologyXml).toContain("<p:pic>");
+  expect(radiologyXml.match(/Gambaran sesuai dengan RDS neonatal\./g)).toHaveLength(1);
+  expect(radiologyRels).toContain("Target=\"../media/koasis-radiology-1-1.png\"");
+  expect(radiologyRels).toContain("koasis-radiology-1-1.png");
+  expect(output.file("ppt/media/koasis-radiology-1-1.png")).toBeTruthy();
+});
+
 test("custom upload starts from a generic snapshot and accepts an adaptive agent contract", async () => {
   const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
   const archive = await JSZip.loadAsync(archiveBytes);

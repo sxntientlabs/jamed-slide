@@ -886,10 +886,10 @@ export default function App() {
             warnings: template?.templateAnalysis?.warnings || [],
             confidence: template?.templateAnalysis?.confidence,
           }, draft.attachments ?? []);
-          extractedPatients.push(...aiPatients);
+          extractedPatients.push(...aiPatients.map((patient) => ({ ...patient, attachments: draft.attachments ?? [] })));
         } catch (aiError) {
           const localPatients = extractPatients(sourceText, sourceId).patients;
-          extractedPatients.push(...localPatients);
+          extractedPatients.push(...localPatients.map((patient) => ({ ...patient, attachments: draft.attachments ?? [] })));
           fallbackMessages.push(`${draft.label}: ${aiError instanceof Error ? aiError.message : "AI backend tidak merespons"}`);
         }
       }

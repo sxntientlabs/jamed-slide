@@ -445,10 +445,15 @@ function sourceImagingItems(sourceText: string): InvestigationItem[] {
   const lines = sourceText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const items: InvestigationItem[] = [];
   lines.forEach((line, index) => {
-    const match = line.match(/^\s*(CXR|Foto\s+toraks(?:\s+AP|\s+PA)?|Radiologi|Rontgen|USG)\s*[:\-]\s*(.*)$/i);
+    const match = line.match(/^\s*((?:CXR|Foto\s+toraks|Radiologi|Rontgen|USG)[^:：—-]{0,80})\s*[:：-]\s*(.*)$/i);
     if (!match) return;
-    const resultParts = [match[2]];
-    if (!match[2] && lines[index + 1] && !/^(?:##?\s+|[A-Z][\w ]+\s*[:\-])/.test(lines[index + 1])) resultParts.push(lines[index + 1]);
+    const resultParts = match[2] ? [match[2]] : [];
+    let cursor = index + 1;
+    while (cursor < lines.length && !/^\d+[.)]\s+/.test(lines[cursor])) {
+      if (/^Gambar\s+\d+\b/i.test(lines[cursor])) break;
+      resultParts.push(lines[cursor]);
+      cursor += 1;
+    }
     const result = resultParts.filter(Boolean).join(" ").trim();
     items.push({ name: match[1].replace(/\s+/g, " ").trim(), result: result || undefined });
   });

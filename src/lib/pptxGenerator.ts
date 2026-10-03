@@ -6,6 +6,7 @@ import type {
   ParsedShape,
   ParsedSlide,
   ParsedTemplate,
+  PatientAttachment,
   PatientRecord,
   SemanticField,
   ShiftDetails,
@@ -71,14 +72,22 @@ function ageInMonths(patient: PatientRecord): number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
-function pictureBounds(xml: string): { x: number; y: number; width: number; height: number } | undefined {
-  const picture = xml.match(/<p:pic\b[\s\S]*?<\/p:pic>/)?.[0];
-  if (!picture) return undefined;
-  const off = picture.match(/<a:off\b[^>]*>/)?.[0] ?? "";
-  const ext = picture.match(/<a:ext\b[^>]*>/)?.[0] ?? "";
-  const values = ["x", "y", "cx", "cy"].map((name) => Number(readAttribute(name === "cx" || name === "cy" ? ext : off, name)));
-  if (values.some((value) => !Number.isFinite(value) || value <= 0)) return undefined;
-  return { x: values[0], y: values[1], width: values[2], height: values[3] };
+type PictureBounds = { x: number; y: number; width: number; height: number };
+
+function pictureBoundsList(xml: string): PictureBounds[] {
+  return Array.from(xml.matchAll(/<p:pic\b[\s\S]*?<\/p:pic>/g)).flatMap((match) => {
+    const picture = match[0];
+    const off = picture.match(/<a:off\b[^>]*>/)?.[0] ?? "";
+    const ext = picture.match(/<a:ext\b[^>]*>/)?.[0] ?? "";
+    const values = ["x", "y", "cx", "cy"].map((name) => Number(readAttribute(name === "cx" || name === "cy" ? ext : off, name)));
+    return values.some((value) => !Number.isFinite(value) || value <= 0)
+      ? []
+      : [{ x: values[0], y: values[1], width: values[2], height: values[3] }];
+  });
+}
+
+function pictureBounds(xml: string): PictureBounds | undefined {
+  return pictureBoundsList(xml)[0];
 }
 
 function growthChartPoint(patient: PatientRecord, kind: GrowthChartKind, bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; size: number } | undefined {
@@ -133,11 +142,15 @@ function replaceImageRelationshipTarget(xml: string, assetName: string): string 
   });
 }
 
-function appendGrowthPlotMarker(xml: string, point: { x: number; y: number; size: number }): string {
-  if (xml.includes('name="JaMed WHO plot marker"')) return xml;
+function appendPlotMarker(xml: string, point: { x: number; y: number; size: number }, name: string, fillColor = "C00000"): string {
+  if (xml.includes(`name="${name}"`)) return xml;
   const id = maxNumericAttribute(xml, "id") + 1;
-  const marker = `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="JaMed WHO plot marker"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${Math.round(point.x - point.size / 2)}" y="${Math.round(point.y - point.size / 2)}"/><a:ext cx="${point.size}" cy="${point.size}"/></a:xfrm><a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:noFill/><a:ln w="25400"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill><a:prstDash val="solid"/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>`;
+  const marker = `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXml(name)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${Math.round(point.x - point.size / 2)}" y="${Math.round(point.y - point.size / 2)}"/><a:ext cx="${point.size}" cy="${point.size}"/></a:xfrm><a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${fillColor}"/></a:solidFill><a:ln w="25400"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:prstDash val="solid"/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>`;
   return xml.replace(/<\/p:spTree>/, `${marker}</p:spTree>`);
+}
+
+function appendGrowthPlotMarker(xml: string, point: { x: number; y: number; size: number }): string {
+  return appendPlotMarker(xml, point, "JaMed WHO plot marker");
 }
 
 async function applyLapjagChartAssets(
@@ -164,6 +177,70 @@ async function applyLapjagChartAssets(
   const bounds = pictureBounds(xml);
   const point = bounds && sex ? growthChartPoint(patient, kind, bounds) : undefined;
   return point ? appendGrowthPlotMarker(xml, point) : xml;
+}
+
+function numericMeasurement(patient: PatientRecord, path: string): number | undefined {
+  const value = rawFieldValue<unknown>(patient, path);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const match = String(value ?? "").replace(/,/g, ".").match(/[-+]?\d+(?:\.\d+)?/);
+  const parsed = match ? Number(match[0]) : NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function gestationalAgeInWeeks(patient: PatientRecord): number | undefined {
+  const raw = String(rawFieldValue<unknown>(patient, "templateData.gestationalAge") ?? "").toLowerCase().replace(/,/g, ".");
+  const plusNotation = raw.match(/(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)/);
+  if (plusNotation) return Number(plusNotation[1]) + Number(plusNotation[2]) / 7;
+  const weeks = raw.match(/(\d+(?:\.\d+)?)\s*(?:minggu|mg|wk|weeks?)/);
+  if (!weeks) return undefined;
+  const days = raw.match(/(\d+(?:\.\d+)?)\s*(?:hari|hr|d)\b/);
+  return Number(weeks[1]) + (days ? Number(days[1]) / 7 : 0);
+}
+
+function neonatalChartPoint(
+  bounds: PictureBounds,
+  xValue: number | undefined,
+  yValue: number | undefined,
+  xMin: number,
+  xMax: number,
+  yMin: number,
+  yMax: number,
+  plot: { left: number; right: number; top: number; bottom: number },
+): { x: number; y: number; size: number } | undefined {
+  if (![xValue, yValue].every((value) => typeof value === "number" && Number.isFinite(value))) return undefined;
+  if (xValue! < xMin || xValue! > xMax || yValue! < yMin || yValue! > yMax) return undefined;
+  const x = plot.left + ((xValue! - xMin) / (xMax - xMin)) * (plot.right - plot.left);
+  const y = plot.bottom - ((yValue! - yMin) / (yMax - yMin)) * (plot.bottom - plot.top);
+  return {
+    x: bounds.x + bounds.width * x,
+    y: bounds.y + bounds.height * y,
+    size: Math.max(120000, Math.round(Math.min(bounds.width, bounds.height) * 0.035)),
+  };
+}
+
+function applyPerinaChartAssets(template: ParsedTemplate, slide: ParsedSlide, patient: PatientRecord, xml: string): string {
+  if (!["perina-lapjag", "perina-rsab"].includes(template.profileId) || slide.index !== 7) return xml;
+  const pictures = pictureBoundsList(xml);
+  if (pictures.length < 2) return xml;
+  const gestationalAge = gestationalAgeInWeeks(patient);
+  const weight = numericMeasurement(patient, "demographics.weightKg");
+  const height = numericMeasurement(patient, "demographics.heightCm");
+  const headCircumference = numericMeasurement(patient, "templateData.headCircumference");
+  const points = [
+    {
+      name: "Koasis PERINA weight-for-gestational-age marker",
+      point: neonatalChartPoint(pictures[0], gestationalAge, weight, 28, 64, 0, 12, { left: 0.105, right: 0.852, top: 0.028, bottom: 0.955 }),
+    },
+    {
+      name: "Koasis PERINA length-for-gestational-age marker",
+      point: neonatalChartPoint(pictures[1], gestationalAge, height, 28, 64, 24, 75, { left: 0.108, right: 0.87, top: 0.028, bottom: 0.718 }),
+    },
+    {
+      name: "Koasis PERINA head-circumference marker",
+      point: neonatalChartPoint(pictures[1], gestationalAge, headCircumference, 28, 64, 18, 38, { left: 0.108, right: 0.87, top: 0.797, bottom: 0.962 }),
+    },
+  ];
+  return points.reduce((result, item) => item.point ? appendPlotMarker(result, item.point, item.name, "C00000") : result, xml);
 }
 
 function readAttribute(tag: string, name: string): string | undefined {
@@ -234,6 +311,12 @@ function patientText(patient: PatientRecord, path: string, maxLength = 320): str
   return compactText(fieldValue(valueAtPath(patient, path)), maxLength);
 }
 
+function neonatalBallardScore(patient: PatientRecord): string {
+  const value = patientText(patient, "templateData.ballardScore", 120);
+  const score = value.match(/\d+(?:[.,]\d+)?/)?.[0];
+  return score || value;
+}
+
 function treatmentLines(patient: PatientRecord, path: string): string[] {
   const values = rawFieldValue<TreatmentItem[]>(patient, path) ?? [];
   if (!values.length) return ["Tidak tercantum"];
@@ -244,6 +327,13 @@ function investigationLines(patient: PatientRecord, path: string): string[] {
   const values = rawFieldValue<InvestigationItem[]>(patient, path) ?? [];
   if (!values.length) return ["Tidak tercantum"];
   return values.map((item) => [item.name, item.result, item.unit].filter(Boolean).join(" · "));
+}
+
+function imagingEvidenceLines(patient: PatientRecord): string[] {
+  const lines = investigationLines(patient, "investigations.imaging");
+  if (!(lines.length === 1 && lines[0] === "Tidak tercantum")) return lines;
+  const attachments = (patient.attachments ?? []).filter((attachment) => attachment.kind === "image");
+  return attachments.length ? attachments.map((attachment) => `Evidence gambar: ${attachment.name}`) : lines;
 }
 
 function organFindingLines(patient: PatientRecord): string[] {
@@ -508,9 +598,12 @@ function templateSectionText(patient: PatientRecord, key: string): string {
       ]);
     case "stableStabilization": return "Tidak tercantum";
     case "neonatalManagement": return "Tidak tercantum";
-    case "neonatalAnthropometryConclusion": return patientText(patient, "templateData.nutritionConclusion", 600);
+    case "neonatalAnthropometryConclusion": {
+      const neonatalConclusion = patientText(patient, "templateData.neonatalAnthropometryConclusion", 600);
+      return neonatalConclusion === "Tidak tercantum" ? patientText(patient, "templateData.nutritionConclusion", 600) : neonatalConclusion;
+    }
     case "supportingInvestigations": return formatPatientBlock("patient.investigationsBlock", patient);
-    case "radiology": return investigationLines(patient, "investigations.imaging").join("\n");
+    case "radiology": return imagingEvidenceLines(patient).join("\n");
     case "otherExaminations": return investigationLines(patient, "investigations.other").join("\n");
     case "emergencyManagement": return formatPatientBlock("patient.managementBlock", patient);
     case "growthDevelopment": return patientText(patient, "templateData.growthDevelopment", 1000);
@@ -524,8 +617,7 @@ function templateAnthropometryText(patient: PatientRecord, template?: ParsedTemp
       blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
       blockLine("TB", patientText(patient, "demographics.heightCm", 80)),
       blockLine("LK", patientText(patient, "templateData.headCircumference", 80)),
-      blockLine("Ballard score", patientText(patient, "templateData.ballardScore", 120)),
-      blockLine("Kesan", patientText(patient, "templateData.neonatalAnthropometryConclusion", 300)),
+      blockLine("Ballard score", neonatalBallardScore(patient), 40),
     ].join("\n");
   }
   if (template?.profileId === "rscm") {
@@ -594,7 +686,7 @@ function contentForField(
   if (semanticField === "patient.anthropometryBlock") return templateAnthropometryText(patient, template);
   if (semanticField === "patient.assessment.summary" && context?.slide?.role === "anthropometry") return templateSectionText(patient, "nutritionConclusion");
   if (semanticField === "patient.assessment.summary" && context?.slide?.role === "diagnosis" && /(?:akhir|final)/i.test(`${context.slide.title} ${context.shapeText || ""}`)) return templateSectionText(patient, "finalDiagnosis");
-  if (semanticField === "patient.investigations.imaging") return investigationLines(patient, "investigations.imaging").join("\n");
+  if (semanticField === "patient.investigations.imaging") return imagingEvidenceLines(patient).join("\n");
   if (semanticField.includes("Block") || semanticField.endsWith("summary") || semanticField === "patient.physicalExam.organFindings" || semanticField === "patient.investigations.laboratory") {
     return formatPatientBlock(semanticField, patient);
   }
@@ -674,6 +766,80 @@ function appendEditableTextBox(xml: string, text: string, bounds: { x: number; y
   const paragraphs = text.split(/\r?\n/).map((line) => `<a:p><a:r><a:rPr lang="en-US" sz="1500"/><a:t>${escapeXml(line)}</a:t></a:r><a:endParaRPr lang="en-US" sz="1500"/></a:p>`).join("");
   const shape = `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXml(name)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${toEmu(bounds.x)}" y="${toEmu(bounds.y)}"/><a:ext cx="${toEmu(bounds.width)}" cy="${toEmu(bounds.height)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square"><a:normAutofit fontScale="65000" lnSpcReduction="20000"/></a:bodyPr><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`;
   return xml.replace(/<\/p:spTree>/, `${shape}</p:spTree>`);
+}
+
+function decodeImageDataUrl(dataUrl: string): { bytes: Uint8Array; mimeType: string } | undefined {
+  const match = dataUrl.match(/^data:([^;,]+);base64,([\s\S]+)$/i);
+  if (!match || typeof atob !== "function") return undefined;
+  try {
+    const binary = atob(match[2]);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return { bytes, mimeType: match[1].toLowerCase() };
+  } catch {
+    return undefined;
+  }
+}
+
+function imageDimensions(bytes: Uint8Array, mimeType: string): { width: number; height: number } | undefined {
+  if (mimeType === "image/png" && bytes.length >= 24) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1];
+      if (marker === 0xd8 || marker === 0xd9) {
+        offset += 2;
+        continue;
+      }
+      if (offset + 4 > bytes.length) break;
+      const segmentLength = view.getUint16(offset + 2);
+      if (segmentLength < 2 || offset + 2 + segmentLength > bytes.length) break;
+      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+        return { width: view.getUint16(offset + 7), height: view.getUint16(offset + 5) };
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+  return undefined;
+}
+
+function imageFileExtension(attachment: PatientAttachment, mimeType: string): "png" | "jpg" | undefined {
+  if (mimeType === "image/png" || /\.png$/i.test(attachment.name)) return "png";
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg" || /\.jpe?g$/i.test(attachment.name)) return "jpg";
+  return undefined;
+}
+
+function fitImageToSlot(shape: ParsedShape, dimensions: { width: number; height: number } | undefined): PictureBounds | undefined {
+  if ([shape.x, shape.y, shape.width, shape.height].some((value) => typeof value !== "number" || value <= 0)) return undefined;
+  const slot = {
+    x: shape.x! + 0.12,
+    y: shape.y! + 0.48,
+    width: Math.max(0.2, shape.width! - 0.24),
+    height: Math.max(0.2, shape.height! - 0.60),
+  };
+  if (!dimensions || !dimensions.width || !dimensions.height) return slot;
+  const sourceRatio = dimensions.width / dimensions.height;
+  const slotRatio = slot.width / slot.height;
+  if (sourceRatio > slotRatio) {
+    const height = slot.width / sourceRatio;
+    return { ...slot, y: slot.y + (slot.height - height) / 2, height };
+  }
+  const width = slot.height * sourceRatio;
+  return { ...slot, x: slot.x + (slot.width - width) / 2, width };
+}
+
+function appendEvidencePicture(xml: string, relationshipId: string, bounds: PictureBounds, name: string): string {
+  const id = maxNumericAttribute(xml, "id") + 1;
+  const toEmu = (value: number) => Math.round(value * EMU_PER_INCH);
+  const picture = `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${escapeXml(name)}"/><p:cNvPicPr preferRelativeResize="0"/><p:nvPr/></p:nvPicPr><p:blipFill rotWithShape="1"><a:blip r:embed="${relationshipId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${toEmu(bounds.x)}" y="${toEmu(bounds.y)}"/><a:ext cx="${toEmu(bounds.width)}" cy="${toEmu(bounds.height)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr></p:pic>`;
+  return xml.replace(/<\/p:spTree>/, `${picture}</p:spTree>`);
 }
 
 function coverDateLabel(date: string): string {
@@ -1086,6 +1252,14 @@ function applyBindings(
   if (slide.role === "shift_summary") result = replacePatientCountTitle(result, slide, patients.length);
   if (patient && slide.role === "management") result = replaceStaleNutritionTitle(result, slide, patient);
   result = clearUnboundSamplePatientText(result, slide, bindings);
+  const imagingBindings = bindings
+    .filter((binding) => binding.slideIndex === slide.index && binding.semanticField === "patient.investigations.imaging")
+    .sort((left, right) => (slide.shapes.find((shape) => shape.id === left.shapeId)?.x ?? 0) - (slide.shapes.find((shape) => shape.id === right.shapeId)?.x ?? 0));
+  const hasDedicatedRadiologyImageColumn = Boolean(
+    patient
+    && (patient.attachments ?? []).filter((attachment) => attachment.kind === "image").length === 1
+    && imagingBindings.length >= 2,
+  );
   bindings
     .filter((binding) => binding.slideIndex === slide.index && binding.semanticField !== "static")
     .forEach((binding) => {
@@ -1094,7 +1268,10 @@ function applyBindings(
         result = replaceTableBinding(result, binding.shapeId, binding.semanticField, patient, patients, template, binding.templateKey);
         return;
       }
-      const content = contentForField(binding.semanticField, patient, shift, template, binding.templateKey, { slide, shapeText: shape?.text });
+      let content = contentForField(binding.semanticField, patient, shift, template, binding.templateKey, { slide, shapeText: shape?.text });
+      if (hasDedicatedRadiologyImageColumn && binding.semanticField === "patient.investigations.imaging" && binding.shapeId !== imagingBindings[0]?.shapeId) {
+        content = " ";
+      }
       if (content !== undefined) {
         const highlightAbnormal = ["patient.pediatricAssessmentBlock", "patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.primarySurveyBlock", "patient.physicalExamBlock"].includes(binding.semanticField);
         const replaceWholeTemplateSection = binding.semanticField === "patient.templateSection";
@@ -1133,6 +1310,11 @@ function addRelationship(xml: string, id: string, target: string): string {
   return xml.replace(/<\/Relationships>/, `${relationship}</Relationships>`);
 }
 
+function addImageRelationship(xml: string, id: string, target: string): string {
+  const relationship = `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${target}"/>`;
+  return xml.replace(/<\/Relationships>/, `${relationship}</Relationships>`);
+}
+
 function addContentType(xml: string, fileName: string): string {
   const partName = `/${fileName}`;
   if (xml.includes(`PartName="${partName}"`)) return xml;
@@ -1160,6 +1342,50 @@ function contiguousRepeatGroups(slides: ParsedSlide[]): Array<ParsedSlide[]> {
   });
   if (current.length) groups.push(current);
   return groups;
+}
+
+function isRadiologySlide(slide: ParsedSlide): boolean {
+  return slide.role === "investigation" && /radiologi|radiology|foto\s+toraks|imaging|usg/i.test(`${slide.title} ${slide.text}`);
+}
+
+async function applyPatientEvidenceImages(
+  zip: JSZip,
+  slide: ParsedSlide,
+  patient: PatientRecord,
+  xml: string,
+  relationshipPath: string,
+  patientIndex: number,
+): Promise<string> {
+  if (!isRadiologySlide(slide)) return xml;
+  const imageAttachments = (patient.attachments ?? []).filter((attachment) => attachment.kind === "image");
+  if (!imageAttachments.length) return xml;
+  const slots = slide.shapes
+    .filter((shape) => shape.kind === "text" && shape.placeholderType === "body" && shape.x !== undefined && shape.y !== undefined && shape.width !== undefined && shape.height !== undefined)
+    .sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
+  if (!slots.length) return xml;
+  const relationshipsFile = zip.file(relationshipPath);
+  if (!relationshipsFile) return xml;
+  const useDedicatedImageColumn = imageAttachments.length === 1 && slots.length >= 2;
+  const imageSlots = useDedicatedImageColumn ? [slots[slots.length - 1]] : slots.slice(0, imageAttachments.length);
+  let relationships = await relationshipsFile.async("string");
+  let result = xml;
+  for (const [imageIndex, attachment] of imageAttachments.slice(0, imageSlots.length).entries()) {
+    const decoded = decodeImageDataUrl(attachment.dataUrl);
+    if (!decoded) continue;
+    const extension = imageFileExtension(attachment, decoded.mimeType);
+    if (!extension) continue;
+    const bounds = fitImageToSlot(imageSlots[imageIndex], imageDimensions(decoded.bytes, decoded.mimeType));
+    if (!bounds) continue;
+    const assetName = `koasis-radiology-${patientIndex + 1}-${imageIndex + 1}.${extension}`;
+    const relationshipId = `rId${maxRelationshipNumber(relationships) + 1}`;
+    // Relationship targets are resolved from the slide part (ppt/slides),
+    // matching the media links already present in the supplied templates.
+    relationships = addImageRelationship(relationships, relationshipId, `../media/${assetName}`);
+    zip.file(`ppt/media/${assetName}`, decoded.bytes);
+    result = appendEvidencePicture(result, relationshipId, bounds, `Koasis radiology evidence ${patientIndex + 1}-${imageIndex + 1}`);
+  }
+  zip.file(relationshipPath, relationships);
+  return result;
 }
 
 export async function generatePresentation(
@@ -1212,8 +1438,10 @@ export async function generatePresentation(
     if (originalRels) {
       zip.file(newRelsPath, await originalRels.async("string"));
     }
-    const finalXml = await applyLapjagChartAssets(zip, template, slide, patient, generatedXml, newRelsPath);
-    zip.file(newSlideFile, finalXml);
+    const chartXml = await applyLapjagChartAssets(zip, template, slide, patient, generatedXml, newRelsPath);
+    const finalXml = applyPerinaChartAssets(template, slide, patient, chartXml);
+    const evidenceXml = await applyPatientEvidenceImages(zip, slide, patient, finalXml, newRelsPath, patientIndex);
+    zip.file(newSlideFile, evidenceXml);
     presentationRels = addRelationship(presentationRels, newRelationshipId, `slides/slide${nextSlideFileNumber}.xml`);
     contentTypesXml = addContentType(contentTypesXml, newSlideFile);
     return { slideId: String(nextSlideId), relationshipId: newRelationshipId, patientIndex };
@@ -1230,8 +1458,11 @@ export async function generatePresentation(
           if (patientIndex === 0) {
             const original = originalSlideXml.get(item.index) ?? "";
             const generatedXml = applyBindings(original, item, bindings, patients[patientIndex], shift, patients, template);
-            const finalXml = await applyLapjagChartAssets(zip, template, item, patients[patientIndex], generatedXml, rawSlideRelationshipPath(item.fileName));
-            zip.file(item.fileName, finalXml);
+            const relationshipPath = rawSlideRelationshipPath(item.fileName);
+            const chartXml = await applyLapjagChartAssets(zip, template, item, patients[patientIndex], generatedXml, relationshipPath);
+            const finalXml = applyPerinaChartAssets(template, item, patients[patientIndex], chartXml);
+            const evidenceXml = await applyPatientEvidenceImages(zip, item, patients[patientIndex], finalXml, relationshipPath, patientIndex);
+            zip.file(item.fileName, evidenceXml);
             slideOrder.push({
               slideId: originalSlideIds[item.index] ?? String(256 + item.index),
               relationshipId: item.relationshipId,
