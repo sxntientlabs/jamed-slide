@@ -408,7 +408,7 @@ const RSUI_GUIDES: TemplateSlideGuide[] = [
 
 export const LAPJAG_PROFILE: TemplateProfile = {
   id: "lapjag",
-  label: "Perina RSAB",
+  label: "Contoh PPT Lapjag",
   description: "Form dan schema ekstraksi mengikuti 27 slide Lapjag, termasuk PAT, ABCDE/AMPLE, antropometri, WHO, dan tata laksana.",
   extractionInstructions: [
     "Gunakan kontrak Lapjag: pisahkan identitas, PAT, primary survey ABCDE, secondary survey AMPLE, RPS/RPD, pemeriksaan fisik, penunjang, diagnosis awal/final, dan tata laksana.",
