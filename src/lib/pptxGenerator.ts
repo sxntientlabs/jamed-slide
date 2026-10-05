@@ -17,11 +17,17 @@ import { decodeXml, escapeXml } from "./pptxParser";
 import { formatFieldValue } from "./clinicalParser";
 import { getTemplateProfile } from "./templateProfiles";
 import { validateTemplateContract } from "./templateContract";
+import { slideIsIncluded } from "./templateSlides";
 
 interface GeneratedPresentation {
   blob: Blob;
   fileName: string;
   slideCount: number;
+}
+
+export interface PresentationGenerationOptions {
+  /** Patient whose detailed clinical slides should be repeated. */
+  focusPatientId?: string;
 }
 
 const EMU_PER_INCH = 914400;
@@ -536,6 +542,19 @@ function formatPatientBlock(semanticField: SemanticField, patient: PatientRecord
         optionalBlockLine("SpO₂", patientText(patient, "physicalExam.vitalSigns.spo2", 90)),
         rawFieldValue<OrganFinding[]>(patient, "physicalExam.organFindings")?.length ? "" : optionalBlockLine("Temuan", patientText(patient, "physicalExam.findings", 600)),
       ]);
+    case "patient.physicalExam.generalAppearanceBlock":
+      return presentLines([
+        optionalBlockLine("Keadaan umum", patientText(patient, "physicalExam.generalAppearance", 220)),
+        optionalBlockLine("Kesadaran", patientText(patient, "physicalExam.consciousness", 180)),
+      ]);
+    case "patient.physicalExam.vitalSignsBlock":
+      return presentLines([
+        optionalBlockLine("Tekanan darah", patientText(patient, "physicalExam.vitalSigns.bloodPressure", 90)),
+        optionalBlockLine("Nadi", patientText(patient, "physicalExam.vitalSigns.heartRate", 90)),
+        optionalBlockLine("Laju napas", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 90)),
+        optionalBlockLine("Suhu", patientText(patient, "physicalExam.vitalSigns.temperature", 90)),
+        optionalBlockLine("SpO₂", patientText(patient, "physicalExam.vitalSigns.spo2", 90)),
+      ]);
     case "patient.investigationsBlock":
       return presentLines([
         rawFieldValue<InvestigationItem[]>(patient, "investigations.laboratory")?.length ? "Laboratorium:" : "",
@@ -901,10 +920,17 @@ function replaceTemplateCoverDate(xml: string, slide: ParsedSlide, shift: ShiftD
   return replaceShapeText(xml, titleShape.id, replacement, false);
 }
 
-function replacePatientCountTitle(xml: string, slide: ParsedSlide, patientCount: number): string {
+interface SummaryPageContext {
+  index: number;
+  total: number;
+  startIndex: number;
+}
+
+function replacePatientCountTitle(xml: string, slide: ParsedSlide, patientCount: number, page?: SummaryPageContext): string {
   const titleShape = slide.shapes.find((shape) => /pasien baru/.test(shape.text.toLowerCase()));
   if (!titleShape) return xml;
-  const replacement = titleShape.text.replace(/pasien baru\s*:\s*.*?\s+pasien/i, `PASIEN BARU: ${patientCount} PASIEN`);
+  const continuation = page && page.total > 1 && page.index > 1 ? ` (LANJUTAN ${page.index}/${page.total})` : "";
+  const replacement = titleShape.text.replace(/pasien baru\s*:\s*.*?\s+pasien/i, `PASIEN BARU: ${patientCount} PASIEN${continuation}`);
   return replaceShapeText(xml, titleShape.id, replacement, false);
 }
 
@@ -930,6 +956,20 @@ function isLikelySamplePatientText(shape: ParsedShape, slide: ParsedSlide): bool
   if (!slide.repeat || text.length < 120) return false;
   if (/(?:nama|usia|umur|diagnosis|diagnosa|kesan|hasil|interpretasi|jantung|paru|radiologi|laboratorium|tata laksana|obat|pasien)\s*[:：]/i.test(text)) return true;
   return Boolean(shape.fontSizePt && shape.fontSizePt <= 18);
+}
+
+function isTemplateInstructionText(text: string): boolean {
+  return /slide\s+ini\s+(?:cuma|hanya)|opsional\s+(?:harus|untuk)|kalau\s+emang\s+kasusnya|hapus\s+aja|ga\s+harus\s+ada|tidak\s+nyambung|orang\s+kasusnya/i.test(text);
+}
+
+function clearTemplateInstructionText(xml: string, slide: ParsedSlide): string {
+  const shapeMatcher = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+  return xml.replace(shapeMatcher, (block) => {
+    const cNvPr = block.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "";
+    const id = readAttribute(cNvPr, "id");
+    const shape = id ? slide.shapes.find((item) => item.id === id) : undefined;
+    return shape && isTemplateInstructionText(shape.text) ? replaceTextBody(block, "", true) : block;
+  });
 }
 
 function clearUnboundSamplePatientText(xml: string, slide: ParsedSlide, bindings: TemplateBinding[]): string {
@@ -982,6 +1022,33 @@ function replaceTableRowCells(row: string, replacements: Map<number, string>): s
     result = result.replace(cell, ensureTextAutoFit(replaceCellText(cell, compactText(replacement, 360))));
   });
   return result;
+}
+
+function blankTableRow(row: string): string {
+  const replacements = new Map<number, string>();
+  tableCells(row).forEach((_cell, index) => replacements.set(index, ""));
+  return replaceTableRowCells(row, replacements);
+}
+
+function summaryTableCapacityFromXml(xml: string, slide: ParsedSlide, bindings: TemplateBinding[]): number {
+  const binding = bindings.find((item) => item.slideIndex === slide.index && item.semanticField === "shift.patientSummaryTable");
+  if (!binding) return 0;
+  const shape = slide.shapes.find((item) => item.id === binding.shapeId);
+  let capacity = Math.max(0, (shape?.tableRows?.length ?? 0) - 1);
+  const shapeMatcher = /<p:graphicFrame\b[\s\S]*?<\/p:graphicFrame>/g;
+  xml.replace(shapeMatcher, (block) => {
+    const cNvPr = block.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "";
+    if (readAttribute(cNvPr, "id") !== binding.shapeId) return block;
+    capacity = Math.max(0, tableRows(block).length - 1);
+    return block;
+  });
+  return capacity;
+}
+
+function isAllPatientsSummarySlide(slide: ParsedSlide, bindings: TemplateBinding[]): boolean {
+  return slide.role === "shift_summary"
+    || slide.patientScope === "all_patients"
+    || bindings.some((binding) => binding.slideIndex === slide.index && binding.semanticField === "shift.patientSummaryTable");
 }
 
 function canonicalInvestigationLabel(label: string): string {
@@ -1080,6 +1147,7 @@ function replaceTableBinding(
   patients: PatientRecord[],
   template?: ParsedTemplate,
   templateKey?: string,
+  summaryStartIndex = 0,
 ): string {
   const shapeMatcher = /<p:graphicFrame\b[\s\S]*?<\/p:graphicFrame>/g;
   return xml.replace(shapeMatcher, (block) => {
@@ -1089,21 +1157,16 @@ function replaceTableBinding(
     if (!rows.length) return block;
     let result = block;
     if (semanticField === "shift.patientSummaryTable") {
-      const capacity = Math.max(0, rows.length - 1);
-      const visiblePatients = patients.slice(0, Math.max(0, capacity - (patients.length > capacity ? 1 : 0)));
-      visiblePatients.forEach((item, index) => {
+      const summaryRows = tableRows(result);
+      const capacity = Math.max(0, summaryRows.length - 1);
+      patients.slice(0, capacity).forEach((item, index) => {
         const diagnosis = rawFieldValue<string[]>(item, "assessment.workingDiagnosis")?.join(", ") || "Tidak tercantum";
-        const row = rows[index + 1];
+        const row = summaryRows[index + 1];
         if (!row) return;
-        result = result.replace(row, replaceTableRowCells(row, new Map([[0, String(index + 1)], [1, patientSummaryIdentity(item)], [2, diagnosis], [3, patientUrgency(item, template?.profileId === "rscm")]])));
+        result = result.replace(row, replaceTableRowCells(row, new Map([[0, String(summaryStartIndex + index + 1)], [1, patientSummaryIdentity(item)], [2, diagnosis], [3, patientUrgency(item, template?.profileId === "rscm")]])));
       });
-      if (patients.length > capacity && capacity > 0) {
-        const warningRow = rows[capacity];
-        result = result.replace(warningRow, replaceTableRowCells(warningRow, new Map([[0, "!"], [1, `+${patients.length - visiblePatients.length} pasien lainnya`], [2, "Overflow: tambah slide/manual"], [3, "Tidak tercantum"]])));
-      }
-      const usedRows = Math.min(capacity, visiblePatients.length + (patients.length > capacity ? 1 : 0));
-      rows.slice(1 + usedRows).forEach((row) => {
-        result = result.replace(row, replaceTableRowCells(row, new Map([[0, ""], [1, ""], [2, ""], [3, ""]])));
+      summaryRows.slice(1 + Math.min(capacity, patients.length)).forEach((row) => {
+        result = result.replace(row, blankTableRow(row));
       });
       return result;
     }
@@ -1248,13 +1311,16 @@ function applyBindings(
   shift: ShiftDetails,
   patients: PatientRecord[],
   template: ParsedTemplate,
+  summaryPatients: PatientRecord[] = patients,
+  summaryPage?: SummaryPageContext,
 ): string {
   let result = xml;
   if (slide.role === "cover") {
     result = template.profileId === "lapjag" ? replaceLapjagCoverDate(result, slide, shift) : replaceTemplateCoverDate(result, slide, shift, template);
   }
-  if (slide.role === "shift_summary") result = replacePatientCountTitle(result, slide, patients.length);
+  if (isAllPatientsSummarySlide(slide, bindings)) result = replacePatientCountTitle(result, slide, patients.length, summaryPage);
   if (patient && slide.role === "management") result = replaceStaleNutritionTitle(result, slide, patient);
+  result = clearTemplateInstructionText(result, slide);
   result = clearUnboundSamplePatientText(result, slide, bindings);
   const imagingBindings = bindings
     .filter((binding) => binding.slideIndex === slide.index && binding.semanticField === "patient.investigations.imaging")
@@ -1269,7 +1335,8 @@ function applyBindings(
     .forEach((binding) => {
       const shape = slide.shapes.find((item) => item.id === binding.shapeId);
       if (shape?.kind === "graphicFrame" || binding.semanticField.includes("Table") || binding.semanticField === "patient.physicalExam.organFindings" || binding.semanticField === "patient.investigations.laboratory") {
-        result = replaceTableBinding(result, binding.shapeId, binding.semanticField, patient, patients, template, binding.templateKey);
+        const tablePatients = binding.semanticField === "shift.patientSummaryTable" ? summaryPatients : patients;
+        result = replaceTableBinding(result, binding.shapeId, binding.semanticField, patient, tablePatients, template, binding.templateKey, summaryPage?.startIndex ?? 0);
         return;
       }
       let content = contentForField(binding.semanticField, patient, shift, template, binding.templateKey, { slide, shapeText: shape?.text });
@@ -1445,8 +1512,15 @@ export async function generatePresentation(
   patients: PatientRecord[],
   bindings: TemplateBinding[],
   shift: ShiftDetails,
+  options: PresentationGenerationOptions = {},
 ): Promise<GeneratedPresentation> {
   if (!patients.length) throw new Error("Tambahkan minimal satu pasien sebelum membuat laporan.");
+  const detailPatients = options.focusPatientId
+    ? patients.filter((patient) => patient.id === options.focusPatientId)
+    : patients;
+  if (options.focusPatientId && !detailPatients.length) {
+    throw new Error("Pilih satu pasien utama untuk dibahas mendalam sebelum membuat laporan.");
+  }
   const contract = validateTemplateContract({ ...template, bindings });
   if (!contract.valid) {
     throw new Error(`Template belum siap untuk generate: ${contract.errors.slice(0, 3).join(" ")}`);
@@ -1476,7 +1550,27 @@ export async function generatePresentation(
   let nextSlideId = Math.max(255, maxNumericAttribute(presentationXml, "id"));
   let nextRelationshipId = maxRelationshipNumber(presentationRels);
   const slideOrder: Array<{ slideId: string; relationshipId: string }> = [];
-  const groups = contiguousRepeatGroups(template.slides);
+  const includedSlides = template.slides.filter(slideIsIncluded);
+  const summaryPagesBySlide = new Map<number, Array<SummaryPageContext & { patients: PatientRecord[] }>>();
+  includedSlides.forEach((slide) => {
+    if (!isAllPatientsSummarySlide(slide, bindings)) return;
+    const originalXml = originalSlideXml.get(slide.index) ?? "";
+    const capacity = summaryTableCapacityFromXml(originalXml, slide, bindings);
+    if (capacity <= 0) {
+      throw new Error(`Slide ringkasan pasien (${slide.index + 1}) tidak memiliki baris tabel yang bisa diisi.`);
+    }
+    const total = Math.max(1, Math.ceil(patients.length / capacity));
+    summaryPagesBySlide.set(slide.index, Array.from({ length: total }, (_, pageIndex) => {
+      const startIndex = pageIndex * capacity;
+      return {
+        index: pageIndex + 1,
+        total,
+        startIndex,
+        patients: patients.slice(startIndex, startIndex + capacity),
+      };
+    }));
+  });
+  const groups = contiguousRepeatGroups(includedSlides);
   const groupStarts = new Map(groups.map((group) => [group[0].index, group]));
   const consumed = new Set<number>();
 
@@ -1503,35 +1597,77 @@ export async function generatePresentation(
     return { slideId: String(nextSlideId), relationshipId: newRelationshipId, patientIndex };
   };
 
-  for (let index = 0; index < template.slides.length; index += 1) {
-    const slide = template.slides[index];
+  const createSummaryClone = async (slide: ParsedSlide, page: SummaryPageContext & { patients: PatientRecord[] }) => {
+    const originalXml = originalSlideXml.get(slide.index) ?? "";
+    const generatedXml = applyBindings(originalXml, slide, bindings, undefined, shift, patients, template, page.patients, page);
+    nextSlideFileNumber += 1;
+    nextSlideId += 1;
+    nextRelationshipId += 1;
+    const newSlideFile = `ppt/slides/slide${nextSlideFileNumber}.xml`;
+    const newRelationshipId = `rId${nextRelationshipId}`;
+    const originalRelsPath = rawSlideRelationshipPath(slide.fileName);
+    const originalRels = zip.file(originalRelsPath);
+    const newRelsPath = `ppt/slides/_rels/slide${nextSlideFileNumber}.xml.rels`;
+    if (originalRels) {
+      zip.file(newRelsPath, await originalRels.async("string"));
+    }
+    zip.file(newSlideFile, generatedXml);
+    presentationRels = addRelationship(presentationRels, newRelationshipId, `slides/slide${nextSlideFileNumber}.xml`);
+    contentTypesXml = addContentType(contentTypesXml, newSlideFile);
+    return { slideId: String(nextSlideId), relationshipId: newRelationshipId };
+  };
+
+  for (const slide of includedSlides) {
     if (consumed.has(slide.index)) continue;
     const group = groupStarts.get(slide.index);
     if (group) {
       group.forEach((item) => consumed.add(item.index));
-      for (let patientIndex = 0; patientIndex < patients.length; patientIndex += 1) {
+      for (let patientIndex = 0; patientIndex < detailPatients.length; patientIndex += 1) {
         for (const item of group) {
           if (patientIndex === 0) {
             const original = originalSlideXml.get(item.index) ?? "";
-            const generatedXml = applyBindings(original, item, bindings, patients[patientIndex], shift, patients, template);
+            const generatedXml = applyBindings(original, item, bindings, detailPatients[patientIndex], shift, patients, template);
             const relationshipPath = rawSlideRelationshipPath(item.fileName);
-            const chartXml = await applyLapjagChartAssets(zip, template, item, patients[patientIndex], generatedXml, relationshipPath);
-            const finalXml = applyPerinaChartAssets(template, item, patients[patientIndex], chartXml);
-            const evidenceXml = await applyPatientEvidenceImages(zip, item, patients[patientIndex], finalXml, relationshipPath, patientIndex, bindings);
+            const chartXml = await applyLapjagChartAssets(zip, template, item, detailPatients[patientIndex], generatedXml, relationshipPath);
+            const finalXml = applyPerinaChartAssets(template, item, detailPatients[patientIndex], chartXml);
+            const evidenceXml = await applyPatientEvidenceImages(zip, item, detailPatients[patientIndex], finalXml, relationshipPath, patientIndex, bindings);
             zip.file(item.fileName, evidenceXml);
             slideOrder.push({
               slideId: originalSlideIds[item.index] ?? String(256 + item.index),
               relationshipId: item.relationshipId,
             });
           } else {
-            const clone = await createClone(item, patients[patientIndex], patientIndex);
+            const clone = await createClone(item, detailPatients[patientIndex], patientIndex);
             slideOrder.push({ slideId: clone.slideId, relationshipId: clone.relationshipId });
           }
         }
       }
     } else {
       const original = originalSlideXml.get(slide.index) ?? "";
-      zip.file(slide.fileName, applyBindings(original, slide, bindings, undefined, shift, patients, template));
+      const summaryPages = summaryPagesBySlide.get(slide.index);
+      if (summaryPages) {
+        for (const [pageIndex, page] of summaryPages.entries()) {
+          const boundXml = applyBindings(original, slide, bindings, undefined, shift, patients, template, page.patients, page);
+          if (pageIndex === 0) {
+            zip.file(slide.fileName, boundXml);
+            slideOrder.push({
+              slideId: originalSlideIds[slide.index] ?? String(256 + slide.index),
+              relationshipId: slide.relationshipId,
+            });
+          } else {
+            const clone = await createSummaryClone(slide, page);
+            slideOrder.push({ slideId: clone.slideId, relationshipId: clone.relationshipId });
+          }
+        }
+        continue;
+      }
+      const scopedPatient = slide.patientScope === "focus_patient" ? detailPatients[0] : undefined;
+      const boundXml = applyBindings(original, slide, bindings, scopedPatient, shift, patients, template);
+      const relationshipPath = rawSlideRelationshipPath(slide.fileName);
+      const chartXml = scopedPatient ? await applyLapjagChartAssets(zip, template, slide, scopedPatient, boundXml, relationshipPath) : boundXml;
+      const finalXml = scopedPatient ? applyPerinaChartAssets(template, slide, scopedPatient, chartXml) : chartXml;
+      const evidenceXml = scopedPatient ? await applyPatientEvidenceImages(zip, slide, scopedPatient, finalXml, relationshipPath, 0, bindings) : finalXml;
+      zip.file(slide.fileName, evidenceXml);
       slideOrder.push({
         slideId: originalSlideIds[slide.index] ?? String(256 + slide.index),
         relationshipId: slide.relationshipId,
@@ -1540,12 +1676,20 @@ export async function generatePresentation(
   }
 
   presentationXml = updateSlideList(presentationXml, slideOrder);
+  const excludedSlides = template.slides.filter((slide) => !slideIsIncluded(slide));
+  excludedSlides.forEach((slide) => {
+    const slideNumber = slide.fileName.match(/slide(\d+)\.xml$/)?.[1];
+    if (!slideNumber) return;
+    zip.remove(slide.fileName);
+    zip.remove(rawSlideRelationshipPath(slide.fileName));
+    presentationRels = presentationRels.replace(new RegExp(`<Relationship\\b[^>]*Target="(?:\\.\\./)?slides/slide${slideNumber}\\.xml"[^>]*/>`, "g"), "");
+    contentTypesXml = contentTypesXml.replace(new RegExp(`<Override\\b[^>]*PartName="/ppt/slides/slide${slideNumber}\\.xml"[^>]*/>`, "g"), "");
+  });
   zip.file("ppt/presentation.xml", presentationXml);
   zip.file("ppt/_rels/presentation.xml.rels", presentationRels);
   zip.file("[Content_Types].xml", contentTypesXml);
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-  const validationZip = await JSZip.loadAsync(blob);
-  const slideCount = Object.keys(validationZip.files).filter((file) => /^ppt\/slides\/slide\d+\.xml$/.test(file)).length;
+  const slideCount = slideOrder.length;
   return {
     blob,
     fileName: `${shift.title || "laporan-jaga"}.pptx`.replace(/[\\/:*?"<>|]+/g, "-") || "laporan-jaga.pptx",

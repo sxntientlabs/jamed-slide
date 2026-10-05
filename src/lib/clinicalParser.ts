@@ -124,10 +124,21 @@ function treatmentCandidates(source: string, patterns: RegExp[]): Candidate<Trea
   );
 }
 
-function splitPatientSections(rawText: string): string[] {
+export function splitPatientSections(rawText: string): string[] {
   const normalized = rawText.replace(/\r/g, "").trim();
   if (!normalized) return [];
   const lines = normalized.split("\n");
+  const hasRosterHeader = lines.some((line) =>
+    /\b(?:pasien\s+baru|daftar\s+pasien|list\s+pasien|roster)\b/i.test(line)
+    || (/\bnama\b/i.test(line) && /\b(?:diagnos|kegawatan|urgensi|usia|umur)\b/i.test(line)),
+  );
+  const rosterStarts = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^\s*\d+\s*[.)]\s+/.test(line))
+    .map(({ index }) => index);
+  if (hasRosterHeader && rosterStarts.length) {
+    return rosterStarts.map((start, index) => lines.slice(start, rosterStarts[index + 1] ?? lines.length).join("\n").trim()).filter(Boolean);
+  }
   const starts = lines
     .map((line, index) => ({ line, index }))
     .filter(({ line }) =>
@@ -138,6 +149,26 @@ function splitPatientSections(rawText: string): string[] {
     .map(({ index }) => index);
   if (starts.length <= 1) return [normalized];
   return starts.map((start, index) => lines.slice(start, starts[index + 1] ?? lines.length).join("\n").trim());
+}
+
+function normalizeRosterRow(section: string): string {
+  const firstLine = section.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  if (!/^\s*\d+\s*[.)]\s+/.test(firstLine) || /\b(?:nama|usia|umur|diagnosis|diagnosa|kegawatan)\s*[:：]/i.test(section)) return section;
+  const row = firstLine.replace(/^\s*\d+\s*[.)]\s*/, "").trim();
+  const urgencyMatch = row.match(/(?:^|[\s|\t])((?:true|false|t|f))\s*$/i);
+  const urgency = urgencyMatch?.[1];
+  const withoutUrgency = urgency ? row.slice(0, urgencyMatch.index).trim().replace(/[|\t]+$/, "").trim() : row;
+  const ageMatch = withoutUrgency.match(/(?:^|[\s|\t/])([0-9]+(?:[.,][0-9]+)?)\s*(tahun|thn?|years?|bulan|bln|months?|hari|days?)\b/i);
+  if (!ageMatch || ageMatch.index === undefined) return section;
+  const name = withoutUrgency.slice(0, ageMatch.index).replace(/[|\t/\s]+$/, "").trim();
+  const diagnosis = withoutUrgency.slice(ageMatch.index + ageMatch[0].length).replace(/^[|\t\s:–-]+/, "").trim();
+  if (!name && !diagnosis) return section;
+  return [
+    name ? `Nama: ${name}` : "",
+    `Usia: ${ageMatch[1]} ${ageMatch[2]}`,
+    diagnosis ? `Diagnosis: ${diagnosis}` : "",
+    urgency ? `Kegawatan: ${urgency}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function patientHeading(section: string, index: number): string {
@@ -367,7 +398,7 @@ export function extractPatients(rawText: string, sourceId = `source-${Date.now()
   return {
     sourceId,
     sourceText: rawText,
-    patients: sections.map((section, index) => buildPatient(section, index, sourceId)),
+    patients: sections.map((section, index) => buildPatient(normalizeRosterRow(section), index, sourceId)),
   };
 }
 

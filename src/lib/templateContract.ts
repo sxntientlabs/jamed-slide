@@ -7,6 +7,7 @@ import type {
   TemplateContractCheck,
   TemplateContractValidation,
 } from "../types";
+import { slideIsIncluded } from "./templateSlides";
 
 const KNOWN_PROFILES = new Set(["lapjag", "perina-lapjag", "perina-rsab", "rscm", "rsui"]);
 
@@ -21,7 +22,7 @@ const SUPPORTED_SEMANTIC_FIELDS = new Set<SemanticField>([
   "patient.history.birthHistory", "patient.history.immunizationHistory", "patient.history.familyHistory", "patient.history.nutritionHistory",
   "patient.history.socioeconomicHistory", "patient.identityBlock", "patient.historyBlock", "patient.pediatricAssessmentBlock",
   "patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.primarySurveyBlock", "patient.secondarySurveyBlock",
-  "patient.anthropometryBlock", "patient.physicalExamBlock", "patient.physicalExam.organFindings", "patient.investigationsBlock",
+  "patient.anthropometryBlock", "patient.physicalExamBlock", "patient.physicalExam.generalAppearanceBlock", "patient.physicalExam.vitalSignsBlock", "patient.physicalExam.organFindings", "patient.investigationsBlock",
   "patient.investigations.summary", "patient.assessmentBlock", "patient.assessment.summary", "patient.managementBlock", "patient.managementTable",
   "patient.timelineBlock", "patient.nutritionBlock", "patient.templateSection", "patient.physicalExam.generalAppearance",
   "patient.physicalExam.consciousness", "patient.physicalExam.vitalSigns.bloodPressure", "patient.physicalExam.vitalSigns.heartRate",
@@ -63,7 +64,8 @@ function hasVisualOnlyContent(slide: ParsedSlide): boolean {
 }
 
 function hasLikelySampleText(shape: ParsedShape): boolean {
-  return /\b(?:contoh pasien|sample patient|pediatric sample|qhs|cti\s*0[,.]62|gizi\s*buruk|syok hipovolemia|diare akut|congenital heart failure)\b/i.test(shape.text);
+  return /\b(?:contoh pasien|sample patient|pediatric sample|qhs|cti\s*0[,.]62|gizi\s*buruk|syok hipovolemia|diare akut|congenital heart failure|cat\s*mudpi(?:les|lles)|high\s+anion\s+gap)\b/i.test(shape.text)
+    || /slide\s+ini\s+(?:cuma|hanya)|opsional\s+(?:harus|untuk)|hapus\s+aja|tidak\s+nyambung/i.test(shape.text);
 }
 
 function isSupportedShapeBinding(binding: TemplateBinding, shape: ParsedShape): boolean {
@@ -158,6 +160,7 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
   }
 
   const bindingKeys = new Map<string, TemplateBinding>();
+  const semanticTargets = new Map<string, TemplateBinding>();
   let bindingReferencesValid = true;
   let bindingSemanticsValid = true;
   bindings.forEach((binding) => {
@@ -168,6 +171,25 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
       check(checks, errors, warnings, `binding-conflict-${key}`, "Konflik binding", "error", `Shape ${binding.shapeId} memiliki dua semantic field berbeda pada slide ${binding.slideIndex + 1}.`, binding.slideIndex);
     }
     bindingKeys.set(key, binding);
+    if (binding.semanticField !== "patient.templateSection") {
+      const semanticKey = `${binding.slideIndex}:${binding.semanticField}:${binding.templateKey || ""}`;
+      const previousSemanticTarget = semanticTargets.get(semanticKey);
+      if (previousSemanticTarget && previousSemanticTarget.shapeId !== binding.shapeId) {
+        bindingSemanticsValid = false;
+        check(
+          checks,
+          errors,
+          warnings,
+          `binding-duplicate-semantic-${semanticKey}`,
+          "Duplikasi konteks binding",
+          isKnownProfile ? "warning" : "error",
+          `Fakta ${binding.semanticField} dipetakan ke beberapa box pada slide ${binding.slideIndex + 1}. Renderer menahan duplikasi agar teks tidak bertumpuk.`,
+          binding.slideIndex,
+        );
+      } else {
+        semanticTargets.set(semanticKey, binding);
+      }
+    }
     const slide = slideForBinding(template, binding);
     const shape = shapeForBinding(template, binding);
     if (!slide || !shape) {
@@ -195,8 +217,26 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
   check(checks, errors, warnings, "binding-references", "Referensi binding", bindingReferencesValid ? "pass" : "error", bindingReferencesValid ? "Semua binding menunjuk ke shape yang benar." : "Ada binding yang menunjuk ke shape atau slide yang tidak ada.");
   check(checks, errors, warnings, "binding-semantics", "Semantik binding", bindingSemanticsValid ? "pass" : "error", bindingSemanticsValid ? "Binding menggunakan semantic field yang renderer pahami." : "Ada binding yang tidak aman untuk dirender.");
 
-  const repeatSlides = slides.filter((slide) => slide.repeat);
-  const repeatBoundSlides = new Set(bindings.filter(isPatientBinding).map((binding) => binding.slideIndex));
+  const summarySlides = slides.filter((slide) => slide.role === "shift_summary" || slide.patientScope === "all_patients");
+  summarySlides.forEach((slide) => {
+    const hasSummaryBinding = bindings.some((binding) => binding.slideIndex === slide.index && binding.semanticField === "shift.patientSummaryTable");
+    const scopeConsistent = slide.patientScope === undefined || slide.patientScope === "all_patients";
+    if (!scopeConsistent) {
+      check(checks, errors, warnings, `summary-scope-${slide.index}`, "Scope tabel ringkasan", "error", `Slide ${slide.index + 1} berperan sebagai tabel pasien tetapi scope-nya bukan all_patients.`, slide.index);
+    }
+    if (!hasSummaryBinding) {
+      check(checks, errors, warnings, `summary-binding-${slide.index}`, "Mapping semua pasien", isGeneric ? "error" : "warning", `Slide ${slide.index + 1} perlu binding shift.patientSummaryTable agar seluruh pasien baru masuk ke tabel pembuka.`, slide.index);
+    }
+  });
+  const focusSlides = slides.filter((slide) => slideIsIncluded(slide) && slide.repeat);
+  focusSlides.forEach((slide) => {
+    if (slide.patientScope === "all_patients") {
+      check(checks, errors, warnings, `focus-scope-${slide.index}`, "Scope slide klinis", "error", `Slide ${slide.index + 1} ditandai berulang tetapi memakai scope all_patients; slide detail harus terbatas pada kasus utama.`, slide.index);
+    }
+  });
+
+  const repeatSlides = slides.filter((slide) => slideIsIncluded(slide) && slide.repeat);
+  const repeatBoundSlides = new Set(bindings.filter((binding) => slideIsIncluded(slideForBinding(template, binding) || { include: true }) && isPatientBinding(binding)).map((binding) => binding.slideIndex));
   let repeatCoverage = true;
   repeatSlides.forEach((slide) => {
     if (slide.index === 0 || slide.index === template.slideCount - 1 || slide.role === "cover" || slide.role === "closing" || slide.role === "shift_summary") {
@@ -219,7 +259,7 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
     check(checks, errors, warnings, "repeat-coverage", "Cakupan slide per pasien", repeatCoverage ? "pass" : "error", repeatCoverage ? "Slide per pasien memiliki batas dan mapping yang konsisten." : "Ada slide per pasien yang belum aman untuk diulang.");
   }
 
-  const sampleLeaks = slides.flatMap((slide) => slide.repeat
+  const sampleLeaks = slides.flatMap((slide) => slideIsIncluded(slide) && slide.repeat
     ? slide.shapes.filter((shape) => !bindings.some((binding) => binding.slideIndex === slide.index && binding.shapeId === shape.id) && hasLikelySampleText(shape)).map((shape) => ({ slide, shape }))
     : []);
   if (sampleLeaks.length) {

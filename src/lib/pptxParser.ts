@@ -8,6 +8,7 @@ import type {
   TemplateBinding,
   TemplateProfileId,
 } from "../types";
+import { inferPatientScope, inferSlideInclusion } from "./templateSlides";
 
 const EMU_PER_INCH = 914400;
 
@@ -417,7 +418,8 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     if (index >= 10 && index <= 12) return undefined;
     if (index === 13) {
       if (/^kesan\s*[:：]/.test(text)) return target("patient.assessment.summary");
-      if (body) return target("patient.physicalExamBlock");
+      if (/^kesadaran\b|gcs/.test(text)) return target("patient.physicalExam.generalAppearanceBlock");
+      if (/tekanan darah|laju nadi|laju napas|suhu|spo2/.test(text)) return target("patient.physicalExam.vitalSignsBlock");
     }
     if (index === 14) {
       if (shape.kind === "graphicFrame") return target("patient.physicalExam.organFindings");
@@ -504,9 +506,9 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     if (index === 7 && (empty || text === ".") && shape.y !== undefined && shape.y >= 0.2 && shape.y < 2.0) return target("patient.history.immunizationHistory");
     if (index === 8 && /^kesan/.test(text)) return target("patient.templateSection", "nutritionConclusion");
     if (index === 8 && !isTitle) return target("patient.anthropometryBlock");
-    if (index === 9 && /keadaan umum/.test(text)) return target("patient.physicalExam.generalAppearance");
-    if (index === 9 && /kesadaran/.test(text)) return target("patient.physicalExam.consciousness");
-    if (index === 9 && /tekanan darah|laju nadi|laju napas|suhu|spo2/.test(text)) return target("patient.physicalExamBlock");
+    if (index === 9 && /keadaan umum/.test(text)) return undefined;
+    if (index === 9 && /kesadaran/.test(text)) return target("patient.physicalExam.generalAppearanceBlock");
+    if (index === 9 && /tekanan darah|laju nadi|laju napas|suhu|spo2/.test(text)) return target("patient.physicalExam.vitalSignsBlock");
     if (index === 10 && shape.kind === "graphicFrame") return target("patient.physicalExam.organFindings");
     if (index === 11 && !isTitle) return target("patient.templateSection", "initialDiagnosis");
     if (index === 12 && !isTitle) return target("patient.templateSection", "initialManagement");
@@ -652,7 +654,33 @@ function autoBindings(slides: ParsedSlide[], profileId: TemplateProfileId): Temp
     const key = `${binding.slideIndex}:${binding.shapeId}`;
     if (!unique.has(key) || binding.source === "user") unique.set(key, binding);
   });
-  return Array.from(unique.values());
+  const provisional = Array.from(unique.values());
+  const grouped = new Map<string, TemplateBinding[]>();
+  provisional.forEach((binding) => {
+    // A custom section may intentionally have more than one independently
+    // editable slot (for example two neonatal panels). Every other semantic
+    // fact gets exactly one target per slide so the same block cannot be
+    // written into multiple boxes.
+    if (binding.semanticField === "patient.templateSection") return;
+    const key = `${binding.slideIndex}:${binding.semanticField}`;
+    grouped.set(key, [...(grouped.get(key) || []), binding]);
+  });
+  const discarded = new Set<string>();
+  grouped.forEach((candidates) => {
+    if (candidates.length < 2) return;
+    const slide = slides.find((item) => item.index === candidates[0]?.slideIndex);
+    const ranked = candidates
+      .map((binding) => {
+        const shape = slide?.shapes.find((item) => item.id === binding.shapeId);
+        const area = (shape?.width || 0) * (shape?.height || 0);
+        const bodyBonus = shape?.placeholderType && /body|content/i.test(shape.placeholderType) ? 10_000_000 : 0;
+        const textBonus = Math.min(1_000_000, shape?.text.length || 0);
+        return { binding, score: bodyBonus + area + textBonus };
+      })
+      .sort((left, right) => right.score - left.score);
+    ranked.slice(1).forEach(({ binding }) => discarded.add(`${binding.slideIndex}:${binding.shapeId}`));
+  });
+  return provisional.filter((binding) => !discarded.has(`${binding.slideIndex}:${binding.shapeId}`));
 }
 
 function parseRelationships(xml: string): Map<string, string> {
@@ -718,6 +746,13 @@ export async function parsePptx(source: File | ArrayBuffer, fileName = "template
     const xml = (await zip.file(normalizedFileName)?.async("string")) ?? "";
     const text = textRuns(xml).join(" ").replace(/\s+/g, " ").trim();
     const speakerNotes = await readSpeakerNotes(zip, normalizedFileName);
+    const role = roleForSlide(text, index, ordered.length, fileName, profileId);
+    // Speaker notes contain workflow instructions (for example “if applicable”)
+    // and must not make an otherwise routine clinical slide optional. Inclusion
+    // is inferred from the visible slide content; an agent/profile may refine
+    // it later using the full template context and notes.
+    const inclusion = inferSlideInclusion(text, role, index, profileId);
+    const repeat = inclusion.inclusion === "routine" && index > 0 && index < ordered.length - 1;
     slides.push({
       index,
       fileName: normalizedFileName,
@@ -726,15 +761,24 @@ export async function parsePptx(source: File | ArrayBuffer, fileName = "template
         ? ["WHO length/height-for-age", "WHO weight-for-age", "WHO weight-for-length"][index - 10]
         : displayTitle(text, index),
       text,
-      role: roleForSlide(text, index, ordered.length, fileName, profileId),
-      repeat: index > 0 && index < ordered.length - 1,
+      role,
+      repeat,
+      patientScope: inferPatientScope(role, repeat),
       speakerNotes,
       shapes: parseShapes(xml),
+      inclusion: inclusion.inclusion,
+      include: inclusion.include,
+      inclusionReason: inclusion.reason,
     });
   }
 
   slides.forEach((slide) => {
-    slide.repeat = slide.index > 0 && slide.index < slides.length - 1 && slide.role !== "shift_summary";
+    slide.repeat = slide.inclusion === "routine"
+      && slide.include !== false
+      && slide.index > 0
+      && slide.index < slides.length - 1
+      && slide.role !== "shift_summary";
+    slide.patientScope = inferPatientScope(slide.role, slide.repeat);
   });
   const bindings = autoBindings(slides, profileId);
 

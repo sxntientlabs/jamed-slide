@@ -72,6 +72,13 @@ interface TemplateAnalyzeRequest {
   snapshot?: unknown;
 }
 
+interface PresentationReviewRequest {
+  snapshot?: unknown;
+  patients?: unknown;
+  focusPatientId?: unknown;
+  visuals?: Array<{ slideIndex?: unknown; dataUrl?: unknown }>;
+}
+
 interface JsonObject {
   [key: string]: unknown;
 }
@@ -82,7 +89,7 @@ The source can contain headings, prose, abbreviations, and mixed Indonesian clin
 
 The JSON must have this exact top-level shape:
 {
-  "patient": {
+  "patients": [{
     "identifiers": { "name": string|null, "initials": string|null, "medicalRecordNumber": string|null },
     "demographics": { "age": string|null, "sex": string|null, "weightKg": number|null, "heightCm": number|null },
     "admission": { "arrivalTime": string|null, "admissionDate": string|null, "referralSource": string|null },
@@ -104,12 +111,14 @@ The JSON must have this exact top-level shape:
       "initialManagement": string|null, "finalManagement": string|null, "nutritionManagement": string|null,
       "<profile_specific_key>": string|null
     }
-  }
+  }]
 }
 
-Use null for missing scalar values and [] for missing lists. Keep clinical wording and units from the source. The source represents one patient, so return one patient record.
+Use null for missing scalar values and [] for missing lists. Keep clinical wording and units from the source. A source may represent one patient or a roster/table of multiple newly arrived patients: return one record for every distinct patient, never collapse multiple table rows into one patient. Always return a top-level "patients" array, including when there is only one patient. The server still accepts the legacy singular "patient" object for compatibility.
 
 When a template profile and slide contract are provided, follow that contract as the source of truth: place each fact only in the named slide/field, keep repeated patient slides per patient, and preserve panel/table/timeline boundaries. The template may contain example patients, example diagnoses, old dates, and educational diagrams; those are layout evidence only and must never be copied into the patient record. For PERINA, preserve the neonatal resuscitation timepoints and S.T.A.B.L.E. sections. For RSCM and RSUI, keep PAT, primary/secondary survey, anthropometry, organ findings, investigations, initial/final diagnosis, and initial/final management separate. Populate templateData with every profile-specific key requested by the contract when the source explicitly supports it; missing keys remain null. When the template profile is Lapjag, preserve the template's clinical separation: do not merge PAT with ABCDE or AMPLE; keep RPS, RPD, birth, immunization, nutrition, and socioeconomic history in their own contexts; retain measurement units and the exact age/sex needed for WHO growth charts; keep initial/working diagnosis separate from documented final diagnosis when the source distinguishes them; and keep management actions and documented response separate. In AMPLE, map A=allergy, M=medication, P=past illness/pregnancy, L=last meal, and E=event; never substitute family history for L or E. For investigations, output one item per explicitly documented parameter with its own result and unit; do not turn a percentage into an absolute count, and do not reuse a value from another parameter. For imaging, preserve the actual interpretation/narrative, not only the test name. Mark urgency only when the source explicitly states Kegawatan T/F (or an unambiguous equivalent). Never infer an abnormal finding from a diagnosis alone.
+
+Koasis reports have two patient scopes: the opening shift-summary table lists every newly arrived patient, while the detailed clinical sequence is generated for one user-selected focus/emergency patient. Extract every candidate patient faithfully for the summary, but do not assume all patients will receive repeated deep-dive slides. The focus selection is made in the workspace after extraction.
 
 For image/PDF/audio evidence, inspect the attachment itself and transcribe only what is legible or explicitly spoken. Keep the attachment as evidence; do not manufacture values for blurry, cropped, or inaudible regions. If an attached image is a photo of a table, preserve row/column context when extracting it.`;
 
@@ -123,7 +132,8 @@ Template-first hard gate: finish the structural study before proposing any bindi
 Create a practical contract for the next agent and UI:
 - shiftFields are report-level fields visible on the cover or metadata area. Use simple camelCase keys such as team, presenter, unit, facilitator, dpjp, or custom metadata keys. Do not include date or title because Koasis supplies those controls.
 - fieldGroups are patient facts for review. Use generic clinical paths when supported and templateData.<camelCaseKey> for section-specific facts.
-- each slide guide must describe purpose, required facts, layout boundaries, and evidence rules in plain Indonesian. Mention tables, timelines, checklists, charts, notes, and fixed labels when observed.
+- each slide guide must describe purpose, required facts, layout boundaries, and evidence rules in plain Indonesian. Mention tables, timelines, checklists, charts, notes, and fixed labels when observed. Set patientScope="all_patients" for the opening patient-list/shift-summary table, patientScope="focus_patient" for the detailed clinical slides that repeat for the selected case, and patientScope="static" for cover, closing, or non-patient slides.
+- classify every slide with inclusion="routine", "optional", or "example". Use example for educational diagrams, sample cases, old teaching content, or slides containing internal instructions such as "slide ini cuma contoh". Use optional for content that should only be included when the case or evidence supports it. Set include=false for optional/example by default and include=true only for routine slides. Never let internal template instructions become report content.
 - bindings must reference only shape IDs in the snapshot. Use the supported semanticField values below. For custom patient sections use patient.templateSection plus templateKey. For custom cover metadata use shift.custom plus templateKey. Do not bind headings/decorations when an adjacent empty/body shape is the data slot.
 - use the snapshot's zero-based slide index exactly as provided in slides[].index and bindings[].slideIndex; do not convert it to a one-based slide number.
 - preserve context boundaries and do not invent a medical field the template does not imply.
@@ -132,7 +142,7 @@ Create a practical contract for the next agent and UI:
 - Keep the contract usable by a deterministic renderer: a binding must target a real shape in the supplied snapshot, and a slide guide must exist for every slide index.
 
 Supported semanticField values:
-static, shift.date, shift.department, shift.hospital, shift.team, shift.student, shift.ppds, shift.presenter, shift.perinaTeam, shift.facilitator, shift.dpjp, shift.custom, shift.coverBlock, shift.patientSummaryTable, patient.identifiers.name, patient.identifiers.initials, patient.identifiers.medicalRecordNumber, patient.demographics.age, patient.demographics.sex, patient.demographics.weightKg, patient.demographics.heightCm, patient.chiefComplaint, patient.history.presentIllness, patient.history.pastMedicalHistory, patient.history.medicationHistory, patient.history.allergyHistory, patient.history.birthHistory, patient.history.immunizationHistory, patient.history.familyHistory, patient.history.nutritionHistory, patient.history.socioeconomicHistory, patient.identityBlock, patient.historyBlock, patient.pediatricAssessmentBlock, patient.pediatricAssessment.leftBlock, patient.pediatricAssessment.rightBlock, patient.primarySurveyBlock, patient.secondarySurveyBlock, patient.anthropometryBlock, patient.physicalExamBlock, patient.physicalExam.organFindings, patient.investigationsBlock, patient.investigations.summary, patient.assessmentBlock, patient.assessment.summary, patient.managementBlock, patient.managementTable, patient.timelineBlock, patient.nutritionBlock, patient.templateSection, patient.physicalExam.generalAppearance, patient.physicalExam.consciousness, patient.physicalExam.vitalSigns.bloodPressure, patient.physicalExam.vitalSigns.heartRate, patient.physicalExam.vitalSigns.respiratoryRate, patient.physicalExam.vitalSigns.temperature, patient.physicalExam.vitalSigns.spo2, patient.physicalExam.findings, patient.investigations.laboratory, patient.investigations.imaging, patient.assessment.workingDiagnosis, patient.assessment.differentialDiagnosis, patient.management.medications, patient.management.fluids, patient.management.procedures, patient.management.oxygenTherapy, patient.disposition.
+static, shift.date, shift.department, shift.hospital, shift.team, shift.student, shift.ppds, shift.presenter, shift.perinaTeam, shift.facilitator, shift.dpjp, shift.custom, shift.coverBlock, shift.patientSummaryTable, patient.identifiers.name, patient.identifiers.initials, patient.identifiers.medicalRecordNumber, patient.demographics.age, patient.demographics.sex, patient.demographics.weightKg, patient.demographics.heightCm, patient.chiefComplaint, patient.history.presentIllness, patient.history.pastMedicalHistory, patient.history.medicationHistory, patient.history.allergyHistory, patient.history.birthHistory, patient.history.immunizationHistory, patient.history.familyHistory, patient.history.nutritionHistory, patient.history.socioeconomicHistory, patient.identityBlock, patient.historyBlock, patient.pediatricAssessmentBlock, patient.pediatricAssessment.leftBlock, patient.pediatricAssessment.rightBlock, patient.primarySurveyBlock, patient.secondarySurveyBlock, patient.anthropometryBlock, patient.physicalExamBlock, patient.physicalExam.generalAppearanceBlock, patient.physicalExam.vitalSignsBlock, patient.physicalExam.organFindings, patient.investigationsBlock, patient.investigations.summary, patient.assessmentBlock, patient.assessment.summary, patient.managementBlock, patient.managementTable, patient.timelineBlock, patient.nutritionBlock, patient.templateSection, patient.physicalExam.generalAppearance, patient.physicalExam.consciousness, patient.physicalExam.vitalSigns.bloodPressure, patient.physicalExam.vitalSigns.heartRate, patient.physicalExam.vitalSigns.respiratoryRate, patient.physicalExam.vitalSigns.temperature, patient.physicalExam.vitalSigns.spo2, patient.physicalExam.findings, patient.investigations.laboratory, patient.investigations.imaging, patient.assessment.workingDiagnosis, patient.assessment.differentialDiagnosis, patient.management.medications, patient.management.fluids, patient.management.procedures, patient.management.oxygenTherapy, patient.disposition.
 
 Return exactly:
 {
@@ -142,13 +152,29 @@ Return exactly:
   "patientInputHint": string,
   "shiftFields": [{"key": string, "label": string, "placeholder": string, "required": boolean}],
   "fieldGroups": [{"id": string, "label": string, "description": string, "fields": [{"key": string, "label": string, "placeholder": string, "multiline": boolean, "required": boolean}]}],
-  "slides": [{"index": number, "label": string, "role": string, "repeat": boolean, "fields": string[], "instructions": string, "speakerNote": string}],
+  "slides": [{"index": number, "label": string, "role": string, "repeat": boolean, "patientScope": "static"|"all_patients"|"focus_patient", "inclusion": "routine"|"optional"|"example", "include": boolean, "inclusionReason": string, "fields": string[], "instructions": string, "speakerNote": string}],
   "bindings": [{"slideIndex": number, "shapeId": string, "semanticField": string, "templateKey": string, "confidence": number}],
   "warnings": string[],
   "confidence": number
 }
 
 Be conservative. When a section is ambiguous, explain it in warnings and use patient.templateData instead of forcing a generic field. The result will be reviewed before generation.`;
+
+const PRESENTATION_REVIEW_SYSTEM_PROMPT = `You are Koasis Post-generation QA Agent. Inspect the generated clinical PowerPoint using the structured slide snapshot, compact patient context, and representative rendered slide images.
+Return ONLY valid JSON, without Markdown fences or commentary.
+
+Your job is quality assurance, not clinical decision-making. Do not invent facts and do not rewrite the report. Check:
+1. visual layout: overlapping/duplicated text, text cut off or implausibly dense, content written into a heading/decorative box, broken table/chart/image placement;
+2. contextual correctness: the opening shift-summary table contains all patients marked summary_only, detailed repeated slides contain only the one patient marked focus_patient, patient identities are not mixed, and sample/template instructions or educational examples do not leak into the output;
+3. evidence placement: if the context says imaging evidence exists, confirm the radiology/evidence slide has an appropriate visual or mapped content;
+4. slide completeness: selected routine slides appear once or per patient according to the plan.
+
+Be conservative. A warning is appropriate for something that needs human confirmation; use blocked for a concrete overlap, sample leak, wrong patient context, missing selected slide, or unreadable layout. Return exactly:
+{
+  "status": "pass" | "needs_review" | "blocked",
+  "summary": string,
+  "issues": [{"severity": "error" | "warning", "slideIndex": number, "title": string, "detail": string}]
+}`;
 
 const TEMPLATE_DATA_KEYS = [
   "weightBeforeIllness",
@@ -879,7 +905,7 @@ Template slide/field contract (JSON): ${JSON.stringify(templateContract || {})}
 Workspace context (metadata only, never patient facts): ${JSON.stringify(shiftContext || {})}
 Patient input card: ${patientLabel || "Pasien"}
 
-Extract the patient record from this source exactly as documented. Do not use the workspace date, title, hospital, department, team, template profile, or card label as the patient's name or clinical value unless the source explicitly repeats it as patient data.
+Extract every distinct patient record from this source exactly as documented. A card may contain one detailed narrative or a roster/table of multiple new patients. For a roster, recognize numbered rows, bullet rows, CSV/TSV columns, pasted spreadsheet text, and headers such as No., Nama, Usia, Diagnosis, or Kegawatan; ignore the header and return one output object per patient row. Keep each row's diagnosis, urgency, age, sex, and name together even when cells are separated by tabs, pipes, slashes, or repeated spaces. Do not collapse a roster into one patient and do not use the workspace date, title, hospital, department, team, template profile, or card label as a patient's name or clinical value unless the source explicitly repeats it as patient data.
 If structured form values and free text disagree, preserve the conflict in the most relevant field rather than silently choosing a value.
 
 SOURCE:
@@ -948,6 +974,39 @@ ${snapshotJson}`;
   return { content: messageContent(payload), model };
 }
 
+async function callPresentationReview(
+  settings: AgentSettings,
+  body: PresentationReviewRequest,
+): Promise<{ content: string; model: string }> {
+  const model = await resolveModel(settings);
+  const url = `${settings.baseUrl}/chat/completions`;
+  const visuals = (Array.isArray(body.visuals) ? body.visuals : [])
+    .filter((item) => typeof item?.dataUrl === "string" && item.dataUrl.length <= 1_800_000)
+    .slice(0, 6);
+  const prompt = `STRUCTURED SLIDE SNAPSHOT:\n${JSON.stringify(body.snapshot || {})}\n\nPATIENT CONTEXT (metadata needed to check placement; do not diagnose):\n${JSON.stringify(body.patients || [])}\n\nFOCUS PATIENT ID: ${String(body.focusPatientId || "not provided")}\n\nThe attached images are representative rendered slides. Compare them with the snapshot and patient context. Confirm that all patients appear in the opening summary table, while detailed slides stay limited to the focus patient.`;
+  const visualParts = visuals.map((item) => ({
+    type: "image_url" as const,
+    image_url: { url: String(item.dataUrl), detail: "high" as const },
+  }));
+  const messages = [
+    { role: "system", content: PRESENTATION_REVIEW_SYSTEM_PROMPT },
+    { role: "user", content: [{ type: "text", text: prompt }, ...visualParts] },
+  ];
+  const basePayload = { model, temperature: 0, messages, max_tokens: 4000 };
+  const request = (withJsonMode: boolean) => fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify(withJsonMode ? { ...basePayload, response_format: { type: "json_object" } } : basePayload),
+  }, CHAT_TIMEOUT_MS);
+  let response = await request(true);
+  if (!response.ok && response.status === 400) response = await request(false);
+  if (!response.ok) throw new Error(safeErrorMessage(await response.text(), response.status));
+  const responseText = await response.text();
+  let payload: unknown;
+  try { payload = JSON.parse(responseText); } catch { payload = parseJsonContent(responseText); }
+  return { content: messageContent(payload), model };
+}
+
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let total = 0;
@@ -1013,9 +1072,8 @@ async function handleExtraction(request: IncomingMessage, response: ServerRespon
     const sourceId = typeof body.sourceId === "string" && body.sourceId.trim() ? body.sourceId : `ai-source-${Date.now()}`;
     const result = await callChatCompletion(settings, sourceText, body.patientLabel, body.shiftContext, body.templateProfile, body.templateInstructions, body.templateContract, validMedia);
     const parsed = asRecord(parseJsonContent(result.content));
-    const rawPatients = Array.isArray(parsed.patients)
-      ? parsed.patients
-      : [parsed.patient ?? parsed];
+    const patientPayload = parsed.patients ?? parsed.patient ?? parsed;
+    const rawPatients = Array.isArray(patientPayload) ? patientPayload : [patientPayload];
     const patients = rawPatients.map((patient, index) => normalizePatient(patient, sourceText, sourceId, body.patientLabel, index));
     sendJson(response, 200, { engine: "ai", model: result.model, patients });
   } catch (error) {
@@ -1058,6 +1116,44 @@ async function handleTemplateAnalysis(request: IncomingMessage, response: Server
   }
 }
 
+async function handlePresentationReview(request: IncomingMessage, response: ServerResponse, settings: AgentSettings): Promise<void> {
+  if (request.method === "OPTIONS") {
+    response.statusCode = 204;
+    response.end();
+    return;
+  }
+  if (request.method !== "POST") {
+    sendJson(response, 405, { error: "Gunakan POST /api/presentation/review." });
+    return;
+  }
+  if (!settings.baseUrl || !settings.apiKey) {
+    sendJson(response, 503, { error: "Konfigurasi AI backend belum lengkap di .env.local." });
+    return;
+  }
+  try {
+    const body = asRecord(await readJsonBody(request)) as unknown as PresentationReviewRequest;
+    if (!isRecord(body.snapshot)) {
+      sendJson(response, 400, { error: "Snapshot hasil generate tidak tersedia." });
+      return;
+    }
+    const visuals = Array.isArray(body.visuals) ? body.visuals : [];
+    if (visuals.length > 6 || visuals.some((item) => !item || typeof item.dataUrl !== "string" || item.dataUrl.length > 1_800_000)) {
+      sendJson(response, 413, { error: "Bukti visual review terlalu besar." });
+      return;
+    }
+    if (JSON.stringify(body.snapshot).length > 2_500_000) {
+      sendJson(response, 413, { error: "Snapshot hasil generate terlalu besar untuk direview." });
+      return;
+    }
+    const result = await callPresentationReview(settings, body);
+    const review = parseJsonContent(result.content);
+    sendJson(response, 200, { engine: "agent", model: result.model, review });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Agent review hasil generate gagal.";
+    sendJson(response, 502, { error: message });
+  }
+}
+
 export function createAiAgentPlugin(env: Record<string, string>): Plugin {
   const settings: AgentSettings = {
     baseUrl: (env.JAMED_AI_BASE_URL || "").replace(/\/$/, ""),
@@ -1070,16 +1166,21 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
   const templateMiddleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
     void handleTemplateAnalysis(request, response, settings);
   };
+  const presentationReviewMiddleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
+    void handlePresentationReview(request, response, settings);
+  };
 
   return {
     name: "koasis-ai-agent",
     configureServer(server) {
       server.middlewares.use("/api/clinical/extract", middleware);
       server.middlewares.use("/api/template/analyze", templateMiddleware);
+      server.middlewares.use("/api/presentation/review", presentationReviewMiddleware);
     },
     configurePreviewServer(server) {
       server.middlewares.use("/api/clinical/extract", middleware);
       server.middlewares.use("/api/template/analyze", templateMiddleware);
+      server.middlewares.use("/api/presentation/review", presentationReviewMiddleware);
     },
   };
 }

@@ -168,6 +168,11 @@ export interface TemplateShiftField {
   required?: boolean;
 }
 
+/** How a slide should be treated when a report is generated. */
+export type TemplateSlideInclusion = "routine" | "optional" | "example";
+/** Which patient set a slide is allowed to consume. */
+export type TemplateSlidePatientScope = "static" | "all_patients" | "focus_patient";
+
 export interface TemplateSlideGuide {
   index: number;
   label: string;
@@ -176,6 +181,13 @@ export interface TemplateSlideGuide {
   fields: string[];
   instructions: string;
   speakerNote?: string;
+  /** Optional for backwards-compatible saved contracts. Defaults to routine. */
+  inclusion?: TemplateSlideInclusion;
+  /** Whether the slide is selected in the current mapping. Defaults to true. */
+  include?: boolean;
+  inclusionReason?: string;
+  /** Summary slides use all patients; clinical repeat slides use the selected focus patient. */
+  patientScope?: TemplateSlidePatientScope;
 }
 
 export type TemplateContractCheckStatus = "pass" | "warning" | "error";
@@ -278,6 +290,13 @@ export interface ParsedSlide {
   repeat: boolean;
   speakerNotes?: string;
   shapes: ParsedShape[];
+  /** Optional for backwards-compatible parsed templates. Defaults to routine. */
+  inclusion?: TemplateSlideInclusion;
+  /** Whether this slide is currently selected for output. Defaults to true. */
+  include?: boolean;
+  inclusionReason?: string;
+  /** Summary slides use all patients; clinical repeat slides use the selected focus patient. */
+  patientScope?: TemplateSlidePatientScope;
 }
 
 export type SemanticField =
@@ -325,6 +344,8 @@ export type SemanticField =
   | "patient.secondarySurveyBlock"
   | "patient.anthropometryBlock"
   | "patient.physicalExamBlock"
+  | "patient.physicalExam.generalAppearanceBlock"
+  | "patient.physicalExam.vitalSignsBlock"
   | "patient.physicalExam.organFindings"
   | "patient.investigationsBlock"
   | "patient.investigations.summary"
@@ -403,4 +424,6 @@ export interface PatientDraft {
   label: string;
   text: string;
   attachments: PatientAttachment[];
+  /** A combined roster source is evidence for extraction, not patient-specific evidence for slide placement. */
+  bulkSource?: boolean;
 }

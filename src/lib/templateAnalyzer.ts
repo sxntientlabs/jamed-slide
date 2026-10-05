@@ -8,9 +8,11 @@ import type {
   TemplateFieldSpec,
   TemplateShiftField,
   TemplateSlideGuide,
+  TemplateSlidePatientScope,
 } from "../types";
 import { buildLocalTemplateAnalysis } from "./templateProfiles";
 import { validateTemplateContract } from "./templateContract";
+import { guideIsIncluded, inferPatientScope, inferSlideInclusion, normalizePatientScope, normalizeSlideInclusion } from "./templateSlides";
 
 export { buildLocalTemplateAnalysis } from "./templateProfiles";
 export { validateTemplateContract } from "./templateContract";
@@ -27,6 +29,10 @@ export interface TemplateSnapshot {
     title: string;
     role: SlideRole;
     repeatCandidate: boolean;
+    patientScope: TemplateSlidePatientScope;
+    inclusion: string;
+    includeByDefault: boolean;
+    inclusionReason?: string;
     speakerNotes?: string;
     text: string;
     shapes: Array<{
@@ -65,7 +71,7 @@ const SEMANTIC_FIELDS: SemanticField[] = [
   "patient.history.familyHistory", "patient.history.nutritionHistory", "patient.history.socioeconomicHistory",
   "patient.identityBlock", "patient.historyBlock", "patient.pediatricAssessmentBlock",
   "patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.primarySurveyBlock",
-  "patient.secondarySurveyBlock", "patient.anthropometryBlock", "patient.physicalExamBlock",
+  "patient.secondarySurveyBlock", "patient.anthropometryBlock", "patient.physicalExamBlock", "patient.physicalExam.generalAppearanceBlock", "patient.physicalExam.vitalSignsBlock",
   "patient.physicalExam.organFindings", "patient.investigationsBlock", "patient.investigations.summary",
   "patient.assessmentBlock", "patient.assessment.summary", "patient.managementBlock", "patient.managementTable",
   "patient.timelineBlock", "patient.nutritionBlock", "patient.templateSection", "patient.physicalExam.generalAppearance",
@@ -198,14 +204,33 @@ function normalizeGuides(raw: unknown, template: ParsedTemplate, fallback: Templ
     const roleValue = text(source?.role, local?.role || slide.role) as SlideRole;
     const role = ROLES.includes(roleValue) ? roleValue : (local?.role || slide.role);
     const fields = Array.isArray(source?.fields) ? source.fields.map((field) => text(field)).filter(Boolean).slice(0, 24) : (local?.fields || []);
+    // Notes explain how to present a slide; they are not proof that the
+    // slide itself is optional. The agent still receives notes in the full
+    // snapshot and can classify them explicitly when the template says so.
+    const inferred = inferSlideInclusion(`${slide.title} ${slide.text}`, role, slide.index, template.profileId);
+    const sourceHasInclusion = source?.inclusion !== undefined || source?.mode !== undefined || source?.classification !== undefined;
+    const inclusion = !sourceHasInclusion
+      ? (local?.inclusion || slide.inclusion || inferred.inclusion)
+      : normalizeSlideInclusion(source?.inclusion ?? source?.mode ?? source?.classification, local?.inclusion || inferred.inclusion);
+    const include = source?.include === undefined && source?.includeByDefault === undefined
+      ? (sourceHasInclusion && inclusion !== "routine" ? false : local?.include ?? slide.include ?? inferred.include)
+      : Boolean(source?.include ?? source?.includeByDefault);
+    const fallbackScope = local?.patientScope || slide.patientScope || inferPatientScope(role, local?.repeat ?? slide.repeat);
+    const patientScope = normalizePatientScope(source?.patientScope ?? source?.scope, fallbackScope);
+    const repeat = patientScope === "focus_patient"
+      && (source?.repeat === undefined ? (local?.repeat ?? slide.repeat) : Boolean(source.repeat));
     return {
       index: slide.index,
       label: text(source?.label, local?.label || slide.title || `Slide ${slide.index + 1}`),
       role,
-      repeat: source?.repeat === undefined ? (local?.repeat ?? slide.repeat) : Boolean(source.repeat),
+      repeat,
       fields,
       instructions: text(source?.instructions, local?.instructions || `Pertahankan konteks slide ${slide.index + 1}.`),
       speakerNote: text(source?.speakerNote, slide.speakerNotes || local?.speakerNote || undefined) || undefined,
+      inclusion,
+      include,
+      inclusionReason: text(source?.inclusionReason, local?.inclusionReason || (inclusion !== "routine" ? inferred.reason : undefined)) || undefined,
+      patientScope,
     } satisfies TemplateSlideGuide;
   });
 }
@@ -281,6 +306,10 @@ export function buildTemplateSnapshot(template: ParsedTemplate): TemplateSnapsho
       title: compact(slide.title, 180),
       role: slide.role,
       repeatCandidate: slide.repeat,
+      patientScope: slide.patientScope || inferPatientScope(slide.role, slide.repeat),
+      inclusion: slide.inclusion || "routine",
+      includeByDefault: slide.include !== false,
+      inclusionReason: slide.inclusionReason,
       speakerNotes: slide.speakerNotes ? compact(slide.speakerNotes, 1800) : undefined,
       text: compact(slide.text, 2800),
       shapes: slide.shapes.slice(0, 80).map((shape) => ({
@@ -346,9 +375,18 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
     ...template,
     profileId: knownProfile ? template.profileId : "generic",
     slides: template.slides.map((slide) => {
-      if (knownProfile) return slide;
       const guide = guides.find((item) => item.index === slide.index);
-      return guide ? { ...slide, role: guide.role, repeat: guide.repeat } : slide;
+      if (!guide) return slide;
+      const include = guideIsIncluded(guide);
+      return {
+        ...slide,
+        role: guide.role,
+        repeat: include && guide.repeat,
+        inclusion: guide.inclusion || slide.inclusion,
+        include,
+        inclusionReason: guide.inclusionReason || slide.inclusionReason,
+        patientScope: guide.patientScope || inferPatientScope(guide.role, include && guide.repeat),
+      };
     }),
     bindings,
     templateAnalysis: analysis,

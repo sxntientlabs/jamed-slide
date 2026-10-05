@@ -6,6 +6,7 @@ import { extractPatients } from "./clinicalParser";
 import { extractDocxText, extractWordXmlText } from "./docxParser";
 import { generatePresentation } from "./pptxGenerator";
 import { parsePptx } from "./pptxParser";
+import { inspectGeneratedPresentation } from "./presentationReview";
 import { getTemplateProfile } from "./templateProfiles";
 import { applyTemplateAnalysis, buildLocalTemplateAnalysis, buildTemplateSnapshot, validateTemplateContract } from "./templateAnalyzer";
 import type { ClinicalField, InvestigationItem, OrganFinding, ShiftDetails } from "../types";
@@ -40,6 +41,20 @@ test("clinical extraction separates patients and preserves missing fields", () =
   expect(result.patients[0].demographics.weightKg?.value).toBe(15);
   expect(result.patients[0].physicalExam.vitalSigns.spo2?.status).toBe("missing");
   expect(result.patients[0].timeline[0]?.timestamp).toBe("02:15");
+});
+
+test("clinical extraction splits a pasted patient roster into one record per table row", () => {
+  const result = extractPatients(`PASIEN BARU: 3 PASIEN
+No.\tNama / Usia\tDiagnosis\tKegawatan
+1. QHS /15 tahun\tSyok hipovolemia e.c. diare akut\tT
+2. ... /15 tahun\tPucat e.c. AIHA\tTrue
+3. ... /12 tahun\tSesak nafas e.c. demam susp. campak\tFalse`, "roster-source");
+  expect(result.patients).toHaveLength(3);
+  expect(result.patients.map((patient) => patient.displayName)).toEqual(["QHS", "...", "..."]);
+  expect(result.patients[0].demographics.age?.value).toBe("15 tahun");
+  expect(result.patients[0].assessment.workingDiagnosis?.value).toEqual(["Syok hipovolemia e.c. diare akut"]);
+  expect(result.patients[1].urgency?.value).toBe("True");
+  expect(result.patients[2].assessment.workingDiagnosis?.value).toEqual(["Sesak nafas e.c. demam susp. campak"]);
 });
 
 test("DOCX extraction preserves clinical paragraphs, line breaks, and table cells", async () => {
@@ -92,6 +107,114 @@ test("real department template parses and can be duplicated into a valid PPTX", 
   expect(output.file("ppt/presentation.xml")).toBeTruthy();
 });
 
+test("summary table keeps every new patient while detail slides use only the selected focus patient", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const templateEntry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] RSCM.pptx"));
+  expect(templateEntry).toBeTruthy();
+  const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+  const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+  const template = await parsePptx(templateBuffer, "[TEMPLATE] RSCM.pptx");
+  const patients = extractPatients(`Pasien 1
+Nama: An. A
+Usia: 5 tahun
+Jenis kelamin: Laki-laki
+Kegawatan: T
+Diagnosis: Bronkiolitis
+
+Pasien 2
+Nama: Ny. B
+Usia: 28 tahun
+Jenis kelamin: Perempuan
+Kegawatan: T
+Diagnosis: Nyeri abdomen akut
+
+Pasien 3
+Nama: Tn. C
+Usia: 42 tahun
+Jenis kelamin: Laki-laki
+Kegawatan: F
+Diagnosis: Demam
+
+Pasien 4
+Nama: An. D
+Usia: 7 tahun
+Jenis kelamin: Perempuan
+Diagnosis: Batuk
+
+Pasien 5
+Nama: Ny. E
+Usia: 33 tahun
+Jenis kelamin: Perempuan
+Diagnosis: Mual
+
+Pasien 6
+Nama: Tn. F
+Usia: 51 tahun
+Jenis kelamin: Laki-laki
+Diagnosis: Pusing`, "summary-focus-source").patients;
+  const shift: ShiftDetails = { title: "Laporan Jaga Summary Focus", date: "2026-10-01", department: "Pediatri", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  const generated = await generatePresentation(template, patients, template.bindings, shift, { focusPatientId: patients[1].id });
+  await writeFile("/tmp/jamed-summary-focus.pptx", new Uint8Array(await generated.blob.arrayBuffer()));
+
+  const output = await JSZip.loadAsync(new Uint8Array(await generated.blob.arrayBuffer()));
+  const summarySlide = template.slides.find((slide) => slide.role === "shift_summary");
+  const summaryBinding = template.bindings.find((binding) => binding.slideIndex === summarySlide?.index && binding.semanticField === "shift.patientSummaryTable");
+  const summaryShape = summarySlide?.shapes.find((shape) => shape.id === summaryBinding?.shapeId);
+  const summaryCapacity = Math.max(1, (summaryShape?.tableRows?.length ?? 1) - 1);
+  const summaryPageCount = Math.max(1, Math.ceil(patients.length / summaryCapacity));
+  const selectedSlideCount = template.slides.filter((slide) => slide.include !== false).length;
+  expect(generated.slideCount).toBe(selectedSlideCount + summaryPageCount - 1);
+
+  const slideFiles = Object.keys(output.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const slideXml = await Promise.all(slideFiles.map((name) => output.file(name)!.async("string")));
+  const summaryXmls = slideXml.filter((xml) => xml.includes("PASIEN BARU"));
+  expect(summaryXmls).toHaveLength(summaryPageCount);
+  const summaryText = summaryXmls.join(" ");
+  const summaryXml = await output.file("ppt/slides/slide2.xml")!.async("string");
+  const firstDetailXml = await output.file("ppt/slides/slide3.xml")!.async("string");
+  expect(summaryText).toContain("An. A");
+  expect(summaryText).toContain("Ny. B");
+  expect(summaryText).toContain("Tn. C");
+  expect(summaryText).toContain("An. D");
+  expect(summaryText).toContain("Ny. E");
+  expect(summaryText).toContain("Tn. F");
+  expect(summaryText).not.toContain("pasien lainnya");
+  expect(summaryXml).toContain("PASIEN BARU: 6 PASIEN");
+  expect(summaryXml).not.toContain("LANJUTAN");
+  if (summaryPageCount > 1) {
+    expect(summaryXmls.some((xml) => xml.includes("LANJUTAN 2/"))).toBe(true);
+  }
+  expect(firstDetailXml).toContain("Ny. B");
+  expect(firstDetailXml).not.toContain("An. A");
+  expect(firstDetailXml).not.toContain("Tn. C");
+
+  const review = await inspectGeneratedPresentation(generated.blob, template, patients, patients[1].id);
+  expect(review.review.status).not.toBe("blocked");
+});
+
+test("template mapping can exclude a routine slide without changing its clinical scope", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const templateEntry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] RSCM.pptx"));
+  expect(templateEntry).toBeTruthy();
+  const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+  const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+  const template = await parsePptx(templateBuffer, "[TEMPLATE] RSCM.pptx");
+  const candidate = template.slides.find((slide) => slide.include !== false && slide.repeat && slide.role !== "shift_summary");
+  expect(candidate).toBeTruthy();
+  const excludedTemplate = {
+    ...template,
+    slides: template.slides.map((slide) => slide.index === candidate!.index ? { ...slide, include: false } : slide),
+  };
+  expect(excludedTemplate.slides.find((slide) => slide.index === candidate!.index)?.repeat).toBe(true);
+  const patient = extractPatients(syntheticNotes, "mapping-include-source").patients[0];
+  const shift: ShiftDetails = { title: "Laporan Jaga Include Mapping", date: "2026-10-01", department: "Pediatri", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  const complete = await generatePresentation(template, [patient], template.bindings, shift, { focusPatientId: patient.id });
+  const excluded = await generatePresentation(excludedTemplate, [patient], excludedTemplate.bindings, shift, { focusPatientId: patient.id });
+  expect(excluded.slideCount).toBe(complete.slideCount - 1);
+});
+
 test("lapjag template keeps composite identity and clinical blocks mapped to the right context", async () => {
   const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
   const archive = await JSZip.loadAsync(archiveBytes);
@@ -105,14 +228,38 @@ test("lapjag template keeps composite identity and clinical blocks mapped to the
   expect(template.slideCount).toBe(27);
   expect(template.slides[10]?.title).toContain("WHO length/height-for-age");
   expect(template.slides[10]?.repeat).toBe(true);
+  expect(template.slides[18]?.inclusion).toBe("example");
+  expect(template.slides[18]?.include).toBe(false);
+  const physicalBindings = template.bindings.filter((binding) => binding.slideIndex === 13);
+  expect(physicalBindings.filter((binding) => binding.semanticField === "patient.physicalExam.generalAppearanceBlock")).toHaveLength(1);
+  expect(physicalBindings.filter((binding) => binding.semanticField === "patient.physicalExam.vitalSignsBlock")).toHaveLength(1);
+  expect(physicalBindings.some((binding) => binding.semanticField === "patient.physicalExamBlock")).toBe(false);
   expect(template.slides.some((slide) => slide.title.includes("ASSESSMENT"))).toBe(true);
   const patient = extractPatients(syntheticNotes, "lapjag-source").patients[0];
+  patient.history.pastMedicalHistory = documented("Tidak ada riwayat penyakit dahulu yang bermakna.");
+  patient.history.familyHistory = documented("Ayah dengan hipertensi; riwayat penyakit keluarga lain tidak tercantum.");
+  patient.physicalExam.generalAppearance = documented("Tampak sakit sedang.");
+  patient.physicalExam.consciousness = documented("Compos mentis (GCS E4M6V5).");
+  patient.physicalExam.vitalSigns = {
+    bloodPressure: documented("112/63 mmHg"),
+    heartRate: documented(66),
+    respiratoryRate: documented(20),
+    temperature: documented(37.8),
+    spo2: documented(88),
+  };
   const shift: ShiftDetails = { title: "Laporan Jaga Test", date: "2026-10-01", department: "Pediatri", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
   const generated = await generatePresentation(template, [patient], template.bindings, shift);
   const generatedBytes = new Uint8Array(await generated.blob.arrayBuffer());
+  expect(generated.slideCount).toBe(26);
   await writeFile("/tmp/jamed-lapjag-final.pptx", generatedBytes);
   const output = await JSZip.loadAsync(generatedBytes);
   const slideFiles = Object.keys(output.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  expect(slideFiles).toHaveLength(26);
+  expect(output.file("ppt/slides/slide20.xml")).toBeFalsy();
+  const outputPresentationRels = await output.file("ppt/_rels/presentation.xml.rels")!.async("string");
+  const outputContentTypes = await output.file("[Content_Types].xml")!.async("string");
+  expect(outputPresentationRels).not.toContain("slides/slide20.xml");
+  expect(outputContentTypes).not.toContain("/ppt/slides/slide20.xml");
   const outputText = await Promise.all(slideFiles.map((name) => output.file(name)!.async("string")));
   const text = outputText.join(" ");
   expect(text).toContain("An. A");
@@ -126,6 +273,12 @@ test("lapjag template keeps composite identity and clinical blocks mapped to the
   const chartRelationships = await output.file("ppt/slides/_rels/slide11.xml.rels")!.async("string");
   expect(chartRelationships).toContain("Target=\"../media/jamed-who-lhfa-boys.png\"");
   expect(await output.file("ppt/slides/slide11.xml")!.async("string")).toContain("JaMed WHO plot marker");
+  const review = await inspectGeneratedPresentation(generated.blob, template, [patient]);
+  expect(review.review.issues.some((issue) => /duplikasi|instruksi template|contoh template/i.test(issue.title))).toBe(false);
+  const physicalXml = await output.file("ppt/slides/slide14.xml")!.async("string");
+  expect(physicalXml.match(/Tampak sakit sedang\./g)).toHaveLength(1);
+  expect(physicalXml.match(/112\/63 mmHg/g)).toHaveLength(1);
+  expect(physicalXml.match(/Compos mentis \(GCS E4M6V5\)\./g)).toHaveLength(1);
 });
 
 test("built-in department profiles map their slide contracts and generate independently", async () => {
@@ -167,6 +320,9 @@ test("built-in department profiles map their slide contracts and generate indepe
     expect(slideFiles, item.fileName).toHaveLength(item.slideCount);
     const outputText = await Promise.all(slideFiles.map((name) => output.file(name)!.async("string")));
     expect(outputText.join(" "), item.fileName).toContain("An. A");
+    const localReview = await inspectGeneratedPresentation(generated.blob, template, [patient]);
+    expect(localReview.review.status, item.fileName).not.toBe("blocked");
+    expect(localReview.review.issues.some((issue) => /instruksi template|contoh template|duplikasi konteks/i.test(issue.title)), item.fileName).toBe(false);
   }
 });
 
@@ -313,6 +469,22 @@ test("custom upload starts from a generic snapshot and accepts an adaptive agent
   expect(getTemplateProfile(analyzed).shiftFields[0]?.key).toBe("supervisor");
   expect(analyzed.bindings).toHaveLength(1);
   expect(analyzed.bindings[0]?.semanticField).toBe("shift.custom");
+
+  const guidedSlides = custom.slides.map((slide, index) => ({
+    index,
+    label: slide.title || `Slide ${index + 1}`,
+    role: slide.role,
+    repeat: false,
+    inclusion: index === 1 ? "example" : "routine",
+    fields: [],
+    instructions: "Pertahankan batas layout dan konteks slide.",
+  }));
+  const guided = applyTemplateAnalysis(custom, {
+    slides: guidedSlides,
+    bindings: [{ slideIndex: 0, shapeId: editableShape.id, semanticField: "shift.custom", templateKey: "supervisor", confidence: 0.95 }],
+  }, "agent", "test-model");
+  expect(guided.slides[1]?.inclusion).toBe("example");
+  expect(guided.slides[1]?.include).toBe(false);
 
   const manuallyMapped = applyTemplateAnalysis({
     ...custom,

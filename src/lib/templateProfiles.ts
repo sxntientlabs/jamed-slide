@@ -6,6 +6,8 @@ import type {
   TemplateProfile,
   TemplateShiftField,
   TemplateSlideGuide,
+  TemplateSlideInclusion,
+  TemplateSlidePatientScope,
   SlideRole,
 } from "../types";
 
@@ -104,7 +106,19 @@ const LAPJAG_GROUPS: TemplateFieldGroup[] = [
 
 const shiftField = (key: string, label: string, placeholder: string, required = false): TemplateShiftField => ({ key, label, placeholder, required });
 
-const guide = (index: number, label: string, role: SlideRole, fields: string[], instructions: string, repeat = true, speakerNote?: string): TemplateSlideGuide => ({
+const guide = (
+  index: number,
+  label: string,
+  role: SlideRole,
+  fields: string[],
+  instructions: string,
+  repeat = true,
+  speakerNote?: string,
+  inclusion: TemplateSlideInclusion = "routine",
+  include = inclusion === "routine",
+  inclusionReason?: string,
+  patientScope: TemplateSlidePatientScope = role === "shift_summary" ? "all_patients" : repeat ? "focus_patient" : "static",
+): TemplateSlideGuide => ({
   index,
   label,
   role,
@@ -112,6 +126,10 @@ const guide = (index: number, label: string, role: SlideRole, fields: string[], 
   instructions,
   repeat,
   speakerNote,
+  inclusion,
+  include,
+  inclusionReason,
+  patientScope,
 });
 
 const mainLapjagShiftFields = [
@@ -134,12 +152,12 @@ const MAIN_LAPJAG_GUIDES: TemplateSlideGuide[] = [
   guide(10, "WHO length/height-for-age", "anthropometry", ["patient.demographics.heightCm"], "Pilih chart sesuai jenis kelamin dan plot hanya bila usia serta panjang/tinggi tersedia."),
   guide(11, "WHO weight-for-age", "anthropometry", ["patient.demographics.weightKg"], "Plot hanya bila usia, jenis kelamin, dan berat tersedia."),
   guide(12, "WHO weight-for-length", "anthropometry", ["patient.demographics.weightKg", "patient.demographics.heightCm"], "Plot hanya bila berat dan panjang/tinggi tersedia."),
-  guide(13, "Pemeriksaan fisis", "physical_exam", ["patient.physicalExamBlock"], "Pisahkan keadaan umum, kesadaran, tanda vital, dan temuan objektif."),
+  guide(13, "Pemeriksaan fisis", "physical_exam", ["patient.physicalExam.generalAppearanceBlock", "patient.physicalExam.vitalSignsBlock"], "Pisahkan keadaan umum/kesadaran dari tanda vital; jangan menulis satu blok klinis ke beberapa shape."),
   guide(14, "Organ / deskripsi", "physical_exam", ["patient.physicalExam.organFindings"], "Gunakan alias klinis Thoraks/Dada/Paru agar temuan respirasi tidak hilang."),
   guide(15, "Diagnosis awal", "diagnosis", ["patient.templateSection:initialDiagnosis"], "Isi hanya diagnosis awal yang eksplisit; jangan menggandakan diagnosis kerja bila tidak ada label awal."),
   guide(16, "Tata laksana awal", "management", ["patient.templateSection:initialManagement", "patient.timelineBlock"], "Pisahkan tindakan awal dari timeline dan jangan mengisi tata laksana akhir."),
   guide(17, "Analisis gas darah", "investigation", ["patient.templateSection:bloodGasTable", "patient.investigations.summary"], "Pertahankan parameter dan hasil persis; jangan memetakan BE ke Standard BE tanpa bukti."),
-  guide(18, "Pemeriksaan penunjang tambahan", "investigation", [], "Pertahankan hanya elemen edukatif/static; contoh diagnosis atau diagram sample tidak boleh masuk ke record pasien."),
+  guide(18, "Pemeriksaan penunjang tambahan · contoh edukatif", "investigation", [], "Slide ini berisi diagram edukatif/sample, bukan data pasien. Sertakan hanya bila memang dibutuhkan untuk presentasi.", false, undefined, "example", false, "Diagram edukatif/sample; default tidak disertakan."),
   guide(19, "Laboratorium rutin", "investigation", ["patient.investigations.laboratory"], "Gunakan alias parameter seperti Ht/Hematokrit dan pertahankan unit."),
   guide(20, "Laboratorium diferensial", "investigation", ["patient.investigations.laboratory"], "Bedakan nilai persentase dari hitung absolut; jangan memindahkan nilai antarparameter."),
   guide(21, "Radiologi", "investigation", ["patient.investigations.imaging", "patient.templateData.radiologyInterpretation"], "Tampilkan hasil/interpretasi radiologi pasien, bukan teks sample template."),
@@ -302,7 +320,7 @@ const RSCM_GUIDES: TemplateSlideGuide[] = [
   guide(6, "Riwayat dahulu, keluarga, kehamilan", "history", ["patient.history.pastMedicalHistory", "patient.history.familyHistory", "patient.templateData.pregnancyBirth"], "Tiga panel terpisah."),
   guide(7, "Imunisasi, nutrisi, sosioekonomi", "history", ["patient.history.immunizationHistory", "patient.history.nutritionHistory", "patient.history.socioeconomicHistory"], "Speaker note: yang dibacakan hanya kesannya.", true, "dibacakan kesannya saja"),
   guide(8, "Status antropometri", "anthropometry", ["patient.anthropometryBlock"], "Tidak ada chart; jangan menghitung BB/U, TB/U, BB/TB, height age, atau RDA yang tidak tersedia."),
-  guide(9, "Pemeriksaan fisis", "physical_exam", ["patient.physicalExamBlock"], "Pisahkan keadaan umum, GCS, dan tanda vital."),
+  guide(9, "Pemeriksaan fisis", "physical_exam", ["patient.physicalExam.generalAppearanceBlock", "patient.physicalExam.vitalSignsBlock"], "Pisahkan keadaan umum/GCS dari tanda vital."),
   guide(10, "Organ / deskripsi", "physical_exam", ["patient.physicalExam.organFindings"], "Isi tabel organ."),
   guide(11, "Diagnosis awal", "diagnosis", ["patient.templateData.initialDiagnosis"], "Pertahankan ICD-10 bila ada."),
   guide(12, "Tata laksana awal", "management", ["patient.templateData.initialManagement"], "Isi tindakan awal yang terdokumentasi."),
@@ -552,6 +570,11 @@ function genericTemplateProfile(template: TemplateProfileSource): TemplateProfil
       slideSpecs.filter((spec) => spec.key === `templateData.slide${slide.index + 1}`).map((spec) => spec.key),
       `Ikuti konteks slide ${slide.index + 1} dan binding yang tersedia.`,
       slide.repeat,
+      slide.speakerNotes,
+      slide.inclusion || "routine",
+      slide.include !== false,
+      slide.inclusionReason,
+      slide.patientScope,
     )),
   };
 }
@@ -615,6 +638,10 @@ export function buildLocalTemplateAnalysis(template: ParsedTemplate): TemplateAn
       `Pertahankan struktur ${structure}. Gunakan hanya fakta source yang relevan dengan slide ini.${slide.speakerNotes ? ` Speaker notes: ${slide.speakerNotes}` : ""}`,
       slide.repeat,
       slide.speakerNotes,
+      slide.inclusion || "routine",
+      slide.include !== false,
+      slide.inclusionReason,
+      slide.patientScope,
     );
   });
   const slideSpecs: TemplateFieldSpec[] = slides
