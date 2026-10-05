@@ -423,13 +423,13 @@ export const LAPJAG_PROFILE: TemplateProfile = {
   patientInputHint: "Inisial/nama, usia, jenis kelamin, keluhan, PAT/ABCDE/AMPLE, antropometri, pemeriksaan, lab, diagnosis, dan tata laksana.",
 };
 
-const perinaInstructions = (rsab = false): string => [
+const perinaInstructions = (rsab = false, templateLabel = rsab ? "PERINA RSAB" : "PERINA Lapjag"): string => [
   "Gunakan kontrak perinatologi 15 slide dan ulangi slide pasien untuk setiap pasien, bukan satu record besar untuk semua pasien.",
   "Pisahkan identitas neonatus, konsultasi antenatal, USG fetomaternal, riwayat persalinan, penyakit dahulu, penyakit keluarga, persiapan persalinan, resusitasi, S.T.A.B.L.E., antropometri, pemeriksaan fisis, organ, diagnosis, laboratorium, radiologi, dan tata laksana.",
   "Pertahankan timeline resusitasi pada titik 0, 1, 3, 5, 10, dan 15 menit. Jangan mengubah hasil atau membuat skor baru.",
   "Chart antropometri neonatus preterm bawaan template harus dipertahankan. Jangan memakai chart WHO anak 0–5 tahun pada template PERINA.",
   "Data gambar, PDF, scan, dan audio adalah evidence multimodal; ekstrak yang terbaca dan tandai bagian yang tidak terbaca sebagai missing.",
-  rsab ? "Cover RSAB hanya meminta Mahasiswa dan DPJP IGD; jangan menambahkan Tim Jaga Perinatologi." : "Cover PERINA Lapjag meminta Mahasiswa, Tim Jaga Perinatologi, dan DPJP Perinatologi secara terpisah.",
+  rsab ? "Cover RSAB hanya meminta Mahasiswa dan DPJP IGD; jangan menambahkan Tim Jaga Perinatologi." : `Cover ${templateLabel} meminta Mahasiswa, Tim Jaga Perinatologi, dan DPJP Perinatologi secara terpisah.`,
 ].join(" ");
 
 export const PERINA_LAPJAG_PROFILE: TemplateProfile = {
@@ -442,6 +442,21 @@ export const PERINA_LAPJAG_PROFILE: TemplateProfile = {
     shiftField("student", "Mahasiswa", "Nama mahasiswa", true),
     shiftField("perinaTeam", "Tim Jaga Perinatologi", "Nama tim jaga perinatologi", true),
     shiftField("dpjp", "DPJP Perinatologi", "Nama DPJP", true),
+  ],
+  slideGuides: PERINA_GUIDES(false),
+  patientInputHint: "Nama/inisial bayi, jenis kelamin, usia/perawatan, usia gestasi, berat lahir, keluhan, riwayat perinatal, resusitasi, S.T.A.B.L.E., pemeriksaan, lab, diagnosis, dan tata laksana.",
+};
+
+export const PERINA_HARKIT_PROFILE: TemplateProfile = {
+  id: "perina-harkit",
+  label: "Perina RSAB",
+  description: "Profile khusus 15 slide Perina RSAB dengan struktur perinatologi yang mengikuti pola Perina RSCM.",
+  extractionInstructions: perinaInstructions(false, "Perina RSAB"),
+  fieldGroups: PERINA_GROUPS,
+  shiftFields: [
+    shiftField("student", "Mahasiswa", "Nama mahasiswa", true),
+    shiftField("perinaTeam", "Tim Jaga Perinatologi", "Nama tim jaga perinatologi", true),
+    shiftField("dpjp", "DPJP Perinatologi", "Nama DPJP Perinatologi", true),
   ],
   slideGuides: PERINA_GUIDES(false),
   patientInputHint: "Nama/inisial bayi, jenis kelamin, usia/perawatan, usia gestasi, berat lahir, keluhan, riwayat perinatal, resusitasi, S.T.A.B.L.E., pemeriksaan, lab, diagnosis, dan tata laksana.",
@@ -675,6 +690,7 @@ export function buildLocalTemplateAnalysis(template: ParsedTemplate): TemplateAn
 export function getTemplateProfile(template: TemplateProfileSource | null | undefined): TemplateProfile {
   if (template?.profileId === "lapjag") return LAPJAG_PROFILE;
   if (template?.profileId === "perina-lapjag") return PERINA_LAPJAG_PROFILE;
+  if (template?.profileId === "perina-harkit") return PERINA_HARKIT_PROFILE;
   if (template?.profileId === "perina-rsab") return PERINA_RSAB_PROFILE;
   if (template?.profileId === "rscm") return RSCM_PROFILE;
   if (template?.profileId === "rsui") return RSUI_PROFILE;
@@ -682,6 +698,7 @@ export function getTemplateProfile(template: TemplateProfileSource | null | unde
   if (template?.profileId === "generic") return genericTemplateProfile(template);
   const identity = `${template?.name ?? ""} ${template?.fileName ?? ""}`.toLowerCase();
   if (/perina\s*lapjag/.test(identity)) return PERINA_LAPJAG_PROFILE;
+  if (/perina\s*harkit/.test(identity)) return PERINA_HARKIT_PROFILE;
   if (/perina\s*rsab/.test(identity)) return PERINA_RSAB_PROFILE;
   if (/\brscm\b/.test(identity)) return RSCM_PROFILE;
   if (/\brsui\b/.test(identity)) return RSUI_PROFILE;

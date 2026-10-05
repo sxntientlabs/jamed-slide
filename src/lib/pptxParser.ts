@@ -166,6 +166,7 @@ function parseShapes(xml: string): ParsedShape[] {
 
 function templateProfileIdForFile(fileName: string, slideCount: number): TemplateProfileId {
   const identity = fileName.toLowerCase();
+  if (/perina\s*harkit/.test(identity)) return "perina-harkit";
   if (/perina\s*rsab/.test(identity)) return "perina-rsab";
   if (/perina\s*lapjag/.test(identity)) return "perina-lapjag";
   if (/\brscm\b/.test(identity)) return "rscm";
@@ -242,6 +243,7 @@ function lapjagRoleForSlide(index: number, total: number): SlideRole | undefined
 
 const PROFILE_ROLE_MAPS: Partial<Record<TemplateProfileId, SlideRole[]>> = {
   "perina-lapjag": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
+  "perina-harkit": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
   "perina-rsab": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
   rscm: ["cover", "shift_summary", "patient_identity", "pediatric_assessment", "primary_survey", "secondary_survey", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "management", "investigation", "diagnosis", "management", "closing"],
   rsui: ["cover", "patient_identity", "pediatric_assessment", "primary_survey", "management", "secondary_survey", "history", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "investigation", "diagnosis", "management", "closing"],
@@ -449,7 +451,7 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     return undefined;
   }
 
-  if (profileId === "perina-lapjag" || profileId === "perina-rsab") {
+  if (profileId === "perina-lapjag" || profileId === "perina-harkit" || profileId === "perina-rsab") {
     if (index === 0 && !isTitle && /mahasiswa/.test(text) && /dpjp/.test(text)) return target("shift.coverBlock");
     if (index === 0 && !isTitle && /mahasiswa/.test(text)) return target("shift.student");
     if (index === 0 && !isTitle && /tim jaga perinatologi/.test(text)) return target("shift.perinaTeam");

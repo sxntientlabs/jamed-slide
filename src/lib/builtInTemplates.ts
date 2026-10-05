@@ -11,6 +11,7 @@ export const BUILT_IN_TEMPLATE_ARCHIVE_URL = "/templates/Template%20laporan%20ja
 const BUILT_IN_DISPLAY_LABELS: Record<string, string> = {
   Lapjag: "Contoh PPT Lapjag",
   "PERINA RSAB": "IGD RSAB",
+  "PERINA harkit": "Perina RSAB",
   RSCM: "IGD RSCM",
   RSUI: "IGD RSUI",
   "PERINA Lapjag": "Perina RSCM",

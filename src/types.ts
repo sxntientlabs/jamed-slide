@@ -129,6 +129,7 @@ export interface PatientRecord {
 export type TemplateProfileId =
   | "lapjag"
   | "perina-lapjag"
+  | "perina-harkit"
   | "perina-rsab"
   | "rscm"
   | "rsui"

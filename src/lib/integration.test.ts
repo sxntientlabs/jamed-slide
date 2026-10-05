@@ -286,6 +286,7 @@ test("built-in department profiles map their slide contracts and generate indepe
   const archive = await JSZip.loadAsync(archiveBytes);
   const cases = [
     { fileName: "[TEMPLATE} PERINA Lapjag.pptx", profileId: "perina-lapjag", slideCount: 15, requiredKey: "antenatalConsultation" },
+    { fileName: "[TEMPLATE} PERINA harkit.pptx", profileId: "perina-harkit", slideCount: 15, requiredKey: "antenatalConsultation" },
     { fileName: "[TEMPLATE] PERINA RSAB.pptx", profileId: "perina-rsab", slideCount: 15, requiredKey: "resuscitationTimeline" },
     { fileName: "[TEMPLATE] RSCM.pptx", profileId: "rscm", slideCount: 17, requiredKey: "pregnancyBirth" },
     { fileName: "[TEMPLATE] RSUI.pptx", profileId: "rsui", slideCount: 19, requiredKey: "radiologyInterpretation" },
