@@ -166,7 +166,10 @@ function parseShapes(xml: string): ParsedShape[] {
 
 function templateProfileIdForFile(fileName: string, slideCount: number): TemplateProfileId {
   const identity = fileName.toLowerCase();
+  if (/igd\s*harkit/.test(identity)) return "igd-harkit";
+  if (/igd\s*rsut/.test(identity)) return "igd-rsut";
   if (/perina\s*harkit/.test(identity)) return "perina-harkit";
+  if (/perina\s*rsut/.test(identity)) return "perina-rsut";
   if (/perina\s*rsab/.test(identity)) return "perina-rsab";
   if (/perina\s*lapjag/.test(identity)) return "perina-lapjag";
   if (/\brscm\b/.test(identity)) return "rscm";
@@ -244,7 +247,10 @@ function lapjagRoleForSlide(index: number, total: number): SlideRole | undefined
 const PROFILE_ROLE_MAPS: Partial<Record<TemplateProfileId, SlideRole[]>> = {
   "perina-lapjag": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
   "perina-harkit": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
+  "perina-rsut": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
   "perina-rsab": ["cover", "patient_identity", "consultation", "history", "delivery_preparation", "resuscitation", "stabilization", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "management", "closing"],
+  "igd-harkit": ["cover", "shift_summary", "patient_identity", "pediatric_assessment", "primary_survey", "secondary_survey", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "management", "investigation", "diagnosis", "management", "closing"],
+  "igd-rsut": ["cover", "shift_summary", "patient_identity", "pediatric_assessment", "primary_survey", "secondary_survey", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "management", "investigation", "diagnosis", "management", "closing"],
   rscm: ["cover", "shift_summary", "patient_identity", "pediatric_assessment", "primary_survey", "secondary_survey", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "management", "investigation", "diagnosis", "management", "closing"],
   rsui: ["cover", "patient_identity", "pediatric_assessment", "primary_survey", "management", "secondary_survey", "history", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "investigation", "diagnosis", "management", "closing"],
 };
@@ -381,6 +387,7 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
   const index = slide.index;
   const empty = !shape.text && shape.kind === "text" && !shape.placeholderType?.match(/title|ctrTitle/i);
   const isTitle = shape.placeholderType === "title" || shape.placeholderType === "ctrTitle" || shape.text === slide.title;
+  const isNewIgdProfile = profileId === "igd-harkit" || profileId === "igd-rsut";
 
   if (profileId === "lapjag") {
     const body = shape.kind === "text" && !isTitle && shape.text.trim().length > 8;
@@ -451,7 +458,7 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     return undefined;
   }
 
-  if (profileId === "perina-lapjag" || profileId === "perina-harkit" || profileId === "perina-rsab") {
+  if (profileId === "perina-lapjag" || profileId === "perina-harkit" || profileId === "perina-rsut" || profileId === "perina-rsab") {
     if (index === 0 && !isTitle && /mahasiswa/.test(text) && /dpjp/.test(text)) return target("shift.coverBlock");
     if (index === 0 && !isTitle && /mahasiswa/.test(text)) return target("shift.student");
     if (index === 0 && !isTitle && /tim jaga perinatologi/.test(text)) return target("shift.perinaTeam");
@@ -485,10 +492,11 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     return undefined;
   }
 
-  if (profileId === "rscm") {
-    if (index === 0 && !isTitle && /tim mahasiswa/.test(text) && /tim ppds/.test(text) && /dpjp/.test(text)) return target("shift.coverBlock");
+  if (profileId === "rscm" || isNewIgdProfile) {
+    if (index === 0 && !isTitle && /tim mahasiswa/.test(text) && (isNewIgdProfile ? /fasilitator/.test(text) : /tim ppds/.test(text)) && /dpjp/.test(text)) return target("shift.coverBlock");
     if (index === 0 && !isTitle && /tim mahasiswa/.test(text)) return target("shift.team");
-    if (index === 0 && !isTitle && /tim ppds/.test(text)) return target("shift.ppds");
+    if (index === 0 && !isTitle && isNewIgdProfile && /fasilitator/.test(text)) return target("shift.facilitator");
+    if (index === 0 && !isTitle && !isNewIgdProfile && /tim ppds/.test(text)) return target("shift.ppds");
     if (index === 0 && !isTitle && /dpjp/.test(text)) return target("shift.dpjp");
     if (index === 1 && shape.kind === "graphicFrame") return target("shift.patientSummaryTable");
     if (index === 2 && /nama|usia|tanggal lahir|jenis kelamin|nrm|alamat/.test(text) && !/keluhan/.test(text)) return target("patient.identityBlock");
@@ -499,12 +507,12 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     if (index === 4 && !isTitle) return target("patient.primarySurveyBlock");
     if (index === 5 && !isTitle) return target("patient.secondarySurveyBlock");
     if (index === 6 && /riwayat penyakit dahulu|riwayat penyakit keluarga|kehamilan|kelahiran/.test(text)) return undefined;
-    if (index === 6 && (empty || text === ".") && shape.y !== undefined && shape.y >= 5.4) return target("patient.templateSection", "pregnancyBirth");
-    if (index === 6 && (empty || text === ".") && shape.y !== undefined && shape.y >= 2.9 && shape.y < 4.5) return target("patient.history.familyHistory");
+    if (index === 6 && (empty || text === ".") && shape.y !== undefined && shape.y >= (isNewIgdProfile ? 3.5 : 5.4)) return target("patient.templateSection", "pregnancyBirth");
+    if (index === 6 && (empty || text === ".") && shape.y !== undefined && shape.y >= (isNewIgdProfile ? 1.7 : 2.9) && shape.y < (isNewIgdProfile ? 3.3 : 4.5)) return target("patient.history.familyHistory");
     if (index === 6 && (empty || text === ".") && shape.y !== undefined && shape.y >= 0.2 && shape.y < 2.0) return target("patient.history.pastMedicalHistory");
     if (index === 7 && /imunisasi|nutrisi|sosioekonomi/.test(text)) return undefined;
-    if (index === 7 && (empty || text === ".") && shape.y !== undefined && shape.y >= 5.0) return target("patient.history.socioeconomicHistory");
-    if (index === 7 && (empty || text === ".") && shape.y !== undefined && shape.y >= 2.7 && shape.y < 4.2) return target("patient.history.nutritionHistory");
+    if (index === 7 && (empty || text === ".") && shape.y !== undefined && shape.y >= (isNewIgdProfile ? 3.5 : 5.0)) return target("patient.history.socioeconomicHistory");
+    if (index === 7 && (empty || text === ".") && shape.y !== undefined && shape.y >= (isNewIgdProfile ? 1.7 : 2.7) && shape.y < (isNewIgdProfile ? 3.3 : 4.2)) return target("patient.history.nutritionHistory");
     if (index === 7 && (empty || text === ".") && shape.y !== undefined && shape.y >= 0.2 && shape.y < 2.0) return target("patient.history.immunizationHistory");
     if (index === 8 && /^kesan/.test(text)) return target("patient.templateSection", "nutritionConclusion");
     if (index === 8 && !isTitle) return target("patient.anthropometryBlock");

@@ -229,7 +229,7 @@ function neonatalChartPoint(
 }
 
 function applyPerinaChartAssets(template: ParsedTemplate, slide: ParsedSlide, patient: PatientRecord, xml: string): string {
-  if (!["perina-lapjag", "perina-rsab"].includes(template.profileId) || slide.index !== 7) return xml;
+  if (!["perina-lapjag", "perina-harkit", "perina-rsut", "perina-rsab"].includes(template.profileId) || slide.index !== 7) return xml;
   const pictures = pictureBoundsList(xml);
   if (pictures.length < 2) return xml;
   const gestationalAge = gestationalAgeInWeeks(patient);
@@ -403,7 +403,7 @@ function formatShiftCover(shift: ShiftDetails, template?: ParsedTemplate): strin
       blockLine("DPJP Jaga", shift.dpjp),
     ].join("\n");
   }
-  if (profileId === "perina-lapjag") {
+  if (["perina-lapjag", "perina-harkit", "perina-rsut"].includes(profileId ?? "")) {
     return [
       blockLine("Mahasiswa", shiftMetadataValue(shift, "student")),
       blockLine("Tim Jaga Perinatologi", shiftMetadataValue(shift, "perinaTeam")),
@@ -420,6 +420,13 @@ function formatShiftCover(shift: ShiftDetails, template?: ParsedTemplate): strin
     return [
       blockLine("Tim mahasiswa jaga", shift.team),
       blockLine("Tim PPDS Jaga", shiftMetadataValue(shift, "ppds")),
+      blockLine("DPJP Jaga", shift.dpjp),
+    ].join("\n");
+  }
+  if (profileId === "igd-harkit" || profileId === "igd-rsut") {
+    return [
+      blockLine("Tim mahasiswa jaga", shift.team),
+      blockLine("Fasilitator Laporan Jaga", shift.facilitator),
       blockLine("DPJP Jaga", shift.dpjp),
     ].join("\n");
   }
@@ -635,7 +642,7 @@ function templateSectionText(patient: PatientRecord, key: string): string {
 }
 
 function templateAnthropometryText(patient: PatientRecord, template?: ParsedTemplate): string {
-  if (template?.profileId === "perina-lapjag" || template?.profileId === "perina-rsab") {
+  if (["perina-lapjag", "perina-harkit", "perina-rsut", "perina-rsab"].includes(template?.profileId ?? "")) {
     return [
       blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
       blockLine("TB", patientText(patient, "demographics.heightCm", 80)),
@@ -1163,7 +1170,8 @@ function replaceTableBinding(
         const diagnosis = rawFieldValue<string[]>(item, "assessment.workingDiagnosis")?.join(", ") || "Tidak tercantum";
         const row = summaryRows[index + 1];
         if (!row) return;
-        result = result.replace(row, replaceTableRowCells(row, new Map([[0, String(summaryStartIndex + index + 1)], [1, patientSummaryIdentity(item)], [2, diagnosis], [3, patientUrgency(item, template?.profileId === "rscm")]])));
+        const usesBooleanUrgency = ["rscm", "igd-harkit", "igd-rsut"].includes(template?.profileId ?? "");
+        result = result.replace(row, replaceTableRowCells(row, new Map([[0, String(summaryStartIndex + index + 1)], [1, patientSummaryIdentity(item)], [2, diagnosis], [3, patientUrgency(item, usesBooleanUrgency)]])));
       });
       summaryRows.slice(1 + Math.min(capacity, patients.length)).forEach((row) => {
         result = result.replace(row, blankTableRow(row));
@@ -1360,8 +1368,8 @@ function applyBindings(
         }
       }
     });
-  if (template.profileId === "rscm" && slide.index === 5 && patient) {
-    result = appendEditableTextBox(result, contentForField("patient.secondarySurveyBlock", patient, shift, template) || "Tidak tercantum", { x: 0.8, y: 1.25, width: 8.4, height: 3.75 }, "JaMed RSCM secondary survey");
+  if (["rscm", "igd-harkit", "igd-rsut"].includes(template.profileId) && slide.index === 5 && patient) {
+    result = appendEditableTextBox(result, contentForField("patient.secondarySurveyBlock", patient, shift, template) || "Tidak tercantum", { x: 0.8, y: 1.25, width: 8.4, height: 3.75 }, `JaMed ${template.profileId} secondary survey`);
   }
   return result;
 }

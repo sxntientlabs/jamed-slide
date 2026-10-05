@@ -330,6 +330,24 @@ const RSCM_GUIDES: TemplateSlideGuide[] = [
   guide(16, "Penutup", "closing", [], "Pertahankan slide penutup.", false),
 ];
 
+// IGD HARKIT and IGD RSUT share the 17-slide clinical sequence with RSCM,
+// but their cover asks for a facilitator instead of a PPDS team. Keep their
+// contracts separate so the cover and extraction UI cannot silently drift.
+const IGD_GROUPS: TemplateFieldGroup[] = RSCM_GROUPS.map((group) => ({
+  ...group,
+  id: group.id.replace(/^rscm-/, "igd-"),
+  label: group.label.replace(/^RSCM/, "IGD"),
+  description: group.description.replace(/RSCM/g, "IGD"),
+}));
+
+const IGD_GUIDES: TemplateSlideGuide[] = RSCM_GUIDES.map((slide) => slide.index === 0
+  ? {
+    ...slide,
+    fields: ["shift.date", "shift.team", "shift.facilitator", "shift.dpjp"],
+    instructions: "Isi hari/tanggal, tim mahasiswa, fasilitator laporan jaga, dan DPJP.",
+  }
+  : slide);
+
 const RSUI_GROUPS: TemplateFieldGroup[] = [
   {
     id: "rsui-identity",
@@ -449,9 +467,24 @@ export const PERINA_LAPJAG_PROFILE: TemplateProfile = {
 
 export const PERINA_HARKIT_PROFILE: TemplateProfile = {
   id: "perina-harkit",
-  label: "Perina RSAB",
-  description: "Profile khusus 15 slide Perina RSAB dengan struktur perinatologi yang mengikuti pola Perina RSCM.",
-  extractionInstructions: perinaInstructions(false, "Perina RSAB"),
+  label: "PERINA HARKIT",
+  description: "Profile khusus 15 slide PERINA HARKIT dengan chart preterm, resusitasi, S.T.A.B.L.E., dan tabel penunjang.",
+  extractionInstructions: perinaInstructions(false, "PERINA HARKIT"),
+  fieldGroups: PERINA_GROUPS,
+  shiftFields: [
+    shiftField("student", "Mahasiswa", "Nama mahasiswa", true),
+    shiftField("perinaTeam", "Tim Jaga Perinatologi", "Nama tim jaga perinatologi", true),
+    shiftField("dpjp", "DPJP Perinatologi", "Nama DPJP Perinatologi", true),
+  ],
+  slideGuides: PERINA_GUIDES(false),
+  patientInputHint: "Nama/inisial bayi, jenis kelamin, usia/perawatan, usia gestasi, berat lahir, keluhan, riwayat perinatal, resusitasi, S.T.A.B.L.E., pemeriksaan, lab, diagnosis, dan tata laksana.",
+};
+
+export const PERINA_RSUT_PROFILE: TemplateProfile = {
+  id: "perina-rsut",
+  label: "PERINA RSUT",
+  description: "Profile khusus 15 slide PERINA RSUT dengan chart preterm, resusitasi, S.T.A.B.L.E., dan tabel penunjang.",
+  extractionInstructions: perinaInstructions(false, "PERINA RSUT"),
   fieldGroups: PERINA_GROUPS,
   shiftFields: [
     shiftField("student", "Mahasiswa", "Nama mahasiswa", true),
@@ -496,6 +529,32 @@ export const RSCM_PROFILE: TemplateProfile = {
   slideGuides: RSCM_GUIDES,
   patientInputHint: "Inisial/jenis kelamin/usia, keluhan, PAT, ABCDE/AMPLE, RPS, riwayat, antropometri, pemeriksaan fisis/organ, penunjang, diagnosis awal/akhir, dan tata laksana.",
 };
+
+const igdInstructions = (label: string): string => [
+  `Gunakan kontrak ${label} 17 slide. Slide pasien baru adalah ringkasan seluruh pasien; slide klinis berikutnya diulang hanya untuk satu pasien utama yang dipilih untuk dibahas mendalam.`,
+  "Pertahankan pemisahan PAT, primary survey + AMPLE, secondary survey/RPS, riwayat, antropometri, pemeriksaan organ, diagnosis awal, pemeriksaan penunjang, diagnosis akhir, dan tata laksana akhir.",
+  "Kegawatan pada tabel pasien dinormalisasi menjadi True/False hanya jika sumber menyatakan T/F atau padanan eksplisit; jangan menyimpulkan dari diagnosis.",
+  "Cover meminta Tim mahasiswa jaga, Fasilitator Laporan Jaga, dan DPJP Jaga secara terpisah. Slide secondary survey yang hanya berupa judul tetap diberi ruang narasi klinis saat generate.",
+  "Jangan menghitung nilai antropometri turunan yang tidak ada di sumber. Evidence multimodal tetap diterima dan bagian yang tidak terbaca harus ditandai missing.",
+].join(" ");
+
+const buildIgdProfile = (id: "igd-harkit" | "igd-rsut", label: string): TemplateProfile => ({
+  id,
+  label,
+  description: `Profile 17 slide ${label}: tabel pasien baru, PAT, primary/secondary survey, status gizi, diagnosis awal/akhir, dan tata laksana awal/akhir.`,
+  extractionInstructions: igdInstructions(label),
+  fieldGroups: IGD_GROUPS,
+  shiftFields: [
+    shiftField("team", "Tim mahasiswa jaga", "Nama tim mahasiswa", true),
+    shiftField("facilitator", "Fasilitator Laporan Jaga", "Nama fasilitator", true),
+    shiftField("dpjp", "DPJP Jaga", "Nama DPJP", true),
+  ],
+  slideGuides: IGD_GUIDES,
+  patientInputHint: "Inisial/jenis kelamin/usia, kegawatan, keluhan, PAT, ABCDE/AMPLE, RPS, riwayat, antropometri, pemeriksaan fisis/organ, penunjang, diagnosis awal/akhir, dan tata laksana.",
+});
+
+export const IGD_HARKIT_PROFILE = buildIgdProfile("igd-harkit", "IGD HARKIT");
+export const IGD_RSUT_PROFILE = buildIgdProfile("igd-rsut", "IGD RSUT");
 
 export const RSUI_PROFILE: TemplateProfile = {
   id: "rsui",
@@ -691,7 +750,10 @@ export function getTemplateProfile(template: TemplateProfileSource | null | unde
   if (template?.profileId === "lapjag") return LAPJAG_PROFILE;
   if (template?.profileId === "perina-lapjag") return PERINA_LAPJAG_PROFILE;
   if (template?.profileId === "perina-harkit") return PERINA_HARKIT_PROFILE;
+  if (template?.profileId === "perina-rsut") return PERINA_RSUT_PROFILE;
   if (template?.profileId === "perina-rsab") return PERINA_RSAB_PROFILE;
+  if (template?.profileId === "igd-harkit") return IGD_HARKIT_PROFILE;
+  if (template?.profileId === "igd-rsut") return IGD_RSUT_PROFILE;
   if (template?.profileId === "rscm") return RSCM_PROFILE;
   if (template?.profileId === "rsui") return RSUI_PROFILE;
   if (template?.templateAnalysis) return profileFromTemplateAnalysis(template.templateAnalysis);
@@ -699,7 +761,10 @@ export function getTemplateProfile(template: TemplateProfileSource | null | unde
   const identity = `${template?.name ?? ""} ${template?.fileName ?? ""}`.toLowerCase();
   if (/perina\s*lapjag/.test(identity)) return PERINA_LAPJAG_PROFILE;
   if (/perina\s*harkit/.test(identity)) return PERINA_HARKIT_PROFILE;
+  if (/perina\s*rsut/.test(identity)) return PERINA_RSUT_PROFILE;
   if (/perina\s*rsab/.test(identity)) return PERINA_RSAB_PROFILE;
+  if (/igd\s*harkit/.test(identity)) return IGD_HARKIT_PROFILE;
+  if (/igd\s*rsut/.test(identity)) return IGD_RSUT_PROFILE;
   if (/\brscm\b/.test(identity)) return RSCM_PROFILE;
   if (/\brsui\b/.test(identity)) return RSUI_PROFILE;
   if (/lapjag/.test(identity)) return LAPJAG_PROFILE;

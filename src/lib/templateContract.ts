@@ -9,7 +9,17 @@ import type {
 } from "../types";
 import { slideIsIncluded } from "./templateSlides";
 
-const KNOWN_PROFILES = new Set(["lapjag", "perina-lapjag", "perina-rsab", "rscm", "rsui"]);
+const KNOWN_PROFILES = new Set([
+  "lapjag",
+  "perina-lapjag",
+  "perina-harkit",
+  "perina-rsut",
+  "perina-rsab",
+  "igd-harkit",
+  "igd-rsut",
+  "rscm",
+  "rsui",
+]);
 
 const SUPPORTED_SEMANTIC_FIELDS = new Set<SemanticField>([
   "static",

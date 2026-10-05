@@ -130,7 +130,10 @@ export type TemplateProfileId =
   | "lapjag"
   | "perina-lapjag"
   | "perina-harkit"
+  | "perina-rsut"
   | "perina-rsab"
+  | "igd-harkit"
+  | "igd-rsut"
   | "rscm"
   | "rsui"
   | "generic";

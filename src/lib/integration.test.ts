@@ -287,7 +287,11 @@ test("built-in department profiles map their slide contracts and generate indepe
   const cases = [
     { fileName: "[TEMPLATE} PERINA Lapjag.pptx", profileId: "perina-lapjag", slideCount: 15, requiredKey: "antenatalConsultation" },
     { fileName: "[TEMPLATE} PERINA harkit.pptx", profileId: "perina-harkit", slideCount: 15, requiredKey: "antenatalConsultation" },
+    { fileName: "[TEMPLATE} PERINA HARKIT.pptx", profileId: "perina-harkit", slideCount: 15, requiredKey: "antenatalConsultation" },
+    { fileName: "[TEMPLATE} PERINA RSUT.pptx", profileId: "perina-rsut", slideCount: 15, requiredKey: "antenatalConsultation" },
     { fileName: "[TEMPLATE] PERINA RSAB.pptx", profileId: "perina-rsab", slideCount: 15, requiredKey: "resuscitationTimeline" },
+    { fileName: "[TEMPLATE] IGD HARKIT.pptx", profileId: "igd-harkit", slideCount: 17, requiredKey: "pregnancyBirth" },
+    { fileName: "[TEMPLATE] IGD RSUT.pptx", profileId: "igd-rsut", slideCount: 17, requiredKey: "pregnancyBirth" },
     { fileName: "[TEMPLATE] RSCM.pptx", profileId: "rscm", slideCount: 17, requiredKey: "pregnancyBirth" },
     { fileName: "[TEMPLATE] RSUI.pptx", profileId: "rsui", slideCount: 19, requiredKey: "radiologyInterpretation" },
   ] as const;
@@ -334,6 +338,10 @@ test("every built-in template passes the same contract gate used before generati
     "[TEMPLATE] Lapjag.pptx",
     "[TEMPLATE} PERINA Lapjag.pptx",
     "[TEMPLATE] PERINA RSAB.pptx",
+    "[TEMPLATE} PERINA HARKIT.pptx",
+    "[TEMPLATE} PERINA RSUT.pptx",
+    "[TEMPLATE] IGD HARKIT.pptx",
+    "[TEMPLATE] IGD RSUT.pptx",
     "[TEMPLATE] RSCM.pptx",
     "[TEMPLATE] RSUI.pptx",
   ];
@@ -427,6 +435,43 @@ test("PERINA RSAB plots neonatal measurements and embeds radiology evidence", as
   expect(radiologyRels).toContain("Target=\"../media/koasis-radiology-1-1.png\"");
   expect(radiologyRels).toContain("koasis-radiology-1-1.png");
   expect(output.file("ppt/media/koasis-radiology-1-1.png")).toBeTruthy();
+});
+
+test("new PERINA HARKIT and RSUT templates keep adaptive neonatal chart markers", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const patient = extractPatients("Pasien 1\nNama: By. Chart\nJenis kelamin: Perempuan", "perina-chart-source").patients[0];
+  patient.demographics.weightKg = documented(1.45);
+  patient.demographics.heightCm = documented(40);
+  patient.templateData = {
+    ...(patient.templateData || {}),
+    gestationalAge: documented("30 minggu 5 hari"),
+    headCircumference: documented("28,5 cm"),
+  };
+  const shift: ShiftDetails = {
+    title: "Laporan Jaga PERINA Chart Test",
+    date: "2026-10-03",
+    department: "Perinatologi",
+    hospital: "RS Test",
+    team: "Tim A",
+    facilitator: "Fasilitator Test",
+    dpjp: "DPJP Test",
+    metadata: { student: "Mahasiswa Test", perinaTeam: "Perinatologi Test" },
+  };
+
+  for (const fileName of ["[TEMPLATE} PERINA HARKIT.pptx", "[TEMPLATE} PERINA RSUT.pptx"]) {
+    const templateEntry = Object.keys(archive.files).find((name) => name.endsWith(fileName));
+    expect(templateEntry, fileName).toBeTruthy();
+    const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+    const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+    const template = await parsePptx(templateBuffer, fileName);
+    const generated = await generatePresentation(template, [patient], template.bindings, shift);
+    const output = await JSZip.loadAsync(new Uint8Array(await generated.blob.arrayBuffer()));
+    const chartXml = await output.file("ppt/slides/slide8.xml")!.async("string");
+    expect(chartXml, fileName).toContain('name="Koasis PERINA weight-for-gestational-age marker"');
+    expect(chartXml, fileName).toContain('name="Koasis PERINA length-for-gestational-age marker"');
+    expect(chartXml, fileName).toContain('name="Koasis PERINA head-circumference marker"');
+  }
 });
 
 test("custom upload starts from a generic snapshot and accepts an adaptive agent contract", async () => {

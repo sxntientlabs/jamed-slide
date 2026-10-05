@@ -9,13 +9,26 @@ export interface BuiltInTemplateEntry {
 export const BUILT_IN_TEMPLATE_ARCHIVE_URL = "/templates/Template%20laporan%20jaga.zip";
 
 const BUILT_IN_DISPLAY_LABELS: Record<string, string> = {
-  Lapjag: "Contoh PPT Lapjag",
-  "PERINA RSAB": "IGD RSAB",
-  "PERINA harkit": "Perina RSAB",
+  "IGD HARKIT": "IGD HARKIT",
+  "PERINA HARKIT": "PERINA HARKIT",
+  "IGD RSUT": "IGD RSUT",
+  "PERINA RSUT": "PERINA RSUT",
   RSCM: "IGD RSCM",
   RSUI: "IGD RSUI",
   "PERINA Lapjag": "Perina RSCM",
 };
+
+// Keep legacy archive entries available for existing saved workspaces, but do
+// not expose them as selectable built-ins after the catalog update.
+const ACTIVE_BUILT_IN_FILES = new Set([
+  "[TEMPLATE] IGD HARKIT.pptx",
+  "[TEMPLATE} PERINA HARKIT.pptx",
+  "[TEMPLATE] IGD RSUT.pptx",
+  "[TEMPLATE} PERINA RSUT.pptx",
+  "[TEMPLATE] RSCM.pptx",
+  "[TEMPLATE] RSUI.pptx",
+  "[TEMPLATE} PERINA Lapjag.pptx",
+]);
 
 let archivePromise: Promise<JSZip> | undefined;
 
@@ -45,6 +58,7 @@ export async function loadBuiltInTemplateCatalog(): Promise<BuiltInTemplateEntry
   const archive = await getArchive();
   return Object.keys(archive.files)
     .filter((fileName) => fileName.toLowerCase().endsWith(".pptx"))
+    .filter((fileName) => ACTIVE_BUILT_IN_FILES.has(fileName.split("/").pop() ?? fileName))
     .sort((left, right) => left.localeCompare(right))
     .map((archivePath) => {
       const fileName = archivePath.split("/").pop() ?? archivePath;
