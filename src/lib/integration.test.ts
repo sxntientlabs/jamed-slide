@@ -223,6 +223,81 @@ test("IGD HARKIT summary fills reserved empty table rows for every detected pati
   expect(summaryText).toContain("An. R");
 });
 
+test("every built-in summary template keeps the full patient roster", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const files = [
+    "[TEMPLATE] Lapjag.pptx",
+    "[TEMPLATE] RSCM.pptx",
+    "[TEMPLATE] IGD HARKIT.pptx",
+    "[TEMPLATE] IGD RSUT.pptx",
+  ];
+  const patients = extractPatients(`PASIEN BARU: 5 PASIEN
+1. Julia / 20 tahun | Demam | T
+2. Rafael / 21 tahun | Edema | F
+3. Gita / 19 tahun | Kejang | T
+4. Lutfi / 22 tahun | CKD | F
+5. An. R / 3 tahun | Pneumonia berat | T`, "built-in-roster-source").patients;
+  const shift: ShiftDetails = { title: "Laporan Jaga Roster", date: "2026-10-01", department: "IGD", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  for (const fileName of files) {
+    const entry = Object.keys(archive.files).find((name) => name.endsWith(fileName));
+    expect(entry, fileName).toBeTruthy();
+    const bytes = await archive.file(entry!)!.async("uint8array");
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const template = await parsePptx(buffer, fileName);
+    if (!template.bindings.some((binding) => binding.semanticField === "shift.patientSummaryTable")) continue;
+    const generated = await generatePresentation(template, patients, template.bindings, shift, { focusPatientId: patients[0].id });
+    const review = await inspectGeneratedPresentation(generated.blob, template, patients, patients[0].id);
+    expect(review.review.issues.filter((issue) => issue.severity === "error"), fileName).toEqual([]);
+    const summaryText = review.snapshot.slides
+      .filter((slide) => /(?:pasien baru|daftar pasien|ringkasan pasien|resume jaga)/i.test(`${slide.title} ${slide.text}`))
+      .map((slide) => slide.text)
+      .join(" ");
+    for (const name of ["Julia", "Rafael", "Gita", "Lutfi", "An. R"]) {
+      expect(summaryText, `${fileName}: ${name}`).toContain(name);
+    }
+  }
+});
+
+test("an agent-learned custom upload uses the same roster completeness guard", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const entry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] IGD HARKIT.pptx"));
+  expect(entry).toBeTruthy();
+  const bytes = await archive.file(entry!)!.async("uint8array");
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const uploaded = await parsePptx(buffer, "new-department-upload.pptx", "generic");
+  const localContract = buildLocalTemplateAnalysis(uploaded);
+  const summaryShape = uploaded.slides[1]?.shapes.find((shape) => shape.kind === "graphicFrame");
+  expect(summaryShape).toBeTruthy();
+  const learned = applyTemplateAnalysis(uploaded, {
+    ...localContract,
+    slides: uploaded.slides.map((slide) => ({
+      index: slide.index,
+      label: slide.title,
+      role: slide.index === 0 ? "cover" : slide.index === 1 ? "shift_summary" : slide.index === uploaded.slides.length - 1 ? "closing" : "unknown",
+      repeat: false,
+      fields: slide.index === 1 ? ["shift.patientSummaryTable"] : [],
+      instructions: "Gunakan mapping hasil pembelajaran agent.",
+      inclusion: slide.index <= 1 || slide.index === uploaded.slides.length - 1 ? "routine" : "example",
+      include: slide.index <= 1 || slide.index === uploaded.slides.length - 1,
+      patientScope: slide.index === 1 ? "all_patients" : "static",
+    })),
+    bindings: [{ slideIndex: 1, shapeId: summaryShape!.id, semanticField: "shift.patientSummaryTable", confidence: 0.99 }],
+  }, "agent", "test-agent");
+  expect(learned.templateValidation?.valid, learned.templateValidation?.errors.join(" | ")).toBe(true);
+  const patients = extractPatients(`PASIEN BARU: 5 PASIEN
+1. Julia / 20 tahun | Demam | T
+2. Rafael / 21 tahun | Edema | F
+3. Gita / 19 tahun | Kejang | T
+4. Lutfi / 22 tahun | CKD | F
+5. An. R / 3 tahun | Pneumonia berat | T`, "custom-roster-source").patients;
+  const shift: ShiftDetails = { title: "Laporan Jaga Custom", date: "2026-10-01", department: "IGD", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  const generated = await generatePresentation(learned, patients, learned.bindings, shift, { focusPatientId: patients[0].id });
+  const review = await inspectGeneratedPresentation(generated.blob, learned, patients, patients[0].id);
+  expect(review.review.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+});
+
 test("template mapping can exclude a routine slide without changing its clinical scope", async () => {
   const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
   const archive = await JSZip.loadAsync(archiveBytes);

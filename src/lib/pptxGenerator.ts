@@ -1049,6 +1049,68 @@ function replaceTableRowCells(row: string, replacements: Map<number, string>): s
   return result;
 }
 
+interface SummaryTableColumns {
+  number: number;
+  name: number;
+  sex?: number;
+  age?: number;
+  diagnosis?: number;
+  urgency?: number;
+}
+
+function summaryTableColumns(headerRow: string[]): SummaryTableColumns {
+  const headers = headerRow.map((cell) => normalizeLookup(cell.includes("<a:") ? cellText(cell) : cell));
+  const find = (pattern: RegExp, excluded: number[] = []): number | undefined => {
+    const index = headers.findIndex((header, headerIndex) => !excluded.includes(headerIndex) && pattern.test(header));
+    return index >= 0 ? index : undefined;
+  };
+  const number = find(/^(?:no|nomor|number|urut|urutan)$/) ?? 0;
+  const name = find(/(?:nama|name|pasien|patient|inisial)/) ?? (headerRow.length > 1 ? 1 : 0);
+  return {
+    number,
+    name,
+    sex: find(/(?:jeniskelamin|gender|sex)/, [name]),
+    age: find(/(?:usia|umur|age)/, [name]),
+    diagnosis: find(/(?:diagnos|diagnosis|diagnosa|dx)/, [name]),
+    urgency: find(/(?:kegawatan|emergency|urgent|triage|prioritas|critical)/, [name]),
+  };
+}
+
+function summaryTableRowsForShape(xml: string, shapeId: string): string[][] {
+  const block = Array.from(xml.matchAll(/<p:graphicFrame\b[\s\S]*?<\/p:graphicFrame>/g))
+    .map((match) => match[0])
+    .find((candidate) => readAttribute(candidate.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "", "id") === shapeId);
+  if (!block) return [];
+  return tableRows(block).map((row) => tableCells(row).map(cellText));
+}
+
+function summaryIdentityTokens(patient: PatientRecord): string[] {
+  const identity = rawFieldValue<string>(patient, "identifiers.initials")
+    || rawFieldValue<string>(patient, "identifiers.name")
+    || patient.displayName;
+  return Array.from(new Set([identity, patient.displayName].filter((value): value is string => Boolean(value?.trim()))));
+}
+
+function assertSummaryPageCoverage(
+  xml: string,
+  shapeId: string,
+  page: SummaryPageContext & { patients: PatientRecord[] },
+  slideIndex: number,
+): void {
+  const rows = summaryTableRowsForShape(xml, shapeId);
+  const columns = summaryTableColumns(rows[0] || []);
+  const missing = page.patients.filter((patient, index) => {
+    const row = rows[index + 1] || [];
+    const rowText = row[columns.name] || row.join(" ");
+    const normalizedRow = normalizeLookup(rowText);
+    return !summaryIdentityTokens(patient).some((token) => normalizedRow.includes(normalizeLookup(token)));
+  });
+  if (missing.length) {
+    const labels = missing.map((patient) => patient.displayName).join(", ");
+    throw new Error(`Slide ringkasan pasien (${slideIndex + 1}, halaman ${page.index}/${page.total}) tidak memuat: ${labels}. Generate dihentikan agar data pasien tidak hilang.`);
+  }
+}
+
 function tableRowTextLimit(row: string, fontSizePt = 15): number {
   const rowTag = row.match(/<a:tr\b[^>]*>/)?.[0] ?? "";
   const heightEmu = Number(readAttribute(rowTag, "h") ?? 0);
@@ -1225,6 +1287,7 @@ function replaceTableBinding(
       const summaryRows = tableRows(result);
       const capacity = Math.max(0, summaryRows.length - 1);
       const usesBooleanUrgency = ["rscm", "igd-harkit", "igd-rsut"].includes(template?.profileId ?? "");
+      const columns = summaryTableColumns(summaryRows[0] ? tableCells(summaryRows[0]) : []);
       let rowIndex = 0;
       result = result.replace(/<a:tr\b[\s\S]*?<\/a:tr>/g, (row) => {
         const currentRow = rowIndex++;
@@ -1239,12 +1302,19 @@ function replaceTableBinding(
           || rawFieldValue<string>(item, "templateData.initialDiagnosis")
           || rawFieldValue<string>(item, "templateData.finalDiagnosis")
           || "Tidak tercantum";
-        return replaceTableRowCells(row, new Map([
-          [0, String(summaryStartIndex + currentRow)],
-          [1, patientSummaryIdentity(item)],
-          [2, diagnosis],
-          [3, patientUrgency(item, usesBooleanUrgency)],
-        ]));
+        const replacements = new Map<number, string>([
+          [columns.number, String(summaryStartIndex + currentRow)],
+          [columns.name, patientSummaryIdentity(item)],
+        ]);
+        if (columns.sex !== undefined) replacements.set(columns.sex, patientText(item, "demographics.sex", 120));
+        if (columns.age !== undefined) replacements.set(columns.age, patientText(item, "demographics.age", 120));
+        if (columns.diagnosis !== undefined) replacements.set(columns.diagnosis, diagnosis);
+        if (columns.urgency !== undefined) replacements.set(columns.urgency, patientUrgency(item, usesBooleanUrgency));
+        // Preserve the established four-column contract for legacy templates
+        // whose headers are placeholders or too generic to classify.
+        if (columns.diagnosis === undefined && summaryRows[0] && tableCells(summaryRows[0]).length > 2) replacements.set(2, diagnosis);
+        if (columns.urgency === undefined && summaryRows[0] && tableCells(summaryRows[0]).length > 3) replacements.set(3, patientUrgency(item, usesBooleanUrgency));
+        return replaceTableRowCells(row, replacements);
       });
       return result;
     }
@@ -1741,8 +1811,11 @@ export async function generatePresentation(
       const original = originalSlideXml.get(slide.index) ?? "";
       const summaryPages = summaryPagesBySlide.get(slide.index);
       if (summaryPages) {
+        const summaryBinding = bindings.find((binding) => binding.slideIndex === slide.index && binding.semanticField === "shift.patientSummaryTable");
+        if (!summaryBinding) throw new Error(`Slide ringkasan pasien (${slide.index + 1}) tidak memiliki binding tabel yang aman.`);
         for (const [pageIndex, page] of summaryPages.entries()) {
           const boundXml = applyBindings(original, slide, bindings, undefined, shift, patients, template, page.patients, page);
+          assertSummaryPageCoverage(boundXml, summaryBinding.shapeId, page, slide.index);
           if (pageIndex === 0) {
             zip.file(slide.fileName, boundXml);
             slideOrder.push({

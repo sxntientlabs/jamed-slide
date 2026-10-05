@@ -107,6 +107,16 @@ function patientNames(patients: PatientRecord[]): string[] {
     .filter((name) => name.length >= 2);
 }
 
+function summaryOutputSlides(parsed: { slides: Array<{ title: string; text: string; shapes: Array<{ tableRows?: string[][] }> }> }): Array<{ title: string; text: string; shapes: Array<{ tableRows?: string[][] }> }> {
+  return parsed.slides.filter((slide) => /(?:pasien baru|daftar pasien|ringkasan pasien|resume jaga)/i.test(`${slide.title} ${slide.text}`));
+}
+
+function summaryOutputText(slides: Array<{ title: string; text: string; shapes: Array<{ tableRows?: string[][] }> }>): string {
+  return slides
+    .flatMap((slide) => [slide.title, slide.text, ...slide.shapes.flatMap((shape) => shape.tableRows?.flat() || [])])
+    .join(" ");
+}
+
 export function buildPresentationReviewSnapshot(parsed: { slides: Array<{ index: number; title: string; role: string; text: string; shapes: ReviewShapeSnapshot[] }> }): PresentationReviewSnapshot {
   return {
     slideCount: parsed.slides.length,
@@ -165,6 +175,20 @@ export async function inspectGeneratedPresentation(
       }
     });
   });
+
+  const expectedSummarySlides = summaryPageCount(template, patients.length);
+  const renderedSummarySlides = summaryOutputSlides(parsed);
+  if (expectedSummarySlides > 0 && renderedSummarySlides.length < expectedSummarySlides) {
+    issues.push({ severity: "error", title: "Tabel ringkasan pasien tidak lengkap", detail: `Output hanya memiliki ${renderedSummarySlides.length} slide ringkasan, sedangkan kontrak membutuhkan ${expectedSummarySlides}.` });
+  }
+  if (expectedSummarySlides > 0 && renderedSummarySlides.length > 0) {
+    const summaryText = normalizedText(summaryOutputText(renderedSummarySlides));
+    patientNames(patients).forEach((name) => {
+      if (!summaryText.includes(normalizedText(name))) {
+        issues.push({ severity: "error", title: "Pasien tidak masuk tabel ringkasan", detail: `Nama/inisial “${name}” tidak ditemukan pada tabel pasien baru. Output ditahan agar daftar pasien tidak hilang.` });
+      }
+    });
+  }
 
   const allText = parsed.slides.flatMap((slide) => slide.shapes.map((shape) => shape.text)).join(" ");
   patientNames(patients).forEach((name) => {

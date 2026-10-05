@@ -236,6 +236,25 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
     }
     if (!hasSummaryBinding) {
       check(checks, errors, warnings, `summary-binding-${slide.index}`, "Mapping semua pasien", isGeneric ? "error" : "warning", `Slide ${slide.index + 1} perlu binding shift.patientSummaryTable agar seluruh pasien baru masuk ke tabel pembuka.`, slide.index);
+    } else {
+      const summaryBinding = bindings.find((binding) => binding.slideIndex === slide.index && binding.semanticField === "shift.patientSummaryTable");
+      const summaryShape = summaryBinding ? shapeForBinding(template, summaryBinding) : undefined;
+      const rows = summaryShape?.tableRows || [];
+      const tableReady = summaryShape?.kind === "graphicFrame"
+        && rows.length >= 2
+        && (rows[0]?.length || 0) >= 2;
+      check(
+        checks,
+        errors,
+        warnings,
+        `summary-table-${slide.index}`,
+        "Struktur tabel semua pasien",
+        tableReady ? "pass" : "error",
+        tableReady
+          ? "Tabel ringkasan memiliki header dan minimal satu baris data yang dapat diisi."
+          : `Slide ${slide.index + 1} harus memiliki tabel editable dengan header dan minimal satu baris data agar setiap pasien dapat masuk ke ringkasan.`,
+        slide.index,
+      );
     }
   });
   const focusSlides = slides.filter((slide) => slideIsIncluded(slide) && slide.repeat);
