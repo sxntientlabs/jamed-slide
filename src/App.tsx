@@ -38,7 +38,7 @@ import { extractDocxText } from "./lib/docxParser";
 import { generatePresentation } from "./lib/pptxGenerator";
 import { parsePptx } from "./lib/pptxParser";
 import { renderPresentationForPreview } from "./lib/presentationRenderer";
-import { inspectGeneratedPresentation, reviewPresentationWithAgent, type PresentationReview } from "./lib/presentationReview";
+import { inspectGeneratedPresentation, reviewAllowsManualConfirmation, reviewPresentationWithAgent, type PresentationReview } from "./lib/presentationReview";
 import { analyzeTemplateWithAi, applyTemplateAnalysis, buildLocalTemplateAnalysis, validateTemplateContract } from "./lib/templateAnalyzer";
 import { getTemplateProfile } from "./lib/templateProfiles";
 import { loadWorkspaceMetadata, saveWorkspaceMetadata, type FirebaseUser, type WorkspaceMetadata } from "./lib/firebase";
@@ -973,6 +973,7 @@ function PresentationReviewSummary({ review, previewBusy, reviewPassed }: { revi
   return <div className={`presentation-review-summary ${state} ${reviewPassed ? "ready" : ""}`} role="status" aria-live="polite">
     <div className="presentation-review-summary-head"><span className="presentation-review-summary-icon">{icon}</span><div><strong>{title}</strong><span>{review?.engine === "agent" ? "Agent + pemeriksaan lokal" : review?.engine === "local" ? "Pemeriksaan lokal" : "Quality gate aktif"}</span></div></div>
     <p>{detail}</p>
+    {state === "needs_review" && <p className="presentation-review-summary-note">Warning ini tidak memblokir. Setelah semua slide diperiksa, centang persetujuan manual untuk mengaktifkan download.</p>}
     {review?.issues?.length ? <ul className="presentation-review-issues">{review.issues.slice(0, 4).map((issue, index) => <li key={`${issue.title}-${issue.slideIndex ?? "all"}-${index}`}><span>{issue.severity === "error" ? "Wajib" : "Cek"}{issue.slideIndex === undefined ? "" : ` · slide ${issue.slideIndex + 1}`}</span>{issue.title}: {issue.detail}</li>)}</ul> : null}
   </div>;
 }
@@ -991,7 +992,7 @@ function PreviewPage({ template, patients, focusPatientId, generated, previewBus
   // Warnings still require an explicit visual review, but should not trap a
   // user after the agent has confirmed there are no blocking errors. Only a
   // blocked review keeps the acknowledgement and download locked.
-  const reviewPassed = review?.status === "pass" || review?.status === "needs_review";
+  const reviewPassed = reviewAllowsManualConfirmation(review?.status);
   const isPaid = paymentStatus === "paid";
   const isDownloadAvailable = (isPaid || DEMO_DOWNLOAD_MODE) && reviewPassed;
   const downloadLabel = !reviewPassed ? "Menunggu quality gate" : isPaid ? "Download PPTX" : "Free download";

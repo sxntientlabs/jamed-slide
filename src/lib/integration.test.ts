@@ -6,7 +6,7 @@ import { extractPatients } from "./clinicalParser";
 import { extractDocxText, extractWordXmlText } from "./docxParser";
 import { generatePresentation } from "./pptxGenerator";
 import { parsePptx } from "./pptxParser";
-import { inspectGeneratedPresentation } from "./presentationReview";
+import { inspectGeneratedPresentation, reviewAllowsManualConfirmation } from "./presentationReview";
 import { getTemplateProfile } from "./templateProfiles";
 import { applyTemplateAnalysis, buildLocalTemplateAnalysis, buildTemplateSnapshot, validateTemplateContract } from "./templateAnalyzer";
 import type { ClinicalField, InvestigationItem, OrganFinding, ShiftDetails } from "../types";
@@ -41,6 +41,13 @@ test("clinical extraction separates patients and preserves missing fields", () =
   expect(result.patients[0].demographics.weightKg?.value).toBe(15);
   expect(result.patients[0].physicalExam.vitalSigns.spo2?.status).toBe("missing");
   expect(result.patients[0].timeline[0]?.timestamp).toBe("02:15");
+});
+
+test("presentation warnings allow manual confirmation while blocking errors do not", () => {
+  expect(reviewAllowsManualConfirmation("pass")).toBe(true);
+  expect(reviewAllowsManualConfirmation("needs_review")).toBe(true);
+  expect(reviewAllowsManualConfirmation("blocked")).toBe(false);
+  expect(reviewAllowsManualConfirmation(undefined)).toBe(false);
 });
 
 test("clinical extraction splits a pasted patient roster into one record per table row", () => {

@@ -43,6 +43,12 @@ export interface PresentationReviewSnapshot {
   }>;
 }
 
+/** Warnings are informational after the user has inspected the rendered deck.
+ * Blocking errors still require a fix before the review can be acknowledged. */
+export function reviewAllowsManualConfirmation(status?: PresentationReviewStatus): boolean {
+  return status === "pass" || status === "needs_review";
+}
+
 const INTERNAL_INSTRUCTION = /slide\s+ini\s+(?:cuma|hanya)|opsional\s+(?:harus|untuk)|kalau\s+emang\s+kasusnya|hapus\s+aja|ga\s+harus\s+ada|tidak\s+nyambung|orang\s+kasusnya/i;
 const SAMPLE_LEAK = /\b(?:qhs|cti\s*0[,.]62|pediatric sample|sample patient|contoh pasien|cat\s*mudpi(?:les|lles)|high\s+anion\s+gap|congenital heart failure|syok hipovolemia e\.c\. diare akut)\b/i;
 
