@@ -568,6 +568,18 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .detection-panel.is-processing .detection-copy { flex: 1 1 100%; }
 .detection-panel.is-processing .processing-state { flex: 1 1 auto; margin: 0; }
 .detection-panel.is-processing .detection-actions { margin-left: 0; align-self: center; }
+.detection-panel.is-stale { border-color: #f0cf91; background: linear-gradient(112deg, #fffdf8 0%, #f5fbff 68%, #f1fcf7 100%); }
+.detection-panel.is-stale .detection-icon { color: #a96c1c; background: #fff1d8; }
+.analysis-stale-note { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 100%; margin-top: 2px; padding: 9px 11px; color: #8a5a1e; border: 1px solid #f1d7a7; border-radius: 10px; background: #fff9eb; font-size: 10px; line-height: 1.4; }
+.analysis-stale-note svg { flex: 0 0 auto; margin-top: 1px; }
+.analysis-stale-note > div { display: flex; flex-direction: column; gap: 2px; }
+.analysis-stale-note strong { font-size: 10px; }
+.analysis-stale-note span { color: #a06f32; }
+.detection-panel.is-stale { flex-wrap: wrap; }
+.detection-panel.is-stale .detection-copy { flex: 1 1 390px; }
+.detection-panel.is-stale .analysis-stale-note { order: 3; flex: 1 0 100%; width: 100%; }
+.detection-panel.is-stale .detection-actions { order: 2; margin-left: auto; }
+.detection-panel.is-stale .detection-actions .button-ghost:disabled { color: #9a641d; border-color: #efcf96; background: #fff9eb; opacity: 1; cursor: not-allowed; }
 
 .processing-state { position: relative; isolation: isolate; min-width: 0; display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 15px; overflow: hidden; padding: 16px 17px; border: 1px solid var(--blue-border); border-radius: 14px; background: linear-gradient(135deg, #f8fcff 0%, #eaf5ff 100%); }
 .processing-state::after { content: ""; position: absolute; z-index: -1; width: 170px; height: 170px; right: -66px; top: -85px; border-radius: 50%; background: rgba(0, 114, 251, .08); }
@@ -1062,6 +1074,9 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .upload-dropzone > .button { width: 100%; }
   .detection-panel { flex-direction: column; }
   .detection-copy { min-width: 0; }
+  .detection-panel.is-stale .detection-copy { flex: 0 0 auto; width: 100%; }
+  .detection-panel.is-stale .analysis-stale-note { flex: 0 0 auto; }
+  .detection-panel.is-stale .detection-actions { margin-left: 0; }
   .detection-actions { margin-left: 0; width: 100%; }
   .detection-actions .button { flex: 1; }
   .detection-panel.is-processing .detection-copy { flex-basis: auto; }

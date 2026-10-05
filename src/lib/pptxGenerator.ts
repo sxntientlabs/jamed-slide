@@ -615,7 +615,7 @@ function templateSectionText(patient: PatientRecord, key: string): string {
   switch (key) {
     case "previousDeliveries": return patientText(patient, "history.birthHistory", 1100);
     case "pregnancyBirth": return patientText(patient, "history.birthHistory", 1100);
-    case "initialDiagnosis": return "Tidak tercantum";
+    case "initialDiagnosis": return patientText(patient, "assessment.workingDiagnosis", 1000);
     case "finalDiagnosis": return "Tidak tercantum";
     case "initialManagement": return formatPatientBlock("patient.managementBlock", patient);
     case "finalManagement": return "Tidak tercantum";
@@ -641,7 +641,7 @@ function templateSectionText(patient: PatientRecord, key: string): string {
   }
 }
 
-function templateAnthropometryText(patient: PatientRecord, template?: ParsedTemplate): string {
+function templateAnthropometryText(patient: PatientRecord, template?: ParsedTemplate, includeNutritionConclusion = true): string {
   if (["perina-lapjag", "perina-harkit", "perina-rsut", "perina-rsab"].includes(template?.profileId ?? "")) {
     return [
       blockLine("BB", patientText(patient, "demographics.weightKg", 80)),
@@ -674,7 +674,9 @@ function templateAnthropometryText(patient: PatientRecord, template?: ParsedTemp
       optionalBlockLine("Kesan gizi", patientText(patient, "templateData.nutritionConclusion", 280)),
     ]);
   }
-  return formatPatientBlock("patient.anthropometryBlock", patient);
+  const text = formatPatientBlock("patient.anthropometryBlock", patient);
+  if (includeNutritionConclusion) return text;
+  return text.split(/\r?\n/).filter((line) => !/^kesan gizi\s*:/i.test(line.trim())).join("\n");
 }
 
 interface RenderContext {
@@ -713,7 +715,14 @@ function contentForField(
   if (semanticField.startsWith("shift.")) return fieldValue(valueAtPath(shift, semanticField.slice("shift.".length)));
   if (!patient || !semanticField.startsWith("patient.")) return "Tidak tercantum";
   if (semanticField === "patient.templateSection") return templateSectionText(patient, templateKey || inferTemplateKey(context) || "");
-  if (semanticField === "patient.anthropometryBlock") return templateAnthropometryText(patient, template);
+  if (semanticField === "patient.anthropometryBlock") {
+    const hasDedicatedNutritionConclusion = Boolean(
+      template
+      && context?.slide
+      && template.bindings.some((binding) => binding.slideIndex === context.slide?.index && binding.semanticField === "patient.templateSection" && binding.templateKey === "nutritionConclusion"),
+    );
+    return templateAnthropometryText(patient, template, !hasDedicatedNutritionConclusion);
+  }
   if (semanticField === "patient.assessment.summary" && context?.slide?.role === "anthropometry") return templateSectionText(patient, "nutritionConclusion");
   if (semanticField === "patient.assessment.summary" && context?.slide?.role === "diagnosis" && /(?:akhir|final)/i.test(`${context.slide.title} ${context.shapeText || ""}`)) return templateSectionText(patient, "finalDiagnosis");
   if (semanticField === "patient.investigations.imaging") return imagingEvidenceLines(patient).join("\n");
@@ -1002,7 +1011,7 @@ function cellText(cell: string): string {
 
 function replaceCellText(cell: string, value: string): string {
   let replaced = false;
-  return cell.replace(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g, (tag, originalText: string) => {
+  const result = cell.replace(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g, (tag, originalText: string) => {
     const closeStart = tag.lastIndexOf("</a:t>");
     const openEnd = tag.indexOf(">");
     if (closeStart < 0 || openEnd < 0) return tag;
@@ -1010,6 +1019,15 @@ function replaceCellText(cell: string, value: string): string {
     replaced = true;
     return `${tag.slice(0, openEnd + 1)}${escapeXml(value)}${tag.slice(closeStart)}`;
   });
+  if (replaced || !value) return result;
+  // Several supplied templates reserve table rows with an empty paragraph
+  // (no <a:t> node at all). Insert a run into that paragraph so those rows
+  // can still receive patient data instead of silently staying blank.
+  const run = `<a:r><a:rPr lang="en-US" sz="1500"/><a:t>${escapeXml(value)}</a:t></a:r>`;
+  if (/<a:endParaRPr\b/.test(result)) {
+    return result.replace(/(<a:p\b[^>]*>[\s\S]*?)(<a:endParaRPr\b[^>]*\/?>(?:[\s\S]*?<\/a:endParaRPr>)?)([\s\S]*?<\/a:p>)/, `$1${run}$2$3`);
+  }
+  return result.replace(/(<a:p\b[^>]*>[\s\S]*?)(<\/a:p>)/, `$1${run}$2`);
 }
 
 function tableRows(block: string): string[] {
@@ -1029,6 +1047,46 @@ function replaceTableRowCells(row: string, replacements: Map<number, string>): s
     result = result.replace(cell, ensureTextAutoFit(replaceCellText(cell, compactText(replacement, 360))));
   });
   return result;
+}
+
+function tableRowTextLimit(row: string, fontSizePt = 15): number {
+  const rowTag = row.match(/<a:tr\b[^>]*>/)?.[0] ?? "";
+  const heightEmu = Number(readAttribute(rowTag, "h") ?? 0);
+  if (!heightEmu) return 360;
+  const heightPt = (heightEmu / EMU_PER_INCH) * 72;
+  const availableLines = Math.max(1, Math.floor((heightPt - 4) / (fontSizePt * 1.15)));
+  // The supplied organ tables use a roughly 7-inch description column. Keep
+  // the line budget conservative so LibreOffice/PowerPoint cannot clip the
+  // final line at the bottom of a fixed-height row.
+  return Math.max(42, availableLines * 54);
+}
+
+function fitTableText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  // Keep a short complete finding intact when it only just exceeds the
+  // conservative character estimate. The table cell already has a normAutofit
+  // rule, so preserving the clinical sentence is safer than dropping a
+  // meaningful clause at the boundary.
+  if (normalized.length <= maxLength + 12 && /[.!?]$/.test(normalized)) return normalized;
+  const chunks = normalized.split(/(?<=[.!?;,])\s+/);
+  let result = "";
+  for (const chunk of chunks) {
+    const next = result ? `${result} ${chunk}` : chunk;
+    if (next.length > maxLength) break;
+    result = next;
+  }
+  if (result) return result.replace(/[,;:]\s*$/, ".");
+  return normalized.slice(0, maxLength).replace(/\s+\S*$/, "").trim() || normalized.slice(0, maxLength).trim();
+}
+
+function organDescriptionForRow(description: string, organ: string, maxLength: number): string {
+  const normalizedOrgan = normalizeLookup(organ);
+  if (/paru|lung/.test(normalizedOrgan)) {
+    const keyFinding = description.match(/(?:ronki|mengi|wheez|stridor|suara napas)[^.!?]*(?:[.!?]|$)/i)?.[0];
+    if (keyFinding) return fitTableText(keyFinding, maxLength);
+  }
+  return fitTableText(description, maxLength);
 }
 
 function blankTableRow(row: string): string {
@@ -1166,15 +1224,27 @@ function replaceTableBinding(
     if (semanticField === "shift.patientSummaryTable") {
       const summaryRows = tableRows(result);
       const capacity = Math.max(0, summaryRows.length - 1);
-      patients.slice(0, capacity).forEach((item, index) => {
-        const diagnosis = rawFieldValue<string[]>(item, "assessment.workingDiagnosis")?.join(", ") || "Tidak tercantum";
-        const row = summaryRows[index + 1];
-        if (!row) return;
-        const usesBooleanUrgency = ["rscm", "igd-harkit", "igd-rsut"].includes(template?.profileId ?? "");
-        result = result.replace(row, replaceTableRowCells(row, new Map([[0, String(summaryStartIndex + index + 1)], [1, patientSummaryIdentity(item)], [2, diagnosis], [3, patientUrgency(item, usesBooleanUrgency)]])));
-      });
-      summaryRows.slice(1 + Math.min(capacity, patients.length)).forEach((row) => {
-        result = result.replace(row, blankTableRow(row));
+      const usesBooleanUrgency = ["rscm", "igd-harkit", "igd-rsut"].includes(template?.profileId ?? "");
+      let rowIndex = 0;
+      result = result.replace(/<a:tr\b[\s\S]*?<\/a:tr>/g, (row) => {
+        const currentRow = rowIndex++;
+        if (currentRow === 0) {
+          const headerCells = tableCells(row);
+          const nameColumn = headerCells.findIndex((cell) => /^\.?nama$/i.test(cellText(cell)));
+          return nameColumn >= 0 ? replaceTableRowCells(row, new Map([[nameColumn, "Nama"]])) : row;
+        }
+        const item = patients[currentRow - 1];
+        if (!item || currentRow > capacity) return blankTableRow(row);
+        const diagnosis = rawFieldValue<string[]>(item, "assessment.workingDiagnosis")?.join(", ")
+          || rawFieldValue<string>(item, "templateData.initialDiagnosis")
+          || rawFieldValue<string>(item, "templateData.finalDiagnosis")
+          || "Tidak tercantum";
+        return replaceTableRowCells(row, new Map([
+          [0, String(summaryStartIndex + currentRow)],
+          [1, patientSummaryIdentity(item)],
+          [2, diagnosis],
+          [3, patientUrgency(item, usesBooleanUrgency)],
+        ]));
       });
       return result;
     }
@@ -1259,7 +1329,8 @@ function replaceTableBinding(
           const sourceOrgan = organKey(item.organ);
           return sourceOrgan === targetOrgan || sourceOrgan.includes(targetOrgan) || targetOrgan.includes(sourceOrgan);
         });
-        result = result.replace(row, replaceTableRowCells(row, new Map([[1, match?.description || ""]])));
+        const description = match?.description ? organDescriptionForRow(match.description, organ, tableRowTextLimit(row)) : "";
+        result = result.replace(row, replaceTableRowCells(row, new Map([[1, description]])));
       });
       return result;
     }
@@ -1355,6 +1426,22 @@ function applyBindings(
         const highlightAbnormal = ["patient.pediatricAssessmentBlock", "patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.primarySurveyBlock", "patient.physicalExamBlock"].includes(binding.semanticField);
         const replaceWholeTemplateSection = binding.semanticField === "patient.templateSection";
         const headingOnly = Boolean(shape?.text && shape.text.trim().length < 100 && !/[:：…]|\t/.test(shape.text));
+        const sameTemplateSectionBindings = replaceWholeTemplateSection
+          ? bindings.filter((candidate) => candidate.slideIndex === slide.index && candidate.semanticField === "patient.templateSection" && candidate.templateKey === binding.templateKey)
+          : [];
+        if (sameTemplateSectionBindings.length > 1) {
+          // Auto-mapping can bind a visible body, its decorative rectangle,
+          // and an overlapping placeholder to the same section. Prefer the
+          // only candidate carrying template text (often a single '.') and
+          // render the section once; otherwise the body is duplicated.
+          const preferred = sameTemplateSectionBindings
+            .map((candidate) => ({ candidate, shape: slide.shapes.find((item) => item.id === candidate.shapeId) }))
+            .sort((left, right) => {
+              const score = (value: string) => value.trim() === "." ? 3 : value.trim() ? 2 : 1;
+              return score(right.shape?.text || "") - score(left.shape?.text || "");
+            })[0]?.candidate;
+          if (preferred && preferred.shapeId !== binding.shapeId) return;
+        }
         if (binding.semanticField === "patient.templateSection" && (binding.templateKey === "neonatalBirthProcess" || (headingOnly && shape?.text?.trim() !== "."))) {
           result = appendShapeText(result, binding.shapeId, content, highlightAbnormal);
         } else if (binding.semanticField === "patient.chiefComplaint" && shape?.text && /keluhan utama|chief complaint/i.test(shape.text) && !/[:：]/.test(shape.text)) {

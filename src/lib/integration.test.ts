@@ -193,6 +193,36 @@ Diagnosis: Pusing`, "summary-focus-source").patients;
   expect(review.review.status).not.toBe("blocked");
 });
 
+test("IGD HARKIT summary fills reserved empty table rows for every detected patient", async () => {
+  const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
+  const archive = await JSZip.loadAsync(archiveBytes);
+  const templateEntry = Object.keys(archive.files).find((name) => name.endsWith("[TEMPLATE] IGD HARKIT.pptx"));
+  expect(templateEntry).toBeTruthy();
+  const templateBytes = await archive.file(templateEntry!)!.async("uint8array");
+  const templateBuffer = templateBytes.buffer.slice(templateBytes.byteOffset, templateBytes.byteOffset + templateBytes.byteLength) as ArrayBuffer;
+  const template = await parsePptx(templateBuffer, "[TEMPLATE] IGD HARKIT.pptx");
+  const patients = extractPatients(`PASIEN BARU: 5 PASIEN
+1. Julia / 20 tahun | Demam | T
+2. Rafael / 21 tahun | Edema | F
+3. Gita / 19 tahun | Kejang | T
+4. Lutfi / 22 tahun | CKD | F
+5. An. R / 3 tahun | Pneumonia berat | T`, "igd-harkit-roster-source").patients;
+  expect(patients).toHaveLength(5);
+  const shift: ShiftDetails = { title: "Laporan Jaga IGD HARKIT", date: "2026-10-01", department: "IGD", hospital: "RS Test", team: "Tim A", facilitator: "Fasilitator Test", dpjp: "DPJP Test" };
+  const generated = await generatePresentation(template, patients, template.bindings, shift, { focusPatientId: patients[0].id });
+  const output = await JSZip.loadAsync(new Uint8Array(await generated.blob.arrayBuffer()));
+  const slideFiles = Object.keys(output.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const summaryXmls = await Promise.all(slideFiles.map(async (name) => output.file(name)!.async("string"))).then((slides) => slides.filter((xml) => xml.includes("PASIEN BARU")));
+  expect(summaryXmls).toHaveLength(1);
+  const summaryText = summaryXmls[0];
+  expect(summaryText).toContain("PASIEN BARU: 5 PASIEN");
+  expect(summaryText).toContain("Julia");
+  expect(summaryText).toContain("Rafael");
+  expect(summaryText).toContain("Gita");
+  expect(summaryText).toContain("Lutfi");
+  expect(summaryText).toContain("An. R");
+});
+
 test("template mapping can exclude a routine slide without changing its clinical scope", async () => {
   const archiveBytes = await readFile(resolve(process.cwd(), "Template laporan jaga.zip"));
   const archive = await JSZip.loadAsync(archiveBytes);

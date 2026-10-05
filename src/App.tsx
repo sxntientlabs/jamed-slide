@@ -59,6 +59,7 @@ type GeneratedArtifact = {
 
 type GenerationStage = "idle" | "building" | "rendering";
 type PaymentStatus = "unpaid" | "paid";
+type AnalysisDirtyReason = "patient" | "bulk" | "context";
 
 // Temporary demo switch. Keep the real payment state and backend gate intact
 // so this can be flipped off when the payment gateway is connected.
@@ -329,7 +330,7 @@ function UploadDropzone({ accept, label, hint, onFile, busy = false, className =
   );
 }
 
-function BulkPatientIntake({ onDetect, busy }: { onDetect: (text: string, label: string, attachments: PatientAttachment[]) => Promise<void>; busy: boolean }) {
+function BulkPatientIntake({ onDetect, onInputChange, busy }: { onDetect: (text: string, label: string, attachments: PatientAttachment[]) => Promise<void>; onInputChange: () => void; busy: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [text, setText] = useState("");
   const [fileLabel, setFileLabel] = useState("");
@@ -351,6 +352,7 @@ function BulkPatientIntake({ onDetect, busy }: { onDetect: (text: string, label:
         setText(content);
         setAttachment(undefined);
         setFileLabel(file.name);
+        onInputChange();
         return;
       }
       const kind = attachmentKind(file);
@@ -361,6 +363,7 @@ function BulkPatientIntake({ onDetect, busy }: { onDetect: (text: string, label:
       setText("");
       setAttachment({ id: `bulk-attachment-${Date.now()}`, name: file.name, mimeType: file.type || `${kind}/*`, kind, sizeBytes: file.size, dataUrl: await readFileAsDataUrl(file) });
       setFileLabel(file.name);
+      onInputChange();
     } catch (fileError) {
       setError(fileError instanceof Error ? fileError.message : `${file.name} tidak bisa dibaca.`);
     }
@@ -392,7 +395,7 @@ function BulkPatientIntake({ onDetect, busy }: { onDetect: (text: string, label:
     {!expanded && <div className="bulk-intake-collapsed-meta"><span><KoasisIcon name="insight" size={13} /> Paste tabel atau tarik file daftar pasien</span><span className="bulk-intake-format-badge">TXT · DOCX · CSV · PDF</span></div>}
     {expanded && <>
       <div className="bulk-intake-grid">
-        <div className="bulk-intake-editor"><textarea className="clinical-textarea bulk-patient-textarea" value={text} onChange={(event) => { setText(event.target.value); setAttachment(undefined); setFileLabel(""); setError(""); }} disabled={busy} placeholder={'Contoh:\nPASIEN BARU: 3 PASIEN\n1. QHS / 15 tahun | Syok hipovolemia e.c. diare akut | T\n2. ... / 15 tahun | Pucat e.c. AIHA | T'} /><div className="bulk-intake-hint"><KoasisIcon name="insight" size={14} /><span>Nomor baris, nama, usia, diagnosis, kegawatan, dan format tabel akan dibaca sesuai konteks—tidak perlu menata ulang secara manual.</span></div></div>
+        <div className="bulk-intake-editor"><textarea className="clinical-textarea bulk-patient-textarea" value={text} onChange={(event) => { setText(event.target.value); setAttachment(undefined); setFileLabel(""); setError(""); onInputChange(); }} disabled={busy} placeholder={'Contoh:\nPASIEN BARU: 3 PASIEN\n1. QHS / 15 tahun | Syok hipovolemia e.c. diare akut | T\n2. ... / 15 tahun | Pucat e.c. AIHA | T'} /><div className="bulk-intake-hint"><KoasisIcon name="insight" size={14} /><span>Nomor baris, nama, usia, diagnosis, kegawatan, dan format tabel akan dibaca sesuai konteks—tidak perlu menata ulang secara manual.</span></div></div>
         <UploadDropzone className="bulk-patient-dropzone" accept=".txt,.docx,.csv,.tsv,.pdf,text/plain,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,audio/*" label={fileLabel || "Tarik file daftar pasien"} hint="TXT, DOCX, CSV, TSV, PDF, gambar, atau audio" onFile={(file) => { void readBulkFile(file); }} busy={busy} />
       </div>
       {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
@@ -713,7 +716,7 @@ function AttachmentList({ attachments, onRemove, label = "Evidence multimodal" }
   return <div className="attachment-list"><span className="attachment-list-label">{label}</span>{attachments.map((attachment) => { const icon = attachmentIcon(attachment.kind); return <div className="attachment-item" key={attachment.id}><KoasisIcon name={icon} size={15} /><span><strong>{attachment.name}</strong><small>{attachment.kind.toUpperCase()} · {fileSizeLabel(attachment.sizeBytes)}</small></span><button type="button" className="icon-button" title="Hapus attachment" onClick={() => onRemove(attachment.id)}><X size={14} /></button></div>; })}</div>;
 }
 
-function InboxPage({ template, drafts, focusDraftId, onFocusDraft, onDraftTextChange, onDraftFile, onRemoveAttachment, onAddDraft, onDetectBulk, onRemoveDraft, sources, patients, onAnalyze, onContinue, analysisBusy, analysisEngine, error }: { template: ParsedTemplate | null; drafts: PatientDraft[]; focusDraftId: string; onFocusDraft: (draftId: string) => void; onDraftTextChange: (draftId: string, text: string) => void; onDraftFile: (draftId: string, file: File) => void; onRemoveAttachment: (draftId: string, attachmentId: string) => void; onAddDraft: () => void; onDetectBulk: (text: string, label: string, attachments?: PatientAttachment[]) => Promise<void>; onRemoveDraft: (draftId: string) => void; sources: SourceItem[]; patients: PatientRecord[]; onAnalyze: () => void; onContinue: () => void; analysisBusy: boolean; analysisEngine: "none" | "ai" | "local" | "mixed"; error: string }) {
+function InboxPage({ template, drafts, focusDraftId, onFocusDraft, onDraftTextChange, onDraftFile, onRemoveAttachment, onAddDraft, onDetectBulk, onBulkInputChange, onRemoveDraft, sources, patients, onAnalyze, onContinue, analysisBusy, analysisEngine, analysisNeedsRefresh, error }: { template: ParsedTemplate | null; drafts: PatientDraft[]; focusDraftId: string; onFocusDraft: (draftId: string) => void; onDraftTextChange: (draftId: string, text: string) => void; onDraftFile: (draftId: string, file: File) => void; onRemoveAttachment: (draftId: string, attachmentId: string) => void; onAddDraft: () => void; onDetectBulk: (text: string, label: string, attachments?: PatientAttachment[]) => Promise<void>; onBulkInputChange: () => void; onRemoveDraft: (draftId: string) => void; sources: SourceItem[]; patients: PatientRecord[]; onAnalyze: () => void; onContinue: () => void; analysisBusy: boolean; analysisEngine: "none" | "ai" | "local" | "mixed"; analysisNeedsRefresh: boolean; error: string }) {
   const profile = getTemplateProfile(template);
   const profileTags = profile.id === "lapjag" ? ["PAT terpisah", "WHO siap diplot"] : profile.id.startsWith("perina") ? ["Resusitasi 0–15 mnt", "S.T.A.B.L.E."] : profile.id === "rscm" ? ["PAT + AMPLE", "Diagnosis awal/akhir"] : profile.id === "rsui" ? ["PAT checklist", "Lab + AGD"] : ["Mapping slide", "Profile adaptif"];
   const patientDraftCards = drafts.filter((draft) => !draft.bulkSource);
@@ -724,7 +727,7 @@ function InboxPage({ template, drafts, focusDraftId, onFocusDraft, onDraftTextCh
       <SectionHeading eyebrow={`Langkah 02 · Clinical inbox · ${profile.label}`} title="Masukkan semua pasien baru" description={`Pisahkan daftar bulk lewat input cepat atau isi kartu individual. Semua pasien masuk ke tabel ringkasan awal; pilih satu kasus utama untuk dibahas mendalam sesuai kontrak ${profile.label}.`} action={<div className="privacy-chip"><KoasisIcon name="security" size={14} /> Jangan masukkan data yang tidak perlu</div>} />
       <section className="panel template-guide-panel"><div className="template-guide-icon"><KoasisIcon name="review" size={18} /></div><div><span className="eyebrow">Kontrak ekstraksi aktif</span><h3>{profile.label}</h3><p>{profile.description} {profile.patientInputHint}</p></div><div className="template-guide-tags">{profileTags.map((tag) => <span key={tag}>{tag}</span>)}<span>TXT + DOCX</span><span>PDF + gambar + audio</span></div></section>
       <div className="patient-scope-note"><KoasisIcon name="patient" size={16} /><div><strong>Semua pasien tetap tercatat di tabel awal.</strong><span>Kasus utama saja yang akan menerima rangkaian slide klinis lengkap. Pilihan ini masih bisa diganti pada tahap review.</span></div></div>
-      <BulkPatientIntake onDetect={onDetectBulk} busy={analysisBusy} />
+      <BulkPatientIntake onDetect={onDetectBulk} onInputChange={onBulkInputChange} busy={analysisBusy} />
       <div className="inbox-layout">
         <section className="panel source-panel">
           <div className="panel-heading"><div><h3>Data pasien per kartu</h3><p>Setiap kartu di sini mewakili satu pasien yang sudah terpisah dan siap direview.</p></div><KoasisIcon name="patient" size={20} /></div>
@@ -745,10 +748,11 @@ function InboxPage({ template, drafts, focusDraftId, onFocusDraft, onDraftTextCh
           <div className="source-policy"><KoasisIcon name="safety" size={15} /><span>Setiap nilai hasil ekstraksi menyimpan snippet sumber untuk review.</span></div>
         </aside>
       </div>
-      <section className={`panel detection-panel ${analysisBusy ? "is-processing" : ""}`}>
+      <section className={`panel detection-panel ${analysisBusy ? "is-processing" : ""} ${analysisNeedsRefresh ? "is-stale" : ""}`}>
         <div className="detection-copy"><div className="detection-icon"><KoasisIcon name="insight" size={21} /></div><div><span className="eyebrow">{analysisEngine === "ai" ? "AI agent · backend extraction" : analysisEngine === "mixed" ? "AI agent + local fallback" : analysisEngine === "local" ? "Local fallback extraction" : "AI agent siap membaca"}</span><h3>{patients.length ? `${patients.length} pasien terdeteksi` : "Siap membaca catatan"}</h3><p>{patients.length ? "Semua pasien akan masuk tabel ringkasan. Satu kasus utama akan diteruskan ke slide klinis mendalam." : "Catatan dikirim ke AI agent melalui backend lokal. Nilai hasil ekstraksi tetap perlu direview sebelum export."}</p></div></div>
         {analysisBusy ? <ProcessingState variant="ai" icon="insight" eyebrow="AI agent · proses aktif" title="Membaca catatan pasien" description="Koasis sedang memisahkan pasien, mencocokkan field dengan kontrak template, dan menyiapkan data untuk review." steps={["Membaca source", "Memetakan field", "Menyiapkan review"]} /> : patients.length ? <div className="detected-patients">{patients.map((patient) => <div className="detected-chip" key={patient.id}><span>{patient.displayName.slice(0, 1).toUpperCase()}</span>{patient.displayName}<Check size={13} /></div>)}</div> : <div className="detection-placeholder"><span>Pasien</span><span>Data klinis</span><span>Status field</span></div>}
-        <div className="detection-actions"><button className="button button-dark" onClick={onAnalyze} disabled={analysisBusy}><RefreshCw size={15} className={analysisBusy ? "spin" : ""} /> {analysisBusy ? "AI sedang membaca…" : patients.length ? "Analisis ulang" : "Deteksi pasien"}</button>{patients.length > 0 && <button className="button button-ghost" onClick={onContinue}>Lanjut review <ArrowRight size={15} /></button>}</div>
+        {analysisNeedsRefresh && patients.length > 0 && <div className="analysis-stale-note" role="status" aria-live="polite"><AlertTriangle size={15} /><div><strong>Input berubah setelah analisis terakhir</strong><span>Jalankan analisis ulang agar perubahan masuk ke hasil ekstraksi sebelum lanjut review.</span></div></div>}
+        <div className="detection-actions"><button className="button button-dark" onClick={onAnalyze} disabled={analysisBusy}><RefreshCw size={15} className={analysisBusy ? "spin" : ""} /> {analysisBusy ? "AI sedang membaca…" : patients.length ? "Analisis ulang" : "Deteksi pasien"}</button>{patients.length > 0 && <button className="button button-ghost" onClick={onContinue} disabled={analysisNeedsRefresh || analysisBusy} title={analysisNeedsRefresh ? "Analisis ulang diperlukan setelah perubahan input" : undefined}>{analysisNeedsRefresh ? "Analisis ulang dulu" : "Lanjut review"} <ArrowRight size={15} /></button>}</div>
       </section>
     </div>
   );
@@ -984,7 +988,10 @@ function PreviewPage({ template, patients, focusPatientId, generated, previewBus
   const selectedMeta = previewRows[selectedSlide];
   const hasVisualRender = previewSlides.length > 0;
   const review = generated?.review;
-  const reviewPassed = review?.status === "pass";
+  // Warnings still require an explicit visual review, but should not trap a
+  // user after the agent has confirmed there are no blocking errors. Only a
+  // blocked review keeps the acknowledgement and download locked.
+  const reviewPassed = review?.status === "pass" || review?.status === "needs_review";
   const isPaid = paymentStatus === "paid";
   const isDownloadAvailable = (isPaid || DEMO_DOWNLOAD_MODE) && reviewPassed;
   const downloadLabel = !reviewPassed ? "Menunggu quality gate" : isPaid ? "Download PPTX" : "Free download";
@@ -1014,6 +1021,9 @@ function AuthenticatedApp() {
   const [templateBusy, setTemplateBusy] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisEngine, setAnalysisEngine] = useState<"none" | "ai" | "local" | "mixed">("none");
+  const [analysisNeedsRefresh, setAnalysisNeedsRefresh] = useState(false);
+  const analysisReasonRevisionsRef = useRef<Record<AnalysisDirtyReason, number>>({ patient: 0, bulk: 0, context: 0 });
+  const analysisDirtyReasonsRef = useRef<Set<AnalysisDirtyReason>>(new Set());
   const [generationBusy, setGenerationBusy] = useState(false);
   const [generationStage, setGenerationStage] = useState<GenerationStage>("idle");
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -1027,6 +1037,17 @@ function AuthenticatedApp() {
   const [workspaceSyncState, setWorkspaceSyncState] = useState<"loading" | "saved" | "error">("loading");
   const [workspaceSyncError, setWorkspaceSyncError] = useState("");
   const [workspaceReloadKey, setWorkspaceReloadKey] = useState(0);
+  const markAnalysisInputChanged = (reason: AnalysisDirtyReason) => {
+    analysisReasonRevisionsRef.current[reason] += 1;
+    analysisDirtyReasonsRef.current.add(reason);
+    setAnalysisNeedsRefresh(true);
+  };
+  const markAnalysisCompleted = (reason: AnalysisDirtyReason, revision: number) => {
+    if (analysisReasonRevisionsRef.current[reason] === revision) {
+      analysisDirtyReasonsRef.current.delete(reason);
+    }
+    setAnalysisNeedsRefresh(analysisDirtyReasonsRef.current.size > 0);
+  };
   // The demo intentionally exposes download. Once the gateway is connected,
   // turn DEMO_DOWNLOAD_MODE off so only a server-verified paid state creates
   // a download URL. Real enforcement must move the final artifact behind the backend.
@@ -1139,6 +1160,7 @@ function AuthenticatedApp() {
       const customTemplate: ParsedTemplate = { ...parsed, profileId: "generic", analysisStatus: "analyzing" };
       const analyzed = await analyzeTemplateWithAi(customTemplate);
       setTemplate(analyzed.template);
+      markAnalysisInputChanged("context");
       if (analyzed.error || !analyzed.template.templateValidation?.valid) {
         setError(analyzed.error
           ? "Agent template belum bisa dihubungi. Generate ditahan sampai kontrak template dipelajari agent."
@@ -1163,6 +1185,7 @@ function AuthenticatedApp() {
         ? await analyzeTemplateWithAi({ ...prepared, analysisStatus: "analyzing" })
         : { template: applyTemplateAnalysis(prepared, buildLocalTemplateAnalysis(prepared), "local"), analysis: undefined, error: undefined };
       setTemplate(analyzed.template);
+      markAnalysisInputChanged("context");
       if (analyzed.error || !analyzed.template.templateValidation?.valid) {
         setError(analyzed.error
           ? "Template bawaan baru belum bisa dipelajari agent. Generate ditahan sampai analisis template berhasil."
@@ -1177,6 +1200,7 @@ function AuthenticatedApp() {
   };
 
   const updateDraftText = (draftId: string, text: string) => {
+    markAnalysisInputChanged("patient");
     setPatientDrafts((current) => current.map((draft) => draft.id === draftId ? { ...draft, text } : draft));
   };
 
@@ -1211,6 +1235,7 @@ function AuthenticatedApp() {
     }
     try {
       const attachment: PatientAttachment = { id: `attachment-${draftId}-${Date.now()}`, name: file.name, mimeType: file.type || (kind === "pdf" ? "application/pdf" : `${kind}/*`), kind, sizeBytes: file.size, dataUrl: await readFileAsDataUrl(file) };
+      markAnalysisInputChanged("patient");
       setPatientDrafts((current) => current.map((item) => item.id === draftId ? { ...item, attachments: [...(item.attachments ?? []), attachment] } : item));
       setSources((current) => [...current, { id: attachment.id, name: file.name, type: kind, sizeLabel: fileSizeLabel(file.size), status: "ready", patientId: draftId, patientLabel }]);
     } catch (fileError) {
@@ -1219,11 +1244,13 @@ function AuthenticatedApp() {
   };
 
   const removeAttachment = (draftId: string, attachmentId: string) => {
+    markAnalysisInputChanged("patient");
     setPatientDrafts((current) => current.map((draft) => draft.id === draftId ? { ...draft, attachments: (draft.attachments ?? []).filter((attachment) => attachment.id !== attachmentId) } : draft));
     setSources((current) => current.filter((source) => source.id !== attachmentId));
   };
 
   const addPatientDraft = () => {
+    markAnalysisInputChanged("patient");
     setPatientDrafts((current) => {
       const patientNumber = current.filter((draft) => !draft.bulkSource).length + 1;
       return [...current, { id: `draft-${Date.now()}`, label: `Pasien ${patientNumber}`, text: "", attachments: [] }];
@@ -1236,6 +1263,7 @@ function AuthenticatedApp() {
     setError("");
     const profile = getTemplateProfile(template);
     const sourceId = `source-bulk-${Date.now()}`;
+    const bulkRevision = analysisReasonRevisionsRef.current.bulk;
     setAnalysisBusy(true);
     try {
       let extractedPatients: PatientRecord[];
@@ -1288,6 +1316,7 @@ function AuthenticatedApp() {
         patientLabel: "Bulk input",
       }]);
       if (usedLocalFallback) setError("AI agent belum merespons; daftar berhasil dipisahkan dengan fallback lokal. Periksa kembali setiap kartu sebelum lanjut review.");
+      markAnalysisCompleted("bulk", bulkRevision);
     } catch (detectError) {
       throw detectError instanceof Error ? detectError : new Error("Daftar pasien belum bisa dipisahkan.");
     } finally {
@@ -1296,6 +1325,7 @@ function AuthenticatedApp() {
   };
 
   const removePatientDraft = (draftId: string) => {
+    markAnalysisInputChanged("patient");
     setPatientDrafts((current) => {
       let patientNumber = 0;
       const remaining = current.filter((draft) => draft.id !== draftId).map((draft) => draft.bulkSource ? draft : { ...draft, label: `Pasien ${++patientNumber}` });
@@ -1324,6 +1354,8 @@ function AuthenticatedApp() {
     const requestedFocusDraftId = populatedDrafts.some((draft) => draft.id === focusDraftId)
       ? focusDraftId
       : populatedDrafts[0].id;
+    const patientRevision = analysisReasonRevisionsRef.current.patient;
+    const contextRevision = analysisReasonRevisionsRef.current.context;
     setFocusDraftId(requestedFocusDraftId);
     setAnalysisBusy(true);
     try {
@@ -1366,6 +1398,8 @@ function AuthenticatedApp() {
       if (fallbackMessages.length) {
         setError(`Sebagian atau seluruh ekstraksi memakai fallback lokal karena AI backend gagal. ${fallbackMessages.join(" ")}`);
       }
+      markAnalysisCompleted("patient", patientRevision);
+      markAnalysisCompleted("context", contextRevision);
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Data klinis tidak bisa diproses.");
     } finally {
@@ -1446,6 +1480,10 @@ function AuthenticatedApp() {
   };
 
   const startNew = () => {
+    analysisDirtyReasonsRef.current.clear();
+    analysisReasonRevisionsRef.current.patient += 1;
+    analysisReasonRevisionsRef.current.bulk += 1;
+    analysisReasonRevisionsRef.current.context += 1;
     setShift({ ...EMPTY_SHIFT, date: new Date().toISOString().slice(0, 10) });
     setTemplate(null);
     setPatientDrafts(createInitialPatientDrafts());
@@ -1455,6 +1493,8 @@ function AuthenticatedApp() {
     setFocusPatientId("");
     setActivePatientId("");
     setAnalysisEngine("none");
+    setAnalysisNeedsRefresh(false);
+    setAnalysisBusy(false);
     setGenerated(null);
     setPaymentStatus("unpaid");
     setGenerationStage("idle");
@@ -1464,7 +1504,30 @@ function AuthenticatedApp() {
     setView("new-shift");
   };
 
-  const navTo = (next: View) => { setError(""); setView(next); setMobileNavOpen(false); setUtilityPanel(null); };
+  const updateShift = (next: ShiftDetails) => {
+    markAnalysisInputChanged("context");
+    setShift(next);
+  };
+
+  const navTo = (next: View) => {
+    if (next === "review" && analysisNeedsRefresh) {
+      setError("Input berubah setelah analisis terakhir. Jalankan analisis ulang sebelum membuka review.");
+      setView("inbox");
+      setMobileNavOpen(false);
+      setUtilityPanel(null);
+      return;
+    }
+    setError("");
+    setView(next);
+    setMobileNavOpen(false);
+    setUtilityPanel(null);
+  };
+
+  const changeTemplate = () => {
+    markAnalysisInputChanged("context");
+    setTemplate(null);
+    navTo("new-shift");
+  };
 
   const pageTitle = view === "dashboard" ? "Overview" : view === "new-shift" ? "Laporan baru" : view === "template" ? "Struktur template" : view === "inbox" ? "Data pasien" : view === "review" ? "Review klinis" : view === "generate" ? "Generate laporan" : "Preview";
   const accountLabel = user.displayName?.trim() || user.email?.split("@")[0] || "Pengguna";
@@ -1480,9 +1543,9 @@ function AuthenticatedApp() {
       <main className="main-content">
         <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button><div className="topbar-brand-mobile"><img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
-        {view === "new-shift" && <NewShiftPage shift={shift} setShift={setShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={() => { setTemplate(null); navTo("new-shift"); }} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
+        {view === "new-shift" && <NewShiftPage shift={shift} setShift={updateShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={changeTemplate} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
         {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("generate")} onBack={() => navTo("review")} />}
-        {view === "inbox" && <InboxPage template={template} drafts={patientDrafts} focusDraftId={focusDraftId} onFocusDraft={focusDraft} onDraftTextChange={updateDraftText} onDraftFile={handleDraftFile} onRemoveAttachment={removeAttachment} onAddDraft={addPatientDraft} onDetectBulk={detectBulkPatients} onRemoveDraft={removePatientDraft} sources={sources} patients={patients} onAnalyze={analyze} onContinue={() => navTo("review")} analysisBusy={analysisBusy} analysisEngine={analysisEngine} error={error} />}
+        {view === "inbox" && <InboxPage template={template} drafts={patientDrafts} focusDraftId={focusDraftId} onFocusDraft={focusDraft} onDraftTextChange={updateDraftText} onDraftFile={handleDraftFile} onRemoveAttachment={removeAttachment} onAddDraft={addPatientDraft} onDetectBulk={detectBulkPatients} onBulkInputChange={() => markAnalysisInputChanged("bulk")} onRemoveDraft={removePatientDraft} sources={sources} patients={patients} onAnalyze={analyze} onContinue={() => navTo("review")} analysisBusy={analysisBusy} analysisEngine={analysisEngine} analysisNeedsRefresh={analysisNeedsRefresh} error={error} />}
         {view === "review" && <ReviewPage template={template} patients={patients} activePatientId={activePatientId} setActivePatientId={setActivePatientId} focusPatientId={focusPatientId} onFocusPatient={setFocusPatientId} onUpdate={updatePatient} onContinue={() => navTo("template")} onBack={() => navTo("inbox")} />}
         {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} focusPatientId={focusPatientId} onGenerate={generate} onBack={() => navTo("template")} busy={generationBusy} stage={generationStage} error={error} />}
         {view === "preview" && <PreviewPage template={template} patients={patients} focusPatientId={focusPatientId} generated={generated} previewBusy={previewBusy} onDownload={download} onBack={() => navTo("review")} onNew={startNew} visualReviewConfirmed={visualReviewConfirmed} onVisualReviewChange={setVisualReviewConfirmed} paymentStatus={paymentStatus} />}
