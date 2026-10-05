@@ -408,7 +408,7 @@ const RSUI_GUIDES: TemplateSlideGuide[] = [
 
 export const LAPJAG_PROFILE: TemplateProfile = {
   id: "lapjag",
-  label: "Lapjag · Pediatric shift report",
+  label: "Perina RSAB",
   description: "Form dan schema ekstraksi mengikuti 27 slide Lapjag, termasuk PAT, ABCDE/AMPLE, antropometri, WHO, dan tata laksana.",
   extractionInstructions: [
     "Gunakan kontrak Lapjag: pisahkan identitas, PAT, primary survey ABCDE, secondary survey AMPLE, RPS/RPD, pemeriksaan fisik, penunjang, diagnosis awal/final, dan tata laksana.",
@@ -434,7 +434,7 @@ const perinaInstructions = (rsab = false): string => [
 
 export const PERINA_LAPJAG_PROFILE: TemplateProfile = {
   id: "perina-lapjag",
-  label: "PERINA Lapjag · Perinatologi",
+  label: "Perina RSCM",
   description: "Profile khusus 15 slide perinatologi dengan identitas neonatus, resusitasi, S.T.A.B.L.E., chart preterm, dan tabel laboratorium.",
   extractionInstructions: perinaInstructions(false),
   fieldGroups: PERINA_GROUPS,
@@ -449,7 +449,7 @@ export const PERINA_LAPJAG_PROFILE: TemplateProfile = {
 
 export const PERINA_RSAB_PROFILE: TemplateProfile = {
   id: "perina-rsab",
-  label: "PERINA RSAB · IGD neonatus",
+  label: "IGD RSAB",
   description: "Profile khusus 15 slide PERINA RSAB dengan cover Mahasiswa dan DPJP IGD serta alur klinis neonatus yang sama.",
   extractionInstructions: perinaInstructions(true),
   fieldGroups: PERINA_GROUPS,
@@ -463,7 +463,7 @@ export const PERINA_RSAB_PROFILE: TemplateProfile = {
 
 export const RSCM_PROFILE: TemplateProfile = {
   id: "rscm",
-  label: "RSCM · Laporan Jaga IGD",
+  label: "IGD RSCM",
   description: "Profile 17 slide RSCM: tabel pasien baru, PAT, primary/secondary survey, status gizi, diagnosis awal/akhir, dan tata laksana awal/akhir.",
   extractionInstructions: [
     "Gunakan kontrak RSCM 17 slide. Slide 2 adalah ringkasan seluruh pasien; slide 3–16 diulang per pasien.",
@@ -484,7 +484,7 @@ export const RSCM_PROFILE: TemplateProfile = {
 
 export const RSUI_PROFILE: TemplateProfile = {
   id: "rsui",
-  label: "RSUI · Laporan Jaga Mahasiswa",
+  label: "IGD RSUI",
   description: "Profile 19 slide RSUI: identitas, PAT, survei primer/sekunder, antropometri, pemeriksaan, penunjang lab/AGD, diagnosis, dan tatalaksana.",
   extractionInstructions: [
     "Gunakan kontrak RSUI 19 slide. Slide identitas dan slide klinis diulang per pasien, dengan cover dan penutup tetap statis.",

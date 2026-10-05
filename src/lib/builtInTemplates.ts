@@ -8,6 +8,14 @@ export interface BuiltInTemplateEntry {
 
 export const BUILT_IN_TEMPLATE_ARCHIVE_URL = "/templates/Template%20laporan%20jaga.zip";
 
+const BUILT_IN_DISPLAY_LABELS: Record<string, string> = {
+  Lapjag: "Perina RSAB",
+  "PERINA RSAB": "IGD RSAB",
+  RSCM: "IGD RSCM",
+  RSUI: "IGD RSUI",
+  "PERINA Lapjag": "Perina RSCM",
+};
+
 let archivePromise: Promise<JSZip> | undefined;
 
 function getArchive(): Promise<JSZip> {
@@ -24,11 +32,12 @@ function getArchive(): Promise<JSZip> {
 
 function displayLabel(fileName: string): string {
   const base = fileName.split("/").pop()?.replace(/\.pptx$/i, "") ?? fileName;
-  return base
+  const normalized = base
     .replace(/^\[?TEMPLATE[}\]]?\s*/i, "")
     .replace(/[{}\[\]]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+  return BUILT_IN_DISPLAY_LABELS[normalized] ?? normalized;
 }
 
 export async function loadBuiltInTemplateCatalog(): Promise<BuiltInTemplateEntry[]> {
