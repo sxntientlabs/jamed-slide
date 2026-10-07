@@ -255,8 +255,22 @@ const PROFILE_ROLE_MAPS: Partial<Record<TemplateProfileId, SlideRole[]>> = {
   rsui: ["cover", "patient_identity", "pediatric_assessment", "primary_survey", "management", "secondary_survey", "history", "history", "history", "anthropometry", "physical_exam", "physical_exam", "diagnosis", "investigation", "investigation", "investigation", "diagnosis", "management", "closing"],
 };
 
+const IGD_HARKIT_CURRENT_ROLES: SlideRole[] = [
+  "cover", "shift_summary", "patient_identity", "pediatric_assessment", "primary_survey", "primary_survey", "pediatric_assessment", "secondary_survey", "anamnesis", "anamnesis", "history", "history", "history", "anthropometry", "physical_exam", "physical_exam", "investigation", "diagnosis", "management", "management", "closing",
+];
+
+const RSUI_CURRENT_ROLES: SlideRole[] = [
+  "cover", "shift_summary", "patient_identity", "pediatric_assessment", "primary_survey", "secondary_survey", "anamnesis", "history", "history", "history", "anthropometry", "physical_exam", "physical_exam", "investigation", "diagnosis", "management", "management", "management", "management", "management", "closing",
+];
+
 function roleForSlide(text: string, index: number, total: number, fileName = "", profileId: TemplateProfileId = templateProfileIdForFile(fileName, total)): SlideRole {
-  const explicitRole = profileId === "lapjag" ? lapjagRoleForSlide(index, total) : PROFILE_ROLE_MAPS[profileId]?.[index];
+  const explicitRole = profileId === "lapjag"
+    ? lapjagRoleForSlide(index, total)
+    : profileId === "igd-harkit" && total === 21
+      ? IGD_HARKIT_CURRENT_ROLES[index]
+      : profileId === "rsui" && total === 21
+        ? RSUI_CURRENT_ROLES[index]
+        : PROFILE_ROLE_MAPS[profileId]?.[index];
   if (explicitRole) return explicitRole;
   const normalized = text.toLowerCase().replace(/\s+/g, " ");
   if (index === 0 || normalized.includes("laporan jaga")) return "cover";
@@ -382,12 +396,14 @@ function target(semanticField: SemanticField, templateKey?: string): BindingTarg
   return { semanticField, templateKey };
 }
 
-function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileId: TemplateProfileId): BindingTarget | undefined {
+function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileId: TemplateProfileId, total = 0): BindingTarget | undefined {
   const text = normalizedText(shape.text);
   const index = slide.index;
   const empty = !shape.text && shape.kind === "text" && !shape.placeholderType?.match(/title|ctrTitle/i);
   const isTitle = shape.placeholderType === "title" || shape.placeholderType === "ctrTitle" || shape.text === slide.title;
   const isNewIgdProfile = profileId === "igd-harkit" || profileId === "igd-rsut";
+  const isCurrentIgdHarkit = profileId === "igd-harkit" && total === 21;
+  const isCurrentRsui = profileId === "rsui" && total === 21;
 
   if (profileId === "lapjag") {
     const body = shape.kind === "text" && !isTitle && shape.text.trim().length > 8;
@@ -492,6 +508,60 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
     return undefined;
   }
 
+  if (isCurrentIgdHarkit) {
+    if (index === 0 && shape.kind === "text" && !isTitle && /nama mahasiswa/.test(text) && /fasilitator/.test(text)) return target("shift.coverBlock");
+    if (index === 1 && shape.kind === "graphicFrame") return target("shift.patientSummaryTable");
+    if (index === 2 && shape.id === "65") return target("patient.identityBlock");
+    if (index === 3) {
+      if (shape.id === "68" || shape.id === "99") return target("patient.pediatricAssessment.leftBlock");
+      if (shape.id === "69" || shape.id === "98") return target("patient.pediatricAssessment.rightBlock");
+      if (shape.id === "70" || shape.id === "97") return target("patient.assessment.summary");
+    }
+    if (index === 4) {
+      if (shape.id === "77") return target("patient.templateSection", "primarySurveyLeft");
+      if (shape.id === "78") return target("patient.templateSection", "primarySurveyRight");
+      if (shape.id === "79") return target("patient.assessment.summary");
+    }
+    if (index === 5) {
+      if (shape.id === "86") return target("patient.templateSection", "primarySurveyContinuationLeft");
+      if (shape.id === "87") return target("patient.templateSection", "primarySurveyContinuationRight");
+      if (shape.id === "88") return target("patient.assessment.summary");
+    }
+    if (index === 6) {
+      if (shape.id === "99") return target("patient.pediatricAssessment.leftBlock");
+      if (shape.id === "98") return target("patient.pediatricAssessment.rightBlock");
+      if (shape.id === "97") return target("patient.assessment.summary");
+    }
+    if (index === 7 && shape.id === "104") return target("patient.secondarySurveyBlock");
+    if ((index === 8 && shape.id === "113") || (index === 9 && shape.id === "119")) return target("patient.history.presentIllness");
+    if (index === 10) {
+      if (shape.id === "122") return target("patient.history.pastMedicalHistory");
+      if (shape.id === "123") return target("patient.history.familyHistory");
+    }
+    if (index === 11) {
+      if (shape.id === "132") return target("patient.templateSection", "pregnancyBirth");
+      if (shape.id === "133") return target("patient.history.immunizationHistory");
+    }
+    if (index === 12) {
+      if (shape.id === "136") return target("patient.history.nutritionHistory");
+      if (shape.id === "137") return target("patient.templateSection", "growthDevelopment");
+    }
+    if (index === 13) {
+      if (shape.id === "142") return target("patient.templateSection", "anthropometryMeasurements");
+      if (shape.id === "143") return target("patient.templateSection", "anthropometryAssessment");
+    }
+    if (index === 14 && shape.id === "147") return target("patient.physicalExamBlock");
+    if (index === 15 && shape.id === "153") return target("patient.physicalExam.organFindings");
+    if (index === 16) {
+      if (shape.id === "154") return target("patient.investigations.summary");
+      if (shape.id === "155") return target("patient.investigations.laboratory");
+    }
+    if (index === 17 && shape.id === "159") return target("patient.assessment.workingDiagnosis");
+    if (index === 18 && shape.id === "164") return target("patient.templateSection", "managementPart1");
+    if (index === 19 && shape.id === "170") return target("patient.templateSection", "monitoringPlan");
+    return undefined;
+  }
+
   if (profileId === "rscm" || isNewIgdProfile) {
     if (index === 0 && !isTitle && /tim mahasiswa/.test(text) && (isNewIgdProfile ? /fasilitator/.test(text) : /tim ppds/.test(text)) && /dpjp/.test(text)) return target("shift.coverBlock");
     if (index === 0 && !isTitle && /tim mahasiswa/.test(text)) return target("shift.team");
@@ -529,6 +599,55 @@ function profileBindingForSlide(slide: ParsedSlide, shape: ParsedShape, profileI
   }
 
   if (profileId === "rsui") {
+    if (isCurrentRsui) {
+      if (index === 0 && shape.id === "18") return target("shift.coverBlock");
+      if (index === 1 && shape.id === "21" && shape.kind === "graphicFrame") return target("shift.patientSummaryTable");
+      if (index === 2) {
+        if (shape.id === "22") return target("patient.identityBlock");
+        if (shape.id === "24") return target("patient.chiefComplaint");
+      }
+      if (index === 3) {
+        if (shape.id === "25") return target("patient.pediatricAssessment.leftBlock");
+        if (shape.id === "26") return target("patient.pediatricAssessment.rightBlock");
+        if (shape.id === "28") return target("patient.assessment.summary");
+      }
+      if (index === 4 && shape.id === "31") return target("patient.primarySurveyBlock");
+      if (index === 5 && shape.id === "33") return target("patient.secondarySurveyBlock");
+      if (index === 6 && shape.id === "35") return target("patient.history.presentIllness");
+      if (index === 7) {
+        if (shape.id === "37") return target("patient.history.pastMedicalHistory");
+        if (shape.id === "39") return target("patient.history.familyHistory");
+      }
+      if (index === 8) {
+        if (shape.id === "40") return target("patient.history.birthHistory");
+        if (shape.id === "41") return target("patient.history.immunizationHistory");
+        if (shape.id === "43") return target("patient.history.socioeconomicHistory");
+      }
+      if (index === 9) {
+        if (shape.id === "44") return target("patient.history.nutritionHistory");
+        if (shape.id === "45") return target("patient.templateSection", "growthDevelopment");
+      }
+      if (index === 10) {
+        if (shape.id === "47") return target("patient.templateSection", "anthropometryAssessment");
+        if (shape.id === "49") return target("patient.templateSection", "nutritionConclusion");
+      }
+      if (index === 11) {
+        if (shape.id === "51") return target("patient.physicalExam.generalAppearanceBlock");
+        if (shape.id === "52") return target("patient.physicalExam.vitalSignsBlock");
+      }
+      if (index === 12 && shape.id === "54") return target("patient.physicalExam.organFindings");
+      if (index === 13) {
+        if (shape.id === "57") return target("patient.investigations.summary");
+        if (shape.id === "58" || shape.id === "59") return target("patient.investigations.laboratory");
+      }
+      if (index === 14 && shape.id === "61") return target("patient.templateSection", "finalDiagnosis");
+      if (index === 15 && shape.id === "63") return target("patient.templateSection", "managementPart1");
+      if (index === 16 && shape.id === "65") return target("patient.templateSection", "managementPart2");
+      if (index === 17 && shape.id === "67") return target("patient.templateSection", "managementPart3");
+      if (index === 18 && shape.id === "69") return target("patient.templateSection", "diagnosticPlan");
+      if (index === 19 && shape.id === "71") return target("patient.templateSection", "monitoringPlan");
+      return undefined;
+    }
     if (index === 0 && !isTitle && /nama penyaji/.test(text)) return target("shift.presenter");
     if (index === 1 && /nama:|usia:|jenis kelamin|nomor rm|tempat tinggal/.test(text)) return target("patient.identityBlock");
     if (index === 1 && /keluhan utama/.test(text)) return target("patient.chiefComplaint");
@@ -643,11 +762,12 @@ function bodyBindingForSlide(slide: ParsedSlide, shape: ParsedShape): SemanticFi
 
 function autoBindings(slides: ParsedSlide[], profileId: TemplateProfileId): TemplateBinding[] {
   const bindings: TemplateBinding[] = [];
+  const usesCurrent21SlideContract = slides.length === 21 && (profileId === "igd-harkit" || profileId === "rsui");
   slides.forEach((slide) => {
     slide.shapes.forEach((shape) => {
-      const profileTarget = profileBindingForSlide(slide, shape, profileId);
+      const profileTarget = profileBindingForSlide(slide, shape, profileId, slides.length);
       if (!shape.text && !profileTarget) return;
-      const semanticField = profileTarget?.semanticField ?? bodyBindingForSlide(slide, shape);
+      const semanticField = profileTarget?.semanticField ?? (usesCurrent21SlideContract ? "static" : bodyBindingForSlide(slide, shape));
       if (semanticField === "static") return;
       bindings.push({
         slideIndex: slide.index,
@@ -671,7 +791,9 @@ function autoBindings(slides: ParsedSlide[], profileId: TemplateProfileId): Temp
     // editable slot (for example two neonatal panels). Every other semantic
     // fact gets exactly one target per slide so the same block cannot be
     // written into multiple boxes.
-    if (binding.semanticField === "patient.templateSection") return;
+    const evidencePictureSlot = ["patient.investigations.imaging", "patient.investigations.laboratory"].includes(binding.semanticField)
+      && slides.find((slide) => slide.index === binding.slideIndex)?.shapes.some((shape) => shape.id === binding.shapeId && shape.kind === "picture");
+    if (binding.semanticField === "patient.templateSection" || evidencePictureSlot) return;
     const key = `${binding.slideIndex}:${binding.semanticField}`;
     grouped.set(key, [...(grouped.get(key) || []), binding]);
   });

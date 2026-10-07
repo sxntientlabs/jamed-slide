@@ -612,13 +612,12 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
               {genericContextFields.map((fieldSpec) => <label className="field-label" key={fieldSpec.key}><span className="field-label-text">{fieldSpec.label}</span><input value={shiftFieldValue(shift, fieldSpec.key)} onChange={(event) => setShift(setShiftFieldValue(shift, fieldSpec.key, event.target.value))} placeholder={fieldSpec.placeholder} /></label>)}
             </div>
           </div>
-          <div className="form-footer"><div className="form-footer-left"><button className="button button-ghost button-small" onClick={onChangeTemplate}><ArrowLeft size={14} /> Ganti template</button></div><button className="button button-dark" onClick={onContinue}>Lanjutkan <ArrowRight size={16} /></button></div>
+          <div className="form-footer"><div className="form-footer-left"><button className="button button-ghost button-small change-template-button" onClick={onChangeTemplate}><ArrowLeft size={14} /> Ganti template</button></div><button className="button button-dark" onClick={onContinue}>Lanjutkan <ArrowRight size={16} /></button></div>
         </section>
         <aside className="panel side-info-panel">
           <div className="panel-heading"><div><span className="eyebrow">Template inti</span><h3>Gunakan PPTX asli</h3></div><KoasisIcon name="template" size={20} /></div>
           <p>Koasis membaca struktur shape, layout, dan teks dari template. File asli tetap menjadi sumber desain.</p>
-          <div className="attached-template"><div className="file-icon"><KoasisIcon name="archive" size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · {template.templateValidation?.valid ? "kontrak klinis tervalidasi" : "menunggu validasi kontrak"} · {profile.label}</span></div>{template.templateValidation?.valid ? <CircleCheck className="success-icon" size={18} /> : <AlertTriangle className="warning-icon" size={18} />}</div>
-          {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
+          <div className="attached-template"><div className="file-icon"><KoasisIcon name="archive" size={19} /></div><div><strong>{template.name}</strong><span>{template.slideCount} slide · PPTX editable · {profile.label}</span></div></div>
           <div className="side-info-list"><div><Check size={14} /> Layout asli dipertahankan</div><div><Check size={14} /> Shape bisa dikoreksi manual</div><div><Check size={14} /> Output tetap editable</div></div>
         </aside>
       </div>
@@ -626,10 +625,11 @@ function NewShiftPage({ shift, setShift, template, builtInTemplates, builtInLoad
   );
 }
 
-function TemplatePage({ template, setTemplate, onContinue, onBack }: { template: ParsedTemplate | null; setTemplate: (template: ParsedTemplate) => void; onContinue: () => void; onBack: () => void }) {
+function TemplatePage({ template, setTemplate, onContinue, onBack, onTemplateChange }: { template: ParsedTemplate | null; setTemplate: (template: ParsedTemplate) => void; onContinue: (allowUnvalidated: boolean) => void; onBack: () => void; onTemplateChange: () => void }) {
   const [previewSlides, setPreviewSlides] = useState<string[]>([]);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [manualReviewAccepted, setManualReviewAccepted] = useState(false);
   const setIncluded = (slideIndex: number, include: boolean) => {
     if (!template) return;
     const slides = template.slides.map((slide) => slide.index === slideIndex
@@ -642,6 +642,8 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
       : undefined;
     const nextTemplate = { ...template, slides, templateAnalysis };
     const validation = validateTemplateContract(nextTemplate);
+    setManualReviewAccepted(false);
+    onTemplateChange();
     setTemplate({
       ...nextTemplate,
       templateValidation: validation,
@@ -674,15 +676,18 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
 
   if (!template) return <div className="page"><ProgressSteps active={3} /><SectionHeading eyebrow="Langkah 04 · Struktur template" title="Template belum dipilih" description="Pemilihan template dilakukan di awal laporan baru." /><section className="panel template-empty-picker"><EmptyState icon="archive" title="Belum ada template aktif" description="Kembali ke data laporan untuk memilih template bawaan atau upload template sendiri." action={<button className="button button-dark" onClick={onBack}>Kembali ke data laporan</button>} /></section></div>;
   const validation = validateTemplateContract(template);
+  const analysisWarnings = Array.from(new Set(template.templateAnalysis?.warnings || []));
+  const visibleWarnings = Array.from(new Set([...validation.warnings, ...analysisWarnings]));
+  const canContinue = validation.valid || manualReviewAccepted;
   const learningStatus = template.templateAnalysis?.learningStatus;
   const contractLabel = learningStatus === "agent" ? "Dipelajari agent" : learningStatus === "trusted_profile" ? "Kontrak bawaan tervalidasi" : "Perlu dipelajari agent";
   return (
     <div className="page">
       <ProgressSteps active={3} />
       <SectionHeading eyebrow="Langkah 04 · Struktur template" title="Konfirmasi struktur template" description="Tinjau urutan slide dan pilih slide yang ingin disertakan. Tabel pembuka tetap memakai semua pasien, sedangkan slide klinis mengikuti satu kasus utama." action={<div className="template-confidence"><span className="confidence-dot" /> {template.slides.filter((slide) => slide.repeat && slideIsIncluded(slide)).length} slide detail</div>} />
-      <div className={`template-contract-strip ${validation.valid ? "" : "warning"}`}><span className="template-contract-icon">{validation.valid ? <CircleCheck size={15} /> : <AlertTriangle size={15} />}</span><span>{validation.valid ? <>Mapping klinis otomatis sudah aktif untuk <strong>{template.name}</strong>. Ringkasan awal memakai semua pasien; slide klinis memakai satu kasus utama. Atur output dengan kotak <strong>Sertakan slide ini</strong>.</> : <>Template <strong>{template.name}</strong> belum aman untuk generate. Koasis menahan render sampai kontrak slide dan field dipelajari serta divalidasi.</>}</span><span className="template-contract-source">{contractLabel}</span></div>
-      {!validation.valid && <div className="template-validation-panel error"><div><AlertTriangle size={15} /><strong>Quality gate template</strong></div><ul>{validation.errors.slice(0, 5).map((message) => <li key={message}>{message}</li>)}</ul>{validation.warnings.length > 0 && <p>{validation.warnings.slice(0, 3).join(" ")}</p>}</div>}
-      {validation.valid && validation.warnings.length > 0 && <div className="template-validation-panel warning"><div><AlertTriangle size={15} /><strong>Catatan kontrak</strong></div><p>{validation.warnings.slice(0, 4).join(" ")}</p></div>}
+      <div className={`template-contract-strip ${validation.valid ? "" : "warning"}`}><span className="template-contract-icon">{validation.valid ? <CircleCheck size={15} /> : <AlertTriangle size={15} />}</span><span>{validation.valid ? <>Mapping klinis otomatis sudah aktif untuk <strong>{template.name}</strong>. Ringkasan awal memakai semua pasien; slide klinis memakai satu kasus utama. Atur output dengan kotak <strong>Sertakan slide ini</strong>.</> : <>Template <strong>{template.name}</strong> perlu review mapping sebelum dipakai. Periksa catatan di bawah, lalu kamu bisa membuat draft untuk mengecek hasil render secara manual.</>}</span><span className="template-contract-source">{contractLabel}</span></div>
+      {!validation.valid && <div className="template-validation-panel error"><div><AlertTriangle size={15} /><strong>Quality gate template</strong></div><ul>{validation.errors.slice(0, 5).map((message) => <li key={message}>{message}</li>)}</ul>{visibleWarnings.length > 0 && <p>{visibleWarnings.slice(0, 4).join(" ")}</p>}<div className="template-recovery"><div className="template-recovery-heading"><AlertTriangle size={16} /><strong>WAJIB DICENTANG UNTUK LANJUT</strong></div><p>Koasis akan membuat PPTX sebagai draft preview. Download tetap mengikuti hasil pemeriksaan visual dan kontekstual.</p><label className={`template-recovery-checkbox ${manualReviewAccepted ? "checked" : ""}`}><input type="checkbox" checked={manualReviewAccepted} onChange={(event) => setManualReviewAccepted(event.target.checked)} aria-label="Saya memahami mapping belum sepenuhnya tervalidasi" /><span><strong>{manualReviewAccepted ? "Persetujuan dicatat" : "Centang kotak ini untuk mengaktifkan tombol lanjut"}</strong><small>Saya paham mapping belum sepenuhnya tervalidasi dan akan memeriksa preview sebelum memakai hasilnya.</small></span></label></div></div>}
+      {validation.valid && visibleWarnings.length > 0 && <div className="template-validation-panel warning"><div><AlertTriangle size={15} /><strong>Catatan kontrak</strong></div><p>{visibleWarnings.slice(0, 4).join(" ")}</p></div>}
       <div className="template-summary-grid"><div className="template-summary"><div className="summary-icon"><KoasisIcon name="archive" size={18} /></div><div><span>File template</span><strong>{template.name}</strong></div><span className="summary-meta">{template.fileName}</span></div><div className="template-summary"><div className="summary-icon purple"><KoasisIcon name="template" size={18} /></div><div><span>Slide terdeteksi</span><strong>{template.slideCount} slide</strong></div><span className="summary-meta">{template.slides.filter(slideIsIncluded).length} disertakan</span></div><div className="template-summary"><div className="summary-icon orange"><KoasisIcon name="overview" size={18} /></div><div><span>Slide detail</span><strong>{template.slides.filter((slide) => slide.repeat && slideIsIncluded(slide)).length} slide</strong></div><span className="summary-meta">untuk kasus utama</span></div></div>
       <section className="panel template-overview-panel">
         <div className="panel-heading compact-heading"><div><h3>Overview slide template</h3><p>Preview menunjukkan layout asli. Teks yang terlihat adalah contoh dari template, bukan data pasien baru.</p></div><KoasisIcon name="template" size={18} /></div>
@@ -706,7 +711,7 @@ function TemplatePage({ template, setTemplate, onContinue, onBack }: { template:
         </div>
       </section>
       <div className="template-overview-note"><KoasisIcon name="safety" size={15} /><span>Field klinis dan mapping shape sudah dikendalikan oleh kontrak template. Anda tidak perlu memilih semantic field satu per satu.</span></div>
-      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke review</button><button className="button button-dark" onClick={onContinue} disabled={!validation.valid}>Simpan struktur & lanjut ke generate <ArrowRight size={16} /></button></div>
+      <div className="page-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke review</button><button className="button button-dark" onClick={() => onContinue(!validation.valid)} disabled={!canContinue}>{validation.valid ? "Simpan struktur & lanjut ke generate" : "Lanjut dengan catatan"} <ArrowRight size={16} /></button></div>
     </div>
   );
 }
@@ -872,7 +877,7 @@ function summaryPageCountForTemplate(template: ParsedTemplate, patients: Patient
     }, 0);
 }
 
-function GeneratePage({ shift, template, patients, focusPatientId, onGenerate, onBack, busy, stage, error }: { shift: ShiftDetails; template: ParsedTemplate | null; patients: PatientRecord[]; focusPatientId: string; onGenerate: () => void; onBack: () => void; busy: boolean; stage: GenerationStage; error: string }) {
+function GeneratePage({ shift, template, patients, focusPatientId, onGenerate, onBack, busy, stage, error, allowUnvalidatedTemplate }: { shift: ShiftDetails; template: ParsedTemplate | null; patients: PatientRecord[]; focusPatientId: string; onGenerate: () => void; onBack: () => void; busy: boolean; stage: GenerationStage; error: string; allowUnvalidatedTemplate: boolean }) {
   const selectedSlides = template?.slides.filter(slideIsIncluded) ?? [];
   const repeatCount = selectedSlides.filter((slide) => slide.repeat).length;
   const focusPatient = patients.find((patient) => patient.id === focusPatientId);
@@ -881,7 +886,7 @@ function GeneratePage({ shift, template, patients, focusPatientId, onGenerate, o
   const summaryPages = template ? summaryPageCountForTemplate(template, patients) : 0;
   const expectedSlides = template ? selectedSlides.length + Math.max(0, summaryPages - summarySlides) + Math.max(0, detailPatientCount - 1) * repeatCount : 0;
   const validation = template ? validateTemplateContract(template) : undefined;
-  const canGenerate = Boolean(template && patients.length && focusPatient && validation?.valid);
+  const canGenerate = Boolean(template && patients.length && focusPatient && (validation?.valid || allowUnvalidatedTemplate));
   return (
     <div className="page">
       <ProgressSteps active={4} />
@@ -890,11 +895,11 @@ function GeneratePage({ shift, template, patients, focusPatientId, onGenerate, o
         <section className="panel generate-main-panel">
           <div className="generate-summary-head"><div><span className="eyebrow">Report plan</span><h3>{shift.title}</h3><p>{shift.department || "Departemen belum diatur"} · {toIndonesianDate(shift.date)} · {shift.hospital || "Rumah sakit belum diatur"}</p></div><div className="ready-badge"><CircleCheck size={14} /> Ready for render</div></div>
           <div className="plan-grid"><div className="plan-item"><span>Template</span><strong>{template?.name || "Belum ada template"}</strong><small>{selectedSlides.length} slide dipilih dari {template?.slideCount || 0}</small></div><div className="plan-item"><span>Patient records</span><strong>{patients.length} pasien ringkasan</strong><small>semua masuk tabel awal</small></div><div className="plan-item"><span>Kasus utama</span><strong>{focusPatient?.displayName || "Belum dipilih"}</strong><small>satu rangkaian slide mendalam</small></div><div className="plan-item"><span>Output estimate</span><strong>{expectedSlides || "—"} slide</strong><small>{repeatCount} slide untuk kasus utama</small></div></div>
-          <div className="generation-checklist"><div className="checklist-heading"><h4>Quality gates</h4><span>4 checks</span></div><div className="checklist-row">{validation?.valid ? <Check size={15} /> : <AlertTriangle size={15} />}<span>Kontrak template dipelajari & tervalidasi</span><small>{validation?.valid ? "Lulus" : "Ditahan"}</small></div><div className="checklist-row"><Check size={15} /><span>Template mapping tersimpan</span><small>{template?.bindings.length || 0} binding</small></div><div className="checklist-row"><Check size={15} /><span>Setiap pasien punya record terstruktur</span><small>{patients.length} record</small></div><div className="checklist-row"><Check size={15} /><span>Field missing tidak diisi otomatis</span><small>Policy aktif</small></div></div>
+          <div className="generation-checklist"><div className="checklist-heading"><h4>Quality gates</h4><span>4 checks</span></div><div className="checklist-row">{validation?.valid ? <Check size={15} /> : <AlertTriangle size={15} />}<span>Kontrak template dipelajari & tervalidasi</span><small>{validation?.valid ? "Lulus" : allowUnvalidatedTemplate ? "Review manual" : "Ditahan"}</small></div><div className="checklist-row"><Check size={15} /><span>Template mapping tersimpan</span><small>{template?.bindings.length || 0} binding</small></div><div className="checklist-row"><Check size={15} /><span>Setiap pasien punya record terstruktur</span><small>{patients.length} record</small></div><div className="checklist-row"><Check size={15} /><span>Field missing tidak diisi otomatis</span><small>Policy aktif</small></div></div>
           {busy && <ProcessingState variant="render" icon="report" eyebrow={stage === "rendering" ? "Visual quality check · proses aktif" : "PPTX compiler · proses aktif"} title={stage === "rendering" ? "Menyiapkan preview slide" : "Menyusun laporan editable"} description={stage === "rendering" ? "File PPTX sudah dibuat. Koasis sedang mengambil gambar setiap slide untuk quality check visual." : "Koasis sedang menyalin template, mengisi field klinis, dan menjaga layout asli tetap editable."} steps={["Menyusun data", "Menyalin template", "Menyiapkan render"]} activeStep={stage === "rendering" ? 2 : 0} />}
-          {validation && !validation.valid && <div className="inline-error"><AlertTriangle size={15} /> {validation.errors.slice(0, 2).join(" ")}</div>}
+          {validation && !validation.valid && <div className="inline-error"><AlertTriangle size={15} /> {allowUnvalidatedTemplate ? "Draft dibuat dengan catatan mapping. Periksa preview visual dan kontekstual sebelum memakai atau mengunduh hasil." : validation.errors.slice(0, 2).join(" ")}</div>}
           {error && <div className="inline-error"><AlertTriangle size={15} /> {error}</div>}
-          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !canGenerate}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><KoasisIcon name="spark" size={16} /> Generate editable PPTX</>}</button></div>
+          <div className="generate-actions"><button className="button button-ghost" onClick={onBack}><ArrowLeft size={16} /> Kembali ke struktur</button><button className="button button-dark button-large" onClick={onGenerate} disabled={busy || !canGenerate}>{busy ? <><RefreshCw size={16} className="spin" /> Membuat PPTX…</> : <><KoasisIcon name="spark" size={16} /> {allowUnvalidatedTemplate ? "Generate draft untuk review" : "Generate editable PPTX"}</>}</button></div>
         </section>
         <aside className="panel safety-panel"><div className="safety-orb"><KoasisIcon name="security" size={22} /></div><span className="eyebrow">Clinical safety boundary</span><h3>Koasis membantu dokumentasi, bukan mengambil keputusan.</h3><p>Diagnosis, temuan, dan tata laksana hanya dibawa dari sumber atau edit user. Nilai yang hilang ditampilkan sebagai “Tidak tercantum”.</p><div className="safety-line"><KoasisIcon name="safety" size={15} /> Tidak ada rekomendasi obat otomatis</div><div className="safety-line"><KoasisIcon name="safety" size={15} /> Output tetap editable di PowerPoint</div></aside>
       </div>
@@ -1011,6 +1016,7 @@ function AuthenticatedApp() {
   const [view, setView] = useState<View>("dashboard");
   const [shift, setShift] = useState<ShiftDetails>(EMPTY_SHIFT);
   const [template, setTemplate] = useState<ParsedTemplate | null>(null);
+  const [allowUnvalidatedTemplate, setAllowUnvalidatedTemplate] = useState(false);
   const [patientDrafts, setPatientDrafts] = useState<PatientDraft[]>(createInitialPatientDrafts);
   const [sources, setSources] = useState<SourceItem[]>([]);
   const [patients, setPatients] = useState<PatientRecord[]>([]);
@@ -1161,12 +1167,12 @@ function AuthenticatedApp() {
       const customTemplate: ParsedTemplate = { ...parsed, profileId: "generic", analysisStatus: "analyzing" };
       const analyzed = await analyzeTemplateWithAi(customTemplate);
       setTemplate(analyzed.template);
+      setAllowUnvalidatedTemplate(false);
       markAnalysisInputChanged("context");
-      if (analyzed.error || !analyzed.template.templateValidation?.valid) {
-        setError(analyzed.error
-          ? "Agent template belum bisa dihubungi. Generate ditahan sampai kontrak template dipelajari agent."
-          : "Agent template menemukan bagian yang belum aman untuk dirender. Periksa warning kontrak sebelum melanjutkan.");
-      }
+      // Contract and agent warnings belong to the mapping step. Keep the
+      // context form focused on entering shift metadata after the upload has
+      // finished parsing, even when the mapping still needs review.
+      setError("");
       setView("new-shift");
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Template tidak bisa dianalisis.");
@@ -1186,6 +1192,7 @@ function AuthenticatedApp() {
         ? await analyzeTemplateWithAi({ ...prepared, analysisStatus: "analyzing" })
         : { template: applyTemplateAnalysis(prepared, buildLocalTemplateAnalysis(prepared), "local"), analysis: undefined, error: undefined };
       setTemplate(analyzed.template);
+      setAllowUnvalidatedTemplate(false);
       markAnalysisInputChanged("context");
       if (analyzed.error || !analyzed.template.templateValidation?.valid) {
         setError(analyzed.error
@@ -1487,6 +1494,7 @@ function AuthenticatedApp() {
     analysisReasonRevisionsRef.current.context += 1;
     setShift({ ...EMPTY_SHIFT, date: new Date().toISOString().slice(0, 10) });
     setTemplate(null);
+    setAllowUnvalidatedTemplate(false);
     setPatientDrafts(createInitialPatientDrafts());
     setSources([]);
     setPatients([]);
@@ -1527,6 +1535,7 @@ function AuthenticatedApp() {
   const changeTemplate = () => {
     markAnalysisInputChanged("context");
     setTemplate(null);
+    setAllowUnvalidatedTemplate(false);
     navTo("new-shift");
   };
 
@@ -1545,10 +1554,10 @@ function AuthenticatedApp() {
         <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button><div className="topbar-brand-mobile"><img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
         {view === "new-shift" && <NewShiftPage shift={shift} setShift={updateShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={changeTemplate} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
-        {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={() => navTo("generate")} onBack={() => navTo("review")} />}
+        {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={(allowUnvalidated) => { setAllowUnvalidatedTemplate(allowUnvalidated); navTo("generate"); }} onTemplateChange={() => setAllowUnvalidatedTemplate(false)} onBack={() => navTo("review")} />}
         {view === "inbox" && <InboxPage template={template} drafts={patientDrafts} focusDraftId={focusDraftId} onFocusDraft={focusDraft} onDraftTextChange={updateDraftText} onDraftFile={handleDraftFile} onRemoveAttachment={removeAttachment} onAddDraft={addPatientDraft} onDetectBulk={detectBulkPatients} onBulkInputChange={() => markAnalysisInputChanged("bulk")} onRemoveDraft={removePatientDraft} sources={sources} patients={patients} onAnalyze={analyze} onContinue={() => navTo("review")} analysisBusy={analysisBusy} analysisEngine={analysisEngine} analysisNeedsRefresh={analysisNeedsRefresh} error={error} />}
         {view === "review" && <ReviewPage template={template} patients={patients} activePatientId={activePatientId} setActivePatientId={setActivePatientId} focusPatientId={focusPatientId} onFocusPatient={setFocusPatientId} onUpdate={updatePatient} onContinue={() => navTo("template")} onBack={() => navTo("inbox")} />}
-        {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} focusPatientId={focusPatientId} onGenerate={generate} onBack={() => navTo("template")} busy={generationBusy} stage={generationStage} error={error} />}
+        {view === "generate" && <GeneratePage shift={shift} template={template} patients={patients} focusPatientId={focusPatientId} onGenerate={generate} onBack={() => navTo("template")} busy={generationBusy} stage={generationStage} error={error} allowUnvalidatedTemplate={allowUnvalidatedTemplate} />}
         {view === "preview" && <PreviewPage template={template} patients={patients} focusPatientId={focusPatientId} generated={generated} previewBusy={previewBusy} onDownload={download} onBack={() => navTo("review")} onNew={startNew} visualReviewConfirmed={visualReviewConfirmed} onVisualReviewChange={setVisualReviewConfirmed} paymentStatus={paymentStatus} />}
       </main>
       {utilityPanel && <UtilityModal panel={utilityPanel} user={user} workspaceStatus={workspaceStatus} workspaceSyncError={workspaceSyncError} onClose={() => setUtilityPanel(null)} onRetrySync={() => { setWorkspaceReloadKey((current) => current + 1); }} onStartReport={() => navTo("new-shift")} onSignOut={() => { void signOut(); }} />}

@@ -93,7 +93,7 @@ function isSupportedShapeBinding(binding: TemplateBinding, shape: ParsedShape): 
     return !["shift.patientSummaryTable", "patient.managementTable"].includes(binding.semanticField);
   }
   if (shape.kind === "picture") {
-    return binding.semanticField === "patient.investigations.imaging";
+    return ["patient.investigations.imaging", "patient.investigations.laboratory"].includes(binding.semanticField);
   }
   return false;
 }
@@ -185,7 +185,12 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
       const semanticKey = `${binding.slideIndex}:${binding.semanticField}:${binding.templateKey || ""}`;
       const previousSemanticTarget = semanticTargets.get(semanticKey);
       if (previousSemanticTarget && previousSemanticTarget.shapeId !== binding.shapeId) {
-        bindingSemanticsValid = false;
+        const currentShape = shapeForBinding(template, binding);
+        const previousShape = shapeForBinding(template, previousSemanticTarget);
+        const duplicateEvidenceSlots = ["patient.investigations.imaging", "patient.investigations.laboratory"].includes(binding.semanticField)
+          && currentShape?.kind === "picture"
+          && previousShape?.kind === "picture";
+        if (!duplicateEvidenceSlots) bindingSemanticsValid = false;
         check(
           checks,
           errors,
@@ -219,7 +224,7 @@ export function validateTemplateContract(template: ParsedTemplate): TemplateCont
       bindingSemanticsValid = false;
       check(checks, errors, warnings, `binding-renderer-${key}`, "Kompatibilitas renderer", "error", `Renderer belum memiliki jalur aman untuk ${binding.semanticField} pada shape ${shape.kind}.`, binding.slideIndex);
     }
-    if (shape.kind === "picture" && binding.semanticField === "patient.investigations.imaging" && (slide.role !== "investigation" || !/(radiologi|radiology|foto|rontgen|x[- ]?ray|xray|cxr|imaging|usg)/i.test(`${slide.title} ${slide.text}`))) {
+    if (shape.kind === "picture" && ["patient.investigations.imaging", "patient.investigations.laboratory"].includes(binding.semanticField) && slide.role !== "investigation") {
       bindingSemanticsValid = false;
       check(checks, errors, warnings, `binding-picture-context-${key}`, "Konteks slot gambar", "error", `Slot gambar ${shape.id} hanya boleh dipetakan sebagai evidence radiologi pada slide pemeriksaan penunjang.`, binding.slideIndex);
     }

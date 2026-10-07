@@ -371,10 +371,11 @@ function patientSummaryIdentity(patient: PatientRecord): string {
 }
 
 function patientUrgency(patient: PatientRecord, asBooleanWords = false): string {
-  const value = String(rawFieldValue<string>(patient, "urgency") ?? "").trim().toLowerCase();
+  const rawValue = String(rawFieldValue<string>(patient, "urgency") ?? "").trim();
+  const value = rawValue.toLowerCase();
   if (["t", "true"].includes(value)) return asBooleanWords ? "True" : "T";
   if (["f", "false"].includes(value)) return asBooleanWords ? "False" : "F";
-  return "Tidak tercantum";
+  return rawValue || "Tidak tercantum";
 }
 
 function shiftMetadataValue(shift: ShiftDetails, key: string): string {
@@ -453,6 +454,8 @@ function formatPatientBlock(semanticField: SemanticField, patient: PatientRecord
         optionalBlockLine("No. RM", patientText(patient, "identifiers.medicalRecordNumber")),
         optionalBlockLine("Tanggal lahir", patientText(patient, "templateData.dateOfBirth")),
         optionalBlockLine("Alamat", patientText(patient, "templateData.address", 260)),
+        optionalBlockLine("Agama", patientText(patient, "templateData.religion", 120)),
+        optionalBlockLine("Status pernikahan", patientText(patient, "templateData.maritalStatus", 140)),
       ]);
     case "patient.historyBlock":
       return presentLines([
@@ -472,12 +475,13 @@ function formatPatientBlock(semanticField: SemanticField, patient: PatientRecord
         optionalBlockLine("Kesimpulan", patientText(patient, "assessment.workingDiagnosis", 300)),
       ]);
     case "patient.pediatricAssessment.leftBlock":
-      if (templateHasValue(patient, ["templateData.patBehaviour", "templateData.patInteractiveness", "templateData.patConsolability", "templateData.patLookOrGaze"])) {
+      if (templateHasValue(patient, ["templateData.patBehaviour", "templateData.patInteractiveness", "templateData.patConsolability", "templateData.patLookOrGaze", "templateData.patSpeechCry"])) {
         return presentLines([
           optionalBlockLine("Behaviour / Tonus", patientText(patient, "templateData.patBehaviour", 180)),
           optionalBlockLine("Interactiveness", patientText(patient, "templateData.patInteractiveness", 180)),
           optionalBlockLine("Consolability", patientText(patient, "templateData.patConsolability", 180)),
           optionalBlockLine("Look or gaze", patientText(patient, "templateData.patLookOrGaze", 180)),
+          optionalBlockLine("Speech / cry", patientText(patient, "templateData.patSpeechCry", 180)),
         ]);
       }
       return presentLines(pediatricSectionLines(patientText(patient, "physicalExam.generalAppearance", 900), [
@@ -487,13 +491,14 @@ function formatPatientBlock(semanticField: SemanticField, patient: PatientRecord
         ["Look or gaze", "look\\s+or\\s+gaze"],
       ]));
     case "patient.pediatricAssessment.rightBlock":
-      if (templateHasValue(patient, ["templateData.patBreathing", "templateData.patRetraction", "templateData.patNasalFlaring", "templateData.patAddedBreathSounds", "templateData.patAbnormalPosition"])) {
+      if (templateHasValue(patient, ["templateData.patBreathing", "templateData.patRetraction", "templateData.patNasalFlaring", "templateData.patAddedBreathSounds", "templateData.patAbnormalPosition", "templateData.patBodyColour"])) {
         return presentLines([
           optionalBlockLine("Breathing", patientText(patient, "templateData.patBreathing", 180)),
           optionalBlockLine("Retraksi", patientText(patient, "templateData.patRetraction", 180)),
           optionalBlockLine("Nafas cuping hidung", patientText(patient, "templateData.patNasalFlaring", 180)),
           optionalBlockLine("Suara nafas tambahan", patientText(patient, "templateData.patAddedBreathSounds", 180)),
           optionalBlockLine("Posisi abnormal", patientText(patient, "templateData.patAbnormalPosition", 180)),
+          optionalBlockLine("Body colour", patientText(patient, "templateData.patBodyColour", 180)),
         ]);
       }
       return presentLines(pediatricSectionLines(patientText(patient, "physicalExam.findings", 1000), [
@@ -616,7 +621,12 @@ function templateSectionText(patient: PatientRecord, key: string): string {
     case "previousDeliveries": return patientText(patient, "history.birthHistory", 1100);
     case "pregnancyBirth": return patientText(patient, "history.birthHistory", 1100);
     case "initialDiagnosis": return patientText(patient, "assessment.workingDiagnosis", 1000);
-    case "finalDiagnosis": return "Tidak tercantum";
+    case "finalDiagnosis": {
+      const finalDiagnosis = patientText(patient, "templateData.finalDiagnosis", 1000);
+      return finalDiagnosis === "Tidak tercantum"
+        ? patientText(patient, "assessment.workingDiagnosis", 1000)
+        : finalDiagnosis;
+    }
     case "initialManagement": return formatPatientBlock("patient.managementBlock", patient);
     case "finalManagement": return "Tidak tercantum";
     case "neonatalVitals":
@@ -637,6 +647,37 @@ function templateSectionText(patient: PatientRecord, key: string): string {
     case "otherExaminations": return investigationLines(patient, "investigations.other").join("\n");
     case "emergencyManagement": return formatPatientBlock("patient.managementBlock", patient);
     case "growthDevelopment": return patientText(patient, "templateData.growthDevelopment", 1000);
+    case "primarySurveyLeft": return presentLines([
+      optionalBlockLine("Airway", patientText(patient, "templateData.airway", 220)),
+      optionalBlockLine("Breathing", patientText(patient, "physicalExam.vitalSigns.respiratoryRate", 120)),
+      optionalBlockLine("Circulation", [
+        optionalText(patientText(patient, "physicalExam.vitalSigns.bloodPressure", 120)),
+        optionalText(`HR ${patientText(patient, "physicalExam.vitalSigns.heartRate", 80)}`),
+      ].filter((value) => value && value !== "HR Tidak tercantum").join(" · ")),
+    ]);
+    case "primarySurveyRight": return presentLines([
+      optionalBlockLine("Disability", patientText(patient, "physicalExam.consciousness", 180)),
+      optionalBlockLine("Exposure", patientText(patient, "templateData.exposure", 420)),
+    ]);
+    case "primarySurveyContinuationLeft": return templateSectionText(patient, "primarySurveyLeft");
+    case "primarySurveyContinuationRight": return templateSectionText(patient, "primarySurveyRight");
+    case "anthropometryMeasurements": return presentLines([
+      optionalBlockLine("BB", patientText(patient, "demographics.weightKg", 100)),
+      optionalBlockLine("TB", patientText(patient, "demographics.heightCm", 100)),
+    ]);
+    case "anthropometryAssessment": return presentLines([
+      optionalBlockLine("BB/U", patientText(patient, "templateData.weightForAge", 120)),
+      optionalBlockLine("TB/U", patientText(patient, "templateData.heightForAge", 120)),
+      optionalBlockLine("BB/TB", patientText(patient, "templateData.weightForHeight", 120)),
+      optionalBlockLine("Kesan", patientText(patient, "templateData.nutritionConclusion", 360)),
+    ]);
+    case "managementPart1": return patientText(patient, "templateData.managementPart1", 1200) === "Tidak tercantum"
+      ? formatPatientBlock("patient.managementBlock", patient)
+      : patientText(patient, "templateData.managementPart1", 1200);
+    case "managementPart2": return patientText(patient, "templateData.managementPart2", 1200);
+    case "managementPart3": return patientText(patient, "templateData.managementPart3", 1200);
+    case "diagnosticPlan": return patientText(patient, "templateData.diagnosticPlan", 1200);
+    case "monitoringPlan": return patientText(patient, "templateData.monitoringPlan", 1200);
     default: return patientText(patient, `templateData.${key}`, 1400);
   }
 }
@@ -798,6 +839,10 @@ function appendShapeText(xml: string, shapeId: string, replacement: string, high
   });
 }
 
+function historyHeadingPrefix(text: string): string | undefined {
+  return text.match(/^(?:Riwayat\s+Penyakit\s+Sekarang|Riwayat\s+Penyakit\s+Dahulu|Riwayat\s+Penyakit\s+Keluarga|Riwayat\s+Kehamilan\s+dan\s+Persalinan|Riwayat\s+Kehamilan\s*&\s*Persalinan|Riwayat\s+Imunisasi|Riwayat\s+Nutrisi|Riwayat\s+Tumbuh\s+Kembang|Riwayat\s+Sosial|Nutrisi)/i)?.[0];
+}
+
 function appendEditableTextBox(xml: string, text: string, bounds: { x: number; y: number; width: number; height: number }, name: string): string {
   if (xml.includes(`name="${name}"`)) return xml;
   const id = maxNumericAttribute(xml, "id") + 1;
@@ -922,8 +967,15 @@ function replaceLapjagCoverDate(xml: string, slide: ParsedSlide, shift: ShiftDet
 function replaceTemplateCoverDate(xml: string, slide: ParsedSlide, shift: ShiftDetails, template: ParsedTemplate): string {
   const nextDate = coverDateLabel(shift.date);
   if (!nextDate) return xml;
+  // The current IGD HARKIT cover is a deliberately formatted composite text
+  // box. Rebuilding it as one paragraph would destroy the original line
+  // breaks and typography; its date is replaced token-by-token below.
+  if (template.slideCount === 21 && template.profileId === "igd-harkit") return xml;
+  const datePartPattern = /\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+\d{4}/i;
+  const dateOnlyShape = slide.shapes.find((shape) => shape.text.length < 100 && datePartPattern.test(shape.text));
+  let result = dateOnlyShape ? replaceShapeText(xml, dateOnlyShape.id, nextDate, false) : xml;
   const titleShape = slide.shapes.find((shape) => shape.placeholderType === "title" || shape.placeholderType === "ctrTitle") || slide.shapes.find((shape) => shape.text.length > 20);
-  if (!titleShape) return xml;
+  if (!titleShape) return result;
   const original = titleShape.text;
   let replacement = original;
   if (/hari.{0,20}tanggal/i.test(original) || /hari\s*[.…]+\s*,?\s*tanggal/i.test(original)) {
@@ -932,8 +984,47 @@ function replaceTemplateCoverDate(xml: string, slide: ParsedSlide, shift: ShiftD
   } else if (/\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+\d{4}/i.test(original)) {
     replacement = original.replace(/\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+\d{4}/i, nextDate);
   }
-  if (replacement === original) return xml;
-  return replaceShapeText(xml, titleShape.id, replacement, false);
+  if (replacement === original) return result;
+  return replaceShapeText(result, titleShape.id, replacement, false);
+}
+
+function replaceShapeTextTokens(xml: string, shapeId: string, replacements: Array<[RegExp, string]>): string {
+  const shapeMatcher = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+  return xml.replace(shapeMatcher, (block) => {
+    const cNvPr = block.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? "";
+    if (readAttribute(cNvPr, "id") !== shapeId) return block;
+    return block.replace(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g, (tag, encoded: string) => {
+      let value = decodeXml(encoded);
+      replacements.forEach(([pattern, replacement]) => {
+        if (replacement.trim()) value = value.replace(pattern, replacement);
+      });
+      return tag.replace(encoded, escapeXml(value));
+    });
+  });
+}
+
+function replaceCurrentProfileCover(xml: string, slide: ParsedSlide, shift: ShiftDetails, template: ParsedTemplate): string {
+  if (template.slideCount !== 21 || slide.index !== 0) return xml;
+  if (template.profileId === "igd-harkit") {
+    const coverShape = slide.shapes.find((shape) => shape.id === "48");
+    if (!coverShape) return xml;
+    const nextDate = coverDateLabel(shift.date);
+    return replaceShapeTextTokens(xml, coverShape.id, [
+      [/(?:senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s*,\s*\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+\d{4}/i, nextDate],
+      [/Nama Mahasiswa/gi, shift.team || "Nama Mahasiswa"],
+      [/Nama Fasil/gi, shift.facilitator || "Nama Fasil"],
+    ]);
+  }
+  if (template.profileId === "rsui") {
+    const coverShape = slide.shapes.find((shape) => shape.id === "18");
+    if (!coverShape) return xml;
+    return replaceShapeTextTokens(xml, coverShape.id, [
+      [/Nama Koas/gi, shift.team || "Nama Koas"],
+      [/dr\.\s*\.{2,}/gi, shift.dpjp || "dr. ...."],
+      [/\.{6,}/g, shift.facilitator || "........"],
+    ]);
+  }
+  return xml;
 }
 
 interface SummaryPageContext {
@@ -943,10 +1034,14 @@ interface SummaryPageContext {
 }
 
 function replacePatientCountTitle(xml: string, slide: ParsedSlide, patientCount: number, page?: SummaryPageContext): string {
-  const titleShape = slide.shapes.find((shape) => /pasien baru/.test(shape.text.toLowerCase()));
+  const titleShape = slide.shapes.find((shape) => /pasien baru|total kasus baru|identitas pasien/.test(shape.text.toLowerCase()));
   if (!titleShape) return xml;
   const continuation = page && page.total > 1 && page.index > 1 ? ` (LANJUTAN ${page.index}/${page.total})` : "";
-  const replacement = titleShape.text.replace(/pasien baru\s*:\s*.*?\s+pasien/i, `PASIEN BARU: ${patientCount} PASIEN${continuation}`);
+  const replacement = /total kasus baru/i.test(titleShape.text)
+    ? titleShape.text.replace(/total kasus baru/i, `TOTAL KASUS BARU: ${patientCount} PASIEN${continuation}`)
+    : /identitas pasien/i.test(titleShape.text)
+      ? `${titleShape.text.replace(/\s*·\s*\d+\s+pasien(?:\s*\([^)]*\))?/i, "")} · ${patientCount} pasien${continuation}`
+    : titleShape.text.replace(/pasien baru\s*:\s*.*?\s+pasien/i, `PASIEN BARU: ${patientCount} PASIEN${continuation}`);
   return replaceShapeText(xml, titleShape.id, replacement, false);
 }
 
@@ -1466,6 +1561,7 @@ function applyBindings(
   let result = xml;
   if (slide.role === "cover") {
     result = template.profileId === "lapjag" ? replaceLapjagCoverDate(result, slide, shift) : replaceTemplateCoverDate(result, slide, shift, template);
+    result = replaceCurrentProfileCover(result, slide, shift, template);
   }
   if (isAllPatientsSummarySlide(slide, bindings)) result = replacePatientCountTitle(result, slide, patients.length, summaryPage);
   if (patient && slide.role === "management") result = replaceStaleNutritionTitle(result, slide, patient);
@@ -1483,6 +1579,11 @@ function applyBindings(
     .filter((binding) => binding.slideIndex === slide.index && binding.semanticField !== "static")
     .forEach((binding) => {
       const shape = slide.shapes.find((item) => item.id === binding.shapeId);
+      const currentCompositeCoverBinding = template.slideCount === 21
+        && slide.index === 0
+        && binding.semanticField === "shift.coverBlock"
+        && ((template.profileId === "igd-harkit" && binding.shapeId === "48") || (template.profileId === "rsui" && binding.shapeId === "18"));
+      if (currentCompositeCoverBinding) return;
       if (shape?.kind === "graphicFrame" || binding.semanticField.includes("Table") || binding.semanticField === "patient.physicalExam.organFindings" || binding.semanticField === "patient.investigations.laboratory") {
         const tablePatients = binding.semanticField === "shift.patientSummaryTable" ? summaryPatients : patients;
         result = replaceTableBinding(result, binding.shapeId, binding.semanticField, patient, tablePatients, template, binding.templateKey, summaryPage?.startIndex ?? 0);
@@ -1496,6 +1597,11 @@ function applyBindings(
         const highlightAbnormal = ["patient.pediatricAssessmentBlock", "patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.primarySurveyBlock", "patient.physicalExamBlock"].includes(binding.semanticField);
         const replaceWholeTemplateSection = binding.semanticField === "patient.templateSection";
         const headingOnly = Boolean(shape?.text && shape.text.trim().length < 100 && !/[:：…]|\t/.test(shape.text));
+        const appendToClinicalHeading = headingOnly
+          && shape?.text?.trim() !== "."
+          && !/^(?:x+|\.+)$/i.test(shape?.text?.trim() || "")
+          && binding.semanticField.startsWith("patient.history.");
+        const historyHeading = binding.semanticField.startsWith("patient.history.") ? historyHeadingPrefix(shape?.text || "") : undefined;
         const sameTemplateSectionBindings = replaceWholeTemplateSection
           ? bindings.filter((candidate) => candidate.slideIndex === slide.index && candidate.semanticField === "patient.templateSection" && candidate.templateKey === binding.templateKey)
           : [];
@@ -1513,6 +1619,10 @@ function applyBindings(
           if (preferred && preferred.shapeId !== binding.shapeId) return;
         }
         if (binding.semanticField === "patient.templateSection" && (binding.templateKey === "neonatalBirthProcess" || (headingOnly && shape?.text?.trim() !== "."))) {
+          result = appendShapeText(result, binding.shapeId, content, highlightAbnormal);
+        } else if (historyHeading && !headingOnly) {
+          result = replaceShapeText(result, binding.shapeId, `${historyHeading}\n${content}`, false, highlightAbnormal);
+        } else if (appendToClinicalHeading) {
           result = appendShapeText(result, binding.shapeId, content, highlightAbnormal);
         } else if (binding.semanticField === "patient.chiefComplaint" && shape?.text && /keluhan utama|chief complaint/i.test(shape.text) && !/[:：]/.test(shape.text)) {
           result = appendShapeText(result, binding.shapeId, content, highlightAbnormal);
@@ -1613,10 +1723,15 @@ async function applyPatientEvidenceImages(
   patientIndex: number,
   bindings: TemplateBinding[],
 ): Promise<string> {
-  if (!isRadiologySlide(slide)) return xml;
+  const evidencePictureBindings = bindings.filter((binding) =>
+    binding.slideIndex === slide.index
+    && ["patient.investigations.imaging", "patient.investigations.laboratory"].includes(binding.semanticField)
+    && slide.shapes.some((shape) => shape.id === binding.shapeId && shape.kind === "picture"),
+  );
+  if (!isRadiologySlide(slide) && !evidencePictureBindings.length) return xml;
   const imageAttachments = (patient.attachments ?? []).filter((attachment) => attachment.kind === "image");
   const pictureSlotIds = new Set(bindings
-    .filter((binding) => binding.slideIndex === slide.index && binding.semanticField === "patient.investigations.imaging")
+    .filter((binding) => binding.slideIndex === slide.index && ["patient.investigations.imaging", "patient.investigations.laboratory"].includes(binding.semanticField))
     .map((binding) => binding.shapeId)
     .filter((shapeId) => slide.shapes.some((shape) => shape.id === shapeId && shape.kind === "picture")));
   const slots = slide.shapes
@@ -1636,7 +1751,8 @@ async function applyPatientEvidenceImages(
       if (!decoded) continue;
       const extension = imageFileExtension(attachment, decoded.mimeType);
       if (!extension) continue;
-      const assetName = `koasis-radiology-${patientIndex + 1}-${imageIndex + 1}.${extension}`;
+      const assetPrefix = isRadiologySlide(slide) ? "radiology" : "laboratory";
+      const assetName = `koasis-${assetPrefix}-${patientIndex + 1}-${imageIndex + 1}.${extension}`;
       const relationshipId = `rId${maxRelationshipNumber(relationships) + 1}`;
       relationships = addImageRelationship(relationships, relationshipId, `../media/${assetName}`);
       zip.file(`ppt/media/${assetName}`, decoded.bytes);
@@ -1660,13 +1776,15 @@ async function applyPatientEvidenceImages(
     if (!extension) continue;
     const bounds = fitImageToSlot(imageSlots[imageIndex], imageDimensions(decoded.bytes, decoded.mimeType));
     if (!bounds) continue;
-    const assetName = `koasis-radiology-${patientIndex + 1}-${imageIndex + 1}.${extension}`;
+    const assetPrefix = isRadiologySlide(slide) ? "radiology" : "laboratory";
+    const assetName = `koasis-${assetPrefix}-${patientIndex + 1}-${imageIndex + 1}.${extension}`;
     const relationshipId = `rId${maxRelationshipNumber(relationships) + 1}`;
     // Relationship targets are resolved from the slide part (ppt/slides),
     // matching the media links already present in the supplied templates.
     relationships = addImageRelationship(relationships, relationshipId, `../media/${assetName}`);
     zip.file(`ppt/media/${assetName}`, decoded.bytes);
-    result = appendEvidencePicture(result, relationshipId, bounds, `Koasis radiology evidence ${patientIndex + 1}-${imageIndex + 1}`);
+      const assetKind = isRadiologySlide(slide) ? "radiology" : "laboratory";
+      result = appendEvidencePicture(result, relationshipId, bounds, `Koasis ${assetKind} evidence ${patientIndex + 1}-${imageIndex + 1}`);
   }
   zip.file(relationshipPath, relationships);
   return result;

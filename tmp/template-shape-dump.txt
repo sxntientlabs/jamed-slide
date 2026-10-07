@@ -1,0 +1,321 @@
+
+### Laporan Jaga/Template Baru IGD HARKIT.pptx (21)
+
+SLIDE 1 | role=cover | repeat=false | title="Laporan Jaga Malam IGD RSABHK Senin, 5 Oktober 2026 Nama Mahasiswa Fasil"
+  [0] id=47 kind=text ph=- pos=-0.42,3.61,2.61,2.31 text=""
+  [1] id=48 kind=text ph=- pos=0.19,1.04,8.58,3.87 text="Laporan Jaga Malam IGD RSABHKSenin, 5 Oktober 2026Nama MahasiswaFasilitator Laporan Jaga:Nama FasilModule: Pediatric and Adolescent Health - Rotation 4 - 2026"
+  [2] id=49 kind=picture ph=- pos=7.44,4.30,2.24,0.94 text=""
+  [3] id=50 kind=text ph=- pos=0.24,5.17,6.93,0.04 text=""
+  [4] id=51 kind=picture ph=- pos=6.17,0.15,0.86,0.66 text=""
+  [5] id=52 kind=picture ph=- pos=7.12,0.10,2.72,0.75 text=""
+  BINDINGS: 48=>shift.facilitator
+
+SLIDE 2 | role=shift_summary | repeat=false | title="Identitas Pasien No Identitas Diagnosis Kerja Kegawatan 1. 2. 3. 4."
+  [0] id=53 kind=picture ph=- pos=7.86,0.46,1.80,0.75 text=""
+  [1] id=54 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [2] id=55 kind=text ph=- pos=0.30,0.49,6.69,0.63 text="Identitas Pasien"
+  [3] id=56 kind=graphicFrame ph=- pos=0.30,1.92,9.00,2.17 table=5x4 text="NoIdentitasDiagnosis KerjaKegawatan1.2.3.4."
+  [4] id=57 kind=picture ph=- pos=4.00,0.51,0.86,0.66 text=""
+  [5] id=58 kind=picture ph=- pos=5.00,0.46,2.72,0.75 text=""
+  BINDINGS: 56=>shift.patientSummaryTable
+
+SLIDE 3 | role=patient_identity | repeat=true | title="Identitas Pasien Nama : NRM : Tanggal Lahir : Jenis Kelamin : Usia : Ala"
+  [0] id=59 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=60 kind=text ph=- pos=0.30,0.49,6.69,1.20 text="Identitas Pasien"
+  [2] id=61 kind=picture ph=- pos=7.51,0.40,1.80,0.75 text=""
+  [3] id=62 kind=picture ph=- pos=3.65,0.45,0.86,0.66 text=""
+  [4] id=63 kind=picture ph=- pos=4.65,0.40,2.72,0.75 text=""
+  [5] id=64 kind=text ph=- pos=1.36,1.87,7.13,3.51 text=""
+  [6] id=65 kind=text ph=- pos=2.26,2.11,5.61,3.01 text="Nama\t\t\t: NRM\t\t\t: Tanggal Lahir\t\t: Jenis Kelamin\t\t: Usia\t\t\t: Alamat\t\t\t: Agama\t\t\t: Status Pernikahan\t:"
+  BINDINGS: 65=>patient.identityBlock
+
+SLIDE 4 | role=pediatric_assessment | repeat=true | title="PAT Assessment Appearance Tonus : Adekuat Interaction : Adekuat Consolab"
+  [0] id=66 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=67 kind=text ph=- pos=0.30,0.49,6.69,0.63 text="PAT Assessment"
+  [2] id=68 kind=text ph=- pos=0.19,1.64,4.75,4.76 text="AppearanceTonus\t\t\t: AdekuatInteraction\t: AdekuatConsolability  : AdekuatLook/Gaze\t: AdekuatSpeech/cry\t: Adekuat"
+  [3] id=69 kind=text ph=- pos=4.94,1.64,4.55,4.76 text="BreathingNapas cuping hidung (-)Suara napas tambahan stridor (-),  audible wheezing (-)Retraksi intercostal (-) Posisi abnormal (-)CirculationSianosis (-)Pucat (-)Kutis marmorata (-)"
+  [4] id=70 kind=text ph=- pos=0.30,4.37,4.26,0.77 text="KESAN: Stabil"
+  [5] id=71 kind=picture ph=- pos=7.80,0.46,1.80,0.75 text=""
+  [6] id=72 kind=picture ph=- pos=3.95,0.51,0.86,0.66 text=""
+  [7] id=73 kind=picture ph=- pos=4.94,0.46,2.72,0.75 text=""
+  BINDINGS: 69=>patient.pediatricAssessmentBlock | 70=>patient.assessment.summary
+
+SLIDE 5 | role=primary_survey | repeat=true | title="Primary Survey Airway: Clear Breathing RR: 26 x Napas cuping hidung (-) "
+  [0] id=74 kind=text ph=- pos=-0.42,3.61,2.61,2.31 text=""
+  [1] id=75 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [2] id=76 kind=text ph=- pos=0.30,0.56,6.69,1.10 text="Primary Survey"
+  [3] id=77 kind=text ph=- pos=0.19,1.70,4.14,3.64 text="Airway: ClearBreathing RR: 26 x Napas cuping hidung (-)Retraksi interkostal (-)Ronki (-/-), Wheezing (-/-)SpO2: 98% on RACirculationHR 128x/min Pola reguler Akral hangat, CRT < 2 detikNadi KuatTD 120/76 (p90)"
+  [4] id=78 kind=text ph=- pos=4.26,1.62,5.67,4.76 text="Disability: GCS 15 (E4V5M6), GDS 209 mg/dLExposure: Suhu 38,5"
+  [5] id=79 kind=text ph=- pos=4.83,4.42,4.00,0.68 text="Kesan: takipneu,takikardia, dan hiperglikemia"
+  [6] id=80 kind=picture ph=- pos=7.74,0.37,1.80,0.75 text=""
+  [7] id=81 kind=picture ph=- pos=3.89,0.42,0.86,0.66 text=""
+  [8] id=82 kind=picture ph=- pos=4.89,0.37,2.72,0.75 text=""
+  BINDINGS: 77=>patient.primarySurveyBlock | 79=>patient.assessment.summary
+
+SLIDE 6 | role=secondary_survey | repeat=true | title="Primary Survey Airway: Clear Breathing RR: Napas cuping hidung (-) Retra"
+  [0] id=83 kind=text ph=- pos=-0.42,3.61,2.61,2.31 text=""
+  [1] id=84 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [2] id=85 kind=text ph=- pos=0.30,0.56,6.69,1.10 text="Primary Survey"
+  [3] id=86 kind=text ph=- pos=0.19,1.70,4.14,3.64 text="Airway: ClearBreathing RR: Napas cuping hidung (-)Retraksi interkostal (-)Ronki (-/-), Wheezing (-/-)SpO2: 98% on RACirculationHR Pola reguler Akral hangat, CRT < 2 detikNadi KuatTD 120/76 (p90)"
+  [4] id=87 kind=text ph=- pos=4.26,1.62,5.67,4.76 text="Disability: GCS 15 (E4V5M6), GDS 209 mg/dLExposure: Suhu"
+  [5] id=88 kind=text ph=- pos=4.83,4.42,4.00,0.68 text="Kesan: takipneu,takikardia, dan hiperglikemia"
+  [6] id=89 kind=picture ph=- pos=7.74,0.37,1.80,0.75 text=""
+  [7] id=90 kind=picture ph=- pos=3.89,0.42,0.86,0.66 text=""
+  [8] id=91 kind=picture ph=- pos=4.89,0.37,2.72,0.75 text=""
+  BINDINGS: 86=>patient.secondarySurveyBlock
+
+SLIDE 7 | role=history | repeat=true | title="Pediatric Assesment Kesan: Cardiopulmonary failure Breathing: Retraksi: "
+  [0] id=92 kind=text ph=- pos=0.30,1.67,9.11,0.04 text=""
+  [1] id=93 kind=text ph=- pos=0.30,0.46,3.23,1.33 text="Pediatric Assesment"
+  [2] id=94 kind=picture ph=- pos=7.74,0.37,1.80,0.75 text=""
+  [3] id=95 kind=picture ph=- pos=3.89,0.42,0.86,0.66 text=""
+  [4] id=96 kind=picture ph=- pos=4.89,0.37,2.72,0.75 text=""
+  [5] id=97 kind=text ph=- pos=0.00,4.33,4.75,0.48 text="Kesan: Cardiopulmonary failure"
+  [6] id=98 kind=text ph=- pos=4.75,1.81,6.90,3.08 text="Breathing:Retraksi: (-)Nafas cuping hidung: (-)Suara nafas tambahan: (-)Pola napas: (-) Body ColourPallor: (-) Mottling: (-)Cyanosis: (-)"
+  [7] id=99 kind=text ph=- pos=0.30,1.81,4.45,2.77 text="BehaviourTonus: lemahInteractiveness: adekuatConsolability: adekuatLook/gaze: adekuatSpeech/cry:"
+  [8] id=100 kind=text ph=- pos=3.30,1.04,3.23,0.77 text="Triangle"
+  BINDINGS: 92=>patient.history.pastMedicalHistory
+
+SLIDE 8 | role=history | repeat=true | title="Secondary Survey Allergy: Tidak ada alergi Medication: NovoRapid 11–13–1"
+  [0] id=101 kind=text ph=- pos=-0.42,3.61,2.61,2.31 text=""
+  [1] id=102 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [2] id=103 kind=text ph=- pos=0.21,0.51,6.69,1.00 text="Secondary Survey"
+  [3] id=104 kind=text ph=- pos=0.19,1.62,8.80,4.76 text="Allergy: Tidak ada alergiMedication: NovoRapid 11–13–11 IU, Levemir 13 IUPast Medical History: Last Meal\t: Terakhir makan pukul 07.00, makan telurEvent Lead : Demam 8 jam SMRS"
+  [4] id=105 kind=picture ph=- pos=7.74,0.37,1.80,0.75 text=""
+  [5] id=106 kind=picture ph=- pos=3.89,0.42,0.86,0.66 text=""
+  [6] id=107 kind=picture ph=- pos=4.89,0.37,2.72,0.75 text=""
+  BINDINGS: 101=>patient.history.socioeconomicHistory | 102=>patient.history.immunizationHistory
+
+SLIDE 9 | role=anthropometry | repeat=true | title="Riwayat Penyakit Sekarang xxxx"
+  [0] id=108 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=109 kind=text ph=- pos=0.19,-0.01,5.47,1.40 text="Riwayat Penyakit Sekarang"
+  [2] id=110 kind=picture ph=- pos=8.29,0.40,1.31,0.55 text=""
+  [3] id=111 kind=picture ph=- pos=5.47,0.43,0.63,0.48 text=""
+  [4] id=112 kind=picture ph=- pos=6.20,0.40,1.99,0.55 text=""
+  [5] id=113 kind=text ph=- pos=0.19,1.55,9.11,4.76 text="xxxx"
+  BINDINGS: 113=>patient.anthropometryBlock
+
+SLIDE 10 | role=physical_exam | repeat=true | title="Riwayat Penyakit Sekarang xxxx"
+  [0] id=114 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=115 kind=text ph=- pos=0.25,0.36,5.47,0.62 text="Riwayat Penyakit Sekarang"
+  [2] id=116 kind=picture ph=- pos=8.29,0.40,1.31,0.55 text=""
+  [3] id=117 kind=picture ph=- pos=5.47,0.43,0.63,0.48 text=""
+  [4] id=118 kind=picture ph=- pos=6.20,0.40,1.99,0.55 text=""
+  [5] id=119 kind=text ph=- pos=0.19,1.51,9.11,4.76 text="xxxx"
+  BINDINGS: 115=>patient.physicalExamBlock
+
+SLIDE 11 | role=physical_exam | repeat=true | title="Riwayat Penyakit Dahulu Riwayat Penyakit Keluarga"
+  [0] id=120 kind=text ph=- pos=5.25,4.36,4.63,2.10 text=""
+  [1] id=121 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [2] id=122 kind=text ph=- pos=-0.31,1.77,5.67,4.76 text="Riwayat Penyakit Dahulu"
+  [3] id=123 kind=text ph=- pos=5.00,1.77,4.63,2.10 text="Riwayat Penyakit Keluarga"
+  [4] id=124 kind=picture ph=- pos=7.71,0.44,1.80,0.75 text=""
+  [5] id=125 kind=picture ph=- pos=3.86,0.48,0.86,0.66 text=""
+  [6] id=126 kind=picture ph=- pos=4.85,0.44,2.72,0.75 text=""
+  BINDINGS: 122=>patient.physicalExamBlock
+
+SLIDE 12 | role=diagnosis | repeat=true | title="Secondary Survey Riwayat Kehamilan dan Persalinan Riwayat Imunisasi"
+  [0] id=127 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=128 kind=text ph=- pos=0.34,0.44,5.47,1.20 text="Secondary Survey"
+  [2] id=129 kind=picture ph=- pos=7.71,0.40,1.80,0.75 text=""
+  [3] id=130 kind=picture ph=- pos=3.86,0.44,0.86,0.66 text=""
+  [4] id=131 kind=picture ph=- pos=4.85,0.40,2.72,0.75 text=""
+  [5] id=132 kind=text ph=- pos=0.25,1.73,4.37,4.53 text="Riwayat Kehamilan dan Persalinan"
+  [6] id=133 kind=text ph=- pos=4.92,1.73,4.37,4.76 text="Riwayat Imunisasi"
+  BINDINGS: 127=>patient.templateSection:initialDiagnosis | 128=>patient.templateSection:initialDiagnosis | 129=>patient.templateSection:initialDiagnosis | 130=>patient.templateSection:initialDiagnosis | 131=>patient.templateSection:initialDiagnosis | 132=>patient.templateSection:initialDiagnosis | 133=>patient.templateSection:initialDiagnosis
+
+SLIDE 13 | role=management | repeat=true | title="Nutrisi dan Tumbuh Kembang Riwayat Nutrisi Riwayat Tumbuh Kembang"
+  [0] id=134 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=135 kind=text ph=- pos=0.34,0.44,5.47,1.70 text="Nutrisi dan Tumbuh Kembang"
+  [2] id=136 kind=text ph=- pos=0.25,1.73,4.37,4.53 text="Riwayat Nutrisi"
+  [3] id=137 kind=text ph=- pos=4.92,1.73,4.37,4.76 text="Riwayat Tumbuh Kembang"
+  [4] id=138 kind=picture ph=- pos=8.61,0.29,1.15,0.48 text=""
+  [5] id=139 kind=picture ph=- pos=6.15,0.31,0.55,0.42 text=""
+  [6] id=140 kind=picture ph=- pos=6.79,0.29,1.74,0.48 text=""
+  BINDINGS: 134=>patient.templateSection:initialManagement | 135=>patient.templateSection:initialManagement | 136=>patient.templateSection:initialManagement | 137=>patient.templateSection:initialManagement | 138=>patient.templateSection:initialManagement | 139=>patient.templateSection:initialManagement | 140=>patient.templateSection:initialManagement
+
+SLIDE 14 | role=investigation | repeat=true | title="Antropometri BB: TB: BB/U: TB/U: BB/TB: Kesan:"
+  [0] id=141 kind=text ph=- pos=0.25,0.50,9.49,0.62 text="Antropometri"
+  [1] id=142 kind=text ph=- pos=0.31,1.30,2.46,0.75 text="BB: TB:"
+  [2] id=143 kind=text ph=- pos=0.31,2.47,5.26,1.54 text="BB/U: TB/U: BB/TB: Kesan:"
+  [3] id=144 kind=picture ph=- pos=5.39,0.11,4.17,5.41 text=""
+  BINDINGS: 141=>patient.templateSection:supportingInvestigations | 142=>patient.templateSection:supportingInvestigations | 143=>patient.templateSection:supportingInvestigations | 144=>patient.templateSection:supportingInvestigations
+
+SLIDE 15 | role=diagnosis | repeat=true | title="Pemeriksaan Fisik Keadaan Umum: Tampak sakit sedang Kesadaran: GCS E4V5M"
+  [0] id=145 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=146 kind=text ph=- pos=0.34,0.44,5.47,1.20 text="Pemeriksaan Fisik"
+  [2] id=147 kind=text ph=- pos=0.25,1.65,9.30,4.76 text="Keadaan Umum: Tampak sakit sedangKesadaran: GCS E4V5M6Suhu: 38,5  CTD : 120/76 mmHg (lengan kanan)Laju nadi:  128x/menit, irama reguler, isi kuatRR: 26x/menitSpO2: 98% on room air"
+  [3] id=148 kind=picture ph=- pos=7.88,0.49,1.31,0.55 text=""
+  [4] id=149 kind=picture ph=- pos=5.07,0.53,0.63,0.48 text=""
+  [5] id=150 kind=picture ph=- pos=5.79,0.49,1.99,0.55 text=""
+  BINDINGS: 145=>patient.templateSection:finalDiagnosis | 146=>patient.templateSection:finalDiagnosis | 147=>patient.templateSection:finalDiagnosis | 148=>patient.templateSection:finalDiagnosis | 149=>patient.templateSection:finalDiagnosis | 150=>patient.templateSection:finalDiagnosis
+
+SLIDE 16 | role=management | repeat=true | title="Status Generalis Kepala Normosefali, rambut tidak susah dicabut Mata Kon"
+  [0] id=151 kind=text ph=- pos=3.49,0.53,2.83,0.04 text=""
+  [1] id=152 kind=text ph=- pos=2.63,0.00,4.75,1.10 text="Status Generalis"
+  [2] id=153 kind=graphicFrame ph=- pos=0.43,0.70,8.94,4.80 table=10x2 text="KepalaNormosefali, rambut tidak susah dicabutMataKonjungtiva tidak pucat, tidak ada infeksi konjungtiva, tidak ada sklera ikterik, pupil bulat isokor 3mm/3 mm, refleks cahaya langsung positif bilateral dan refleks cahaya tidak langsung positif bilateral lambat, tidak ada mata cekungMulutLeherTidak ada pembesaran KGB, JVP tidak meningkat, tonsil T1-T1, kaku kuduk (-)DadaKembang "
+  BINDINGS: 151=>patient.templateSection:finalManagement | 152=>patient.templateSection:finalManagement | 153=>patient.templateSection:finalManagement
+
+SLIDE 17 | role=closing | repeat=true | title="Kesimpulan: Leukositosis Trombositosis Shift to the left → infeksi bakte"
+  [0] id=154 kind=text ph=- pos=7.67,2.26,2.05,1.22 text="Kesimpulan:LeukositosisTrombositosisShift to the left → infeksi bakteri"
+  [1] id=155 kind=graphicFrame ph=- pos=0.00,0.00,7.28,5.70 table=14x4 text="HEMATOLOGISatuanNilai rujukanHemoglobin15.1g/dL13.0 – 18.0Hematokrit44.5%40.0 – 54.0Jumlah Leukosit14.27 ↑10³/µL4.50 – 13.00Hitung JenisBasofil0.3%0.0 – 1.0Eosinofil0.0 ↓%1.0 – 6.0Neutrofil Batang0.0 ↓%2.0 – 6.0Neutrofil Segmen86.3 ↑%50.0 – 70.0Neutrofil Segmen Absolut12.32 ↑10³/µL1.80 – 8.00Limfosit8.3 ↓%20.0 – 40.0Limfosit Absolut1.18 ↓10³/µL1.20 – 5.20Monosit5.1%2.0 – 9.0Jum"
+  [2] id=156 kind=text ph=title pos=7.35,0.58,2.57,0.66 text="Pemeriksaan penunjang"
+  BINDINGS: 
+
+SLIDE 18 | role=diagnosis | repeat=true | title="Diagnosis kerja A"
+  [0] id=157 kind=text ph=- pos=0.19,1.46,9.11,0.04 text=""
+  [1] id=158 kind=text ph=- pos=0.34,0.44,5.47,1.20 text="Diagnosis kerja"
+  [2] id=159 kind=text ph=- pos=0.25,1.56,7.19,4.76 text="A"
+  [3] id=160 kind=picture ph=- pos=7.51,0.44,1.80,0.75 text=""
+  [4] id=161 kind=picture ph=- pos=3.65,0.48,0.86,0.66 text=""
+  [5] id=162 kind=picture ph=- pos=4.65,0.44,2.72,0.75 text=""
+  BINDINGS: 
+
+SLIDE 19 | role=management | repeat=true | title="Tata laksana xxxx"
+  [0] id=163 kind=text ph=- pos=0.34,0.44,5.47,1.03 text="Tata laksana"
+  [1] id=164 kind=text ph=- pos=0.50,1.68,8.16,3.64 text="xxxx"
+  [2] id=165 kind=picture ph=- pos=7.64,0.24,1.80,0.75 text=""
+  [3] id=166 kind=picture ph=- pos=3.79,0.28,0.86,0.66 text=""
+  [4] id=167 kind=picture ph=- pos=4.78,0.24,2.72,0.75 text=""
+  [5] id=168 kind=text ph=- pos=0.19,1.46,9.66,0.02 text=""
+  BINDINGS: 
+
+SLIDE 20 | role=unknown | repeat=true | title="Rencana Monitoring xxx"
+  [0] id=169 kind=text ph=- pos=0.26,0.28,3.61,1.00 text="Rencana Monitoring"
+  [1] id=170 kind=text ph=- pos=0.37,1.73,9.26,3.64 text="xxx"
+  [2] id=171 kind=picture ph=- pos=7.64,0.24,1.80,0.75 text=""
+  [3] id=172 kind=picture ph=- pos=3.79,0.28,0.86,0.66 text=""
+  [4] id=173 kind=picture ph=- pos=4.78,0.24,2.72,0.75 text=""
+  [5] id=174 kind=text ph=- pos=0.19,1.46,9.66,0.02 text=""
+  BINDINGS: 
+
+SLIDE 21 | role=closing | repeat=false | title="Terima Kasih Module: Pediatric and Adolescent Health - Rotation 4 - 2026"
+  [0] id=175 kind=text ph=- pos=-0.42,3.61,2.61,2.31 text=""
+  [1] id=176 kind=text ph=- pos=0.19,1.04,8.58,4.27 text="Terima KasihModule: Pediatric and Adolescent Health - Rotation 4 - 2026"
+  [2] id=177 kind=picture ph=- pos=7.44,4.30,2.24,0.94 text=""
+  [3] id=178 kind=text ph=- pos=0.19,4.89,6.93,0.04 text=""
+  [4] id=179 kind=picture ph=- pos=6.17,0.15,0.86,0.66 text=""
+  [5] id=180 kind=picture ph=- pos=7.12,0.10,2.72,0.75 text=""
+  BINDINGS: 
+
+### Laporan Jaga/Template Jaga Baru RSUI.pptx (21)
+
+SLIDE 1 | role=cover | repeat=false | title="Lap ora n Jaga Mah asis wa RSU I Koas Jaga: Nama Koas DPJP Jaga: dr. ..."
+  [0] id=17 kind=text ph=title pos=0.66,1.26,4.69,1.47 text="Laporan Jaga Mahasiswa RSUI"
+  [1] id=18 kind=text ph=- pos=0.72,3.50,8.00,0.76 text="Koas Jaga: Nama KoasDPJP Jaga: dr. ....Narasumber Laporan Jaga: ........"
+  [2] id=19 kind=text ph=- pos=0.72,2.73,7.55,0.76 text="Selasa, 6 Oktober 2026"
+  BINDINGS: 18=>shift.dpjp
+
+SLIDE 2 | role=patient_identity | repeat=true | title="Tota l Kas us Bar u No. Inisial, usia Diagnosis PAT Emergency 1 An. EA, "
+  [0] id=20 kind=text ph=title pos=0.69,0.34,4.69,0.59 text="Total Kasus Baru"
+  [1] id=21 kind=graphicFrame ph=- pos=0.22,1.23,9.59,4.61 table=4x5 text="No.Inisial, usiaDiagnosisPATEmergency1An. EA, 6thn 9blnFebris H5 e.c Influenza AAnemia mikrositik hipokromik e.c. susp. thalassemia mayorPerawakan normal, Gizi baikGangguan sirkulasiUrgent2By. A, 9blnAnemia gravis e.c. susp. Thalassemia mayor dd/ ADBBerat badan normal, perawakan sangat pendek, gizi lebihImunisasi tidak lengkapGangguan sirkulasiUrgent3An. IP, 3thn 9blnAnemia mik"
+  BINDINGS: 21=>patient.identityBlock
+
+SLIDE 3 | role=pediatric_assessment | repeat=true | title="Nama: An. EA Usia: 6 tahun 9 bulan Jenis kelamin: Perempuan Nomor RM: 00"
+  [0] id=22 kind=text ph=- pos=0.69,1.50,8.62,3.57 text="Nama: An. EAUsia: 6 tahun 9 bulanJenis kelamin: PerempuanNomor RM: 00399824Tempat tinggal: BSI 1 Pengasinan Sawangan Depok"
+  [1] id=23 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Identitas"
+  [2] id=24 kind=text ph=- pos=0.69,3.90,8.71,0.57 text="KELUHAN UTAMAPucat dan lemas sejak 4 hari SMRS"
+  BINDINGS: 22=>patient.pediatricAssessmentBlock | 24=>patient.pediatricAssessment.rightBlock
+
+SLIDE 4 | role=primary_survey | repeat=true | title="Tampilan Tonus (+) Respon (+) Interaktif (+) Kontak mata (+) Suara/Tangi"
+  [0] id=25 kind=text ph=- pos=0.69,1.50,4.25,3.57 text="TampilanTonus (+)Respon (+)Interaktif (+)Kontak mata (+)Suara/Tangisan(+)"
+  [1] id=26 kind=text ph=- pos=5.85,1.11,4.25,3.57 text="Upaya napasNapas cuping hidung (-)suara napas tambahan (-)Retraksi (-)posisi abnormal (-)SirkulasiSianosis (-)Pucat (+)kutis marmorata (-)"
+  [2] id=27 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Segitiga Asesmen Gawat Anak"
+  [3] id=28 kind=text ph=- pos=0.69,4.57,7.62,0.58 text="KESAN: Gangguan Sirkulasi"
+  [4] id=29 kind=picture ph=- pos=3.48,1.68,2.14,1.88 text=""
+  [5] id=30 kind=picture ph=- pos=3.26,1.62,2.57,1.88 text=""
+  BINDINGS: 26=>patient.primarySurveyBlock
+
+SLIDE 5 | role=management | repeat=true | title="Airway: clear Breathing: simetris, RR 22 kali/menit, SpO2 99% RA Circula"
+  [0] id=31 kind=text ph=- pos=0.64,1.32,8.57,3.57 text="Airway: clearBreathing: simetris, RR 22 kali/menit, SpO2 99% RACirculation: Klinis pucat, HR 112 kali/menit, TD 93/67 mmHg, CRT<2, Dissability: GCS E4M6V5Exposure: T 37,3 C"
+  [1] id=32 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Survei Primer"
+  BINDINGS: 31=>patient.templateSection:emergencyManagement
+
+SLIDE 6 | role=secondary_survey | repeat=true | title="Allergy: - Medication: Paracetamol Past Illness: Anemia berulang Last Me"
+  [0] id=33 kind=text ph=- pos=0.69,1.35,8.28,3.57 text="Allergy: -Medication: ParacetamolPast Illness: Anemia berulangLast Meal: makan biasa 5 jam SMRSEvent Lead: Demam 4 hari SMRS"
+  [1] id=34 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Survei Primer"
+  BINDINGS: 33=>patient.history.presentIllness
+
+SLIDE 7 | role=history | repeat=true | title="Pasien datang ke IGD dengan keluhan pucat dan lemas sejak 4 hari SMRS. K"
+  [0] id=35 kind=text ph=- pos=0.44,1.27,9.29,3.57 text="Pasien datang ke IGD dengan keluhan pucat dan lemas sejak 4 hari SMRS. Keluhan disertai demam 40,3C dengan batuk tanpa adanya mual maupun muntah. Pasien lebih banyak berbaring dan mengalami penurunan nafsu makan (hanya 4-5 sendok setiap makan) serta mulai mengigau sejak pertama kali keluhan muncul. Keluhan demam tidak disertai sesak napas, kejang, pilek, atau keluar cairan dari"
+  [1] id=36 kind=text ph=title pos=0.44,0.30,5.47,0.66 text="Riwayat Penyakit Sekarang"
+  BINDINGS: 35=>patient.history.presentIllness
+
+SLIDE 8 | role=history | repeat=true | title="Riwayat Penyakit Dahulu Pasien mengalami keluhan serupa dan memerlukan t"
+  [0] id=37 kind=text ph=- pos=0.69,1.26,4.96,3.57 text="Riwayat Penyakit DahuluPasien mengalami keluhan serupa dan memerlukan transfusi darah pada usia 2, 3, dan 5 tahun, memakai 2 kantong darah setiap transfusi.Satu bulan SMRS, pasien mulai mengalami batuk kering yang memberat saat malam hari dan membuat pasien terbangun pada malam hari selama 5 hari."
+  [1] id=38 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Survei Sekunder"
+  [2] id=39 kind=text ph=- pos=5.90,1.26,3.61,2.15 text="Riwayat Penyakit KeluargaTidak ada riwayat penyakit serupa di keluarga. Adik perempuan pasien berusia 3 tahun, dikatakan sehat.Tidak ada riwayat alergi atau sakit berat pada ayah dan ibu pasien."
+  BINDINGS: 
+
+SLIDE 9 | role=history | repeat=true | title="Kehamilan dan Persalinan Pasien anak pertama dari 2 bersaudara, lahir no"
+  [0] id=40 kind=text ph=- pos=0.69,1.50,4.25,3.57 text="Kehamilan dan PersalinanPasien anak pertama dari 2 bersaudara, lahir normal cukup bulan, berat dan panjang lahir tidak diketahui."
+  [1] id=41 kind=text ph=- pos=5.42,1.32,3.89,1.44 text="Riwayat imunisasiAyah tidak mengetahui pasti imunisasi pasien, dikatakan lengkap"
+  [2] id=42 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Survei Sekunder"
+  [3] id=43 kind=text ph=- pos=5.42,3.00,3.89,1.44 text="Riwayat sosialPasien saat ini menjalani pendidikan TK."
+  BINDINGS: 
+
+SLIDE 10 | role=anthropometry | repeat=true | title="Nutrisi Pasien makan 3x sehari dengan variasi daging ayam, sayur, dan ik"
+  [0] id=44 kind=text ph=- pos=0.69,1.50,4.25,3.57 text="NutrisiPasien makan 3x sehari dengan variasi daging ayam, sayur, dan ikan lele. Menjelang manifestasi gejala, pasien diberikan buah bit, suplemen zat besi, dan daging merah, namun tidak terdapat perbaikan gejala. Pasien diberikan ASI selama 2 tahun tanpa diganti susu formula. MPASI dimulai setelah 6 bulan."
+  [1] id=45 kind=text ph=- pos=5.19,1.50,4.25,3.57 text="Riwayat tumbuh kembangBB 19kg, TB 115cmTumbuh kembang sesuai usiaPasien dapat beraktivitas mandiri (makan, minum, membantu pekerjaan rumah) dan aktif bermain"
+  [2] id=46 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Survei Sekunder"
+  BINDINGS: 44=>patient.anthropometryBlock
+
+SLIDE 11 | role=physical_exam | repeat=true | title="BB/U: 86% (Normal / Gizi Baik) TB/U: Percentil 10-25 (Perawakan normal) "
+  [0] id=47 kind=text ph=- pos=0.69,1.50,4.25,3.57 text="BB/U: 86% (Normal / Gizi Baik)TB/U: Percentil 10-25 (Perawakan normal)BB/TB: 92,6% (Gizi Baik)RDA: 1.845 kkal"
+  [1] id=48 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Status Antropometri"
+  [2] id=49 kind=text ph=- pos=0.69,4.42,8.55,0.42 text="Kesimpulan: Perawakan normal, Gizi baik"
+  [3] id=50 kind=picture ph=- pos=4.94,0.67,2.61,3.64 text=""
+  BINDINGS: 47=>patient.physicalExamBlock
+
+SLIDE 12 | role=physical_exam | repeat=true | title="Keadaan Umum: Tampak sakit sedang Kesadaran: GCS15 E4M6V5 Laju nadi: 112"
+  [0] id=51 kind=text ph=- pos=0.69,1.50,4.25,3.57 text="Keadaan Umum: Tampak sakit sedangKesadaran: GCS15 E4M6V5Laju nadi: 112x/menit, reguler, teraba kuat, isi cukupTekanan darah: 93/67 mmHg"
+  [1] id=52 kind=text ph=- pos=5.06,1.50,4.25,3.57 text="Laju napas: 22x/menit, reguler, napas dalam, abdominotorakalSaturasi Oksigen: 99% on RASuhu: 37,3C"
+  [2] id=53 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Pemeriksaan Fisis"
+  BINDINGS: 51=>patient.physicalExamBlock
+
+SLIDE 13 | role=diagnosis | repeat=true | title="Organ Deskripsi Kepala Normocephali Wajah Tidak ada dismorfik, gerakan w"
+  [0] id=54 kind=graphicFrame ph=- pos=0.23,0.85,9.54,4.25 table=10x2 text="OrganDeskripsiKepalaNormocephaliWajahTidak ada dismorfik, gerakan wajah kesan simetris, tidak ada moon-face. Terdapat karakteristik facies Cooley (pangkal hidung rendah, wajah bagian tengah datar, filtrum halus)MataKonjungtiva anemis, sklera tidak ikterik, gerakan bola mata baik, palpebra tidak edema, pupil isokor, refleks cahaya langsung dan tidak langsung (++/++)MulutBibir da"
+  [1] id=55 kind=text ph=sldNum pos=0.11,3.90,0.28,0.22 text="12"
+  BINDINGS: 54=>patient.assessment.workingDiagnosis
+
+SLIDE 14 | role=investigation | repeat=true | title="Pemeriksaan penunjang Kesimpulan: Anemia Mikrositik Hipokromik Leukopeni"
+  [0] id=56 kind=text ph=title pos=0.69,0.30,5.47,0.66 text="Pemeriksaan penunjang"
+  [1] id=57 kind=text ph=- pos=5.00,0.90,3.14,1.01 text="Kesimpulan:Anemia Mikrositik HipokromikLeukopeniaPositif infeksi Influenza A"
+  [2] id=58 kind=picture ph=- pos=0.81,0.83,3.57,2.44 text=""
+  [3] id=59 kind=picture ph=- pos=4.72,2.38,4.52,2.40 text=""
+  BINDINGS: 57=>patient.investigations.summary
+
+SLIDE 15 | role=investigation | repeat=true | title="Diagnosis akhir Febris H5 e.c Influenza A Anemia mikrositik hipokromik e"
+  [0] id=60 kind=text ph=title pos=0.69,0.23,8.62,1.09 text="Diagnosis akhir"
+  [1] id=61 kind=text ph=- pos=0.69,1.38,8.62,3.57 text="Febris H5 e.c Influenza AAnemia mikrositik hipokromik e.c. susp. thalassemia mayorPerawakan normal, Gizi baik"
+  BINDINGS: 61=>patient.investigationsBlock
+
+SLIDE 16 | role=investigation | repeat=true | title="Tatalaksana Tata laksana IGD: Transfusi PRC bertahap Volume (mL) = dHb ("
+  [0] id=62 kind=text ph=title pos=0.69,0.30,8.62,1.09 text="Tatalaksana"
+  [1] id=63 kind=text ph=- pos=0.69,1.27,8.62,3.57 text="Tata laksana IGD:Transfusi PRC bertahapVolume (mL) = dHb (target 6 g/dL) x BB x 4 = (6g/dL–4.8g/dL) x 19 kg x 4 = 91,2 mLPrevensi Transfusion-Associated Circulatory Overload (TACO) = 10–15 mL/kg/dosis = 15 mL/kg x 19 kg = 285 mL mLJika sudah mencapai 6 g/dL, target diubah menjadi 12 g/dLVolume (mL) = dHb (target 12 g/dL) x BB x 4 = (12 g/dL–6g/dL) x 19 kg x 4 = 456 g/dLTransfus"
+  BINDINGS: 63=>patient.templateSection:otherExaminations
+
+SLIDE 17 | role=diagnosis | repeat=true | title="Tatalaksana Tata laksana IGD: Cairan rumatan KA-EN 1B 100 mL/kg/hari (10"
+  [0] id=64 kind=text ph=title pos=0.69,0.30,8.62,1.09 text="Tatalaksana"
+  [1] id=65 kind=text ph=- pos=0.69,1.27,8.62,3.57 text="Tata laksana IGD:Cairan rumatan KA-EN 1B100 mL/kg/hari (10 kg pertama) = 100 x 19 = 1.9 L/hari50 mL/kg/hari (9 kg) = 50 x 9 = 450 mL/hariTotal: 2.35L/hari = ~100mL/jam60 tetes/1 mL x 100 mL/jam = 6000 tetes/jam = 100 tpm"
+  BINDINGS: 65=>patient.templateSection:finalDiagnosis
+
+SLIDE 18 | role=management | repeat=true | title="Tatalaksana Antipiretik Paracetamol 10–15 mg/kgBB/kali = 190–285 mg per "
+  [0] id=66 kind=text ph=title pos=0.69,0.30,8.62,1.09 text="Tatalaksana"
+  [1] id=67 kind=text ph=- pos=0.69,1.27,8.62,3.57 text="AntipiretikParacetamol 10–15 mg/kgBB/kali = 190–285 mg per dosis, diulang setiap 6–8 jam. Sediaan sirup 120 mg/5 ml dapat diberikan sebanyak 1,5–2 sendok takar"
+  BINDINGS: 67=>patient.templateSection:finalManagement
+
+SLIDE 19 | role=closing | repeat=true | title="Tatalaksana Rencana diagnosis: Thalassemia Apusan darah tepi -> eritrosi"
+  [0] id=68 kind=text ph=title pos=0.69,0.30,8.62,1.09 text="Tatalaksana"
+  [1] id=69 kind=text ph=- pos=0.69,1.27,8.62,3.57 text="Rencana diagnosis:ThalassemiaApusan darah tepi -> eritrosit mikrositik hipokromik dengan poikilocytosis, sel target, dan basophilic stipplingHitung retikulosit -> normal atau meningkat sedikitUji hemolisis -> peningkatan LDH, hiperbilirubinemia tidak terkonjugasi, haptoglobin rendah. Studi besi -> ferritin, serum besi, TIBC -> eksklusi ADB -> ferritin meningkatElektroforesis he"
+  BINDINGS: 
+
+SLIDE 20 | role=management | repeat=true | title="Tatalaksana Rencana monitoring: Pantau reaksi transfusi Pantau status he"
+  [0] id=70 kind=text ph=title pos=0.69,0.30,8.62,1.09 text="Tatalaksana"
+  [1] id=71 kind=text ph=- pos=0.69,1.27,8.62,3.57 text="Rencana monitoring:Pantau reaksi transfusiPantau status hemodinamik"
+  BINDINGS: 71=>patient.managementBlock
+
+SLIDE 21 | role=closing | repeat=false | title="Terima kasih"
+  [0] id=72 kind=text ph=title pos=0.68,1.93,4.69,1.47 text="Terima kasih"
+  [1] id=73 kind=text ph=- pos=0.69,3.94,7.55,0.76 text=""
+  BINDINGS: 

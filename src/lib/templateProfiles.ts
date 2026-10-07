@@ -348,6 +348,56 @@ const IGD_GUIDES: TemplateSlideGuide[] = RSCM_GUIDES.map((slide) => slide.index 
   }
   : slide);
 
+// The current IGD HARKIT deck is a different 21-slide contract from the
+// legacy 17-slide deck. Keep both profiles available so saved/old uploads do
+// not silently receive the new mapping, while the built-in template uses the
+// current contract.
+const IGD_HARKIT_NEW_GROUPS: TemplateFieldGroup[] = [
+  ...IGD_GROUPS,
+  {
+    id: "igd-harkit-current",
+    label: "IGD HARKIT · field slide terbaru",
+    description: "Field tambahan untuk identitas, PAT, primary survey lanjutan, antropometri, dan rencana klinis pada deck 21 slide.",
+    fields: [
+      field("templateData.religion", "Agama"),
+      field("templateData.maritalStatus", "Status pernikahan"),
+      field("templateData.primarySurveyLeft", "Primary survey · Airway/Breathing/Circulation", { multiline: true }),
+      field("templateData.primarySurveyRight", "Primary survey · Disability/Exposure", { multiline: true }),
+      field("templateData.primarySurveyContinuationLeft", "Primary survey lanjutan · sisi kiri", { multiline: true }),
+      field("templateData.primarySurveyContinuationRight", "Primary survey lanjutan · sisi kanan", { multiline: true }),
+      field("templateData.anthropometryMeasurements", "Antropometri · BB/TB", { multiline: true }),
+      field("templateData.anthropometryAssessment", "Antropometri · BB/U, TB/U, BB/TB, kesan", { multiline: true }),
+      field("templateData.growthDevelopment", "Tumbuh kembang", { multiline: true }),
+      field("templateData.managementPart1", "Tata laksana", { multiline: true }),
+      field("templateData.monitoringPlan", "Rencana monitoring", { multiline: true }),
+    ],
+  },
+];
+
+const IGD_HARKIT_NEW_GUIDES: TemplateSlideGuide[] = [
+  guide(0, "Cover", "cover", ["shift.date", "shift.team", "shift.facilitator"], "Isi tanggal jaga, nama mahasiswa, dan fasilitator. Pertahankan judul unit serta module pada cover.", false),
+  guide(1, "Pasien baru", "shift_summary", ["shift.patientSummaryTable"], "Satu baris per seluruh pasien baru. Jika lebih banyak dari kapasitas tabel, buat slide lanjutan dengan ukuran dan keterbacaan yang sama.", false),
+  guide(2, "Identitas pasien", "patient_identity", ["patient.identityBlock"], "Isi nama/inisial, NRM, tanggal lahir, jenis kelamin, usia, alamat, agama, dan status pernikahan bila terdokumentasi."),
+  guide(3, "Pediatric Assessment Triangle", "pediatric_assessment", ["patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.assessment.summary"], "Pisahkan tampilan umum dari napas/sirkulasi dan pertahankan KESAN."),
+  guide(4, "Primary survey · bagian 1", "primary_survey", ["patient.templateSection:primarySurveyLeft", "patient.templateSection:primarySurveyRight", "patient.assessment.summary"], "Isi ABCDE sesuai kotak kiri/kanan; jangan menumpuk semua data ke satu kolom."),
+  guide(5, "Primary survey · bagian 2", "primary_survey", ["patient.templateSection:primarySurveyContinuationLeft", "patient.templateSection:primarySurveyContinuationRight", "patient.assessment.summary"], "Pertahankan slide lanjutan sesuai source; gunakan hanya fakta yang belum tertampung pada bagian sebelumnya."),
+  guide(6, "Pediatric Assessment Triangle · lanjutan", "pediatric_assessment", ["patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.assessment.summary"], "Isi checklist PAT sesuai posisi kotak pada template."),
+  guide(7, "Secondary survey / AMPLE", "secondary_survey", ["patient.secondarySurveyBlock"], "Pertahankan urutan Allergy, Medication, Past history, Last meal, dan Event."),
+  guide(8, "Riwayat penyakit sekarang", "anamnesis", ["patient.history.presentIllness"], "Tulis kronologi RPS dari source; jangan mengulang diagnosis sebagai kronologi."),
+  guide(9, "Riwayat penyakit sekarang · lanjutan", "anamnesis", ["patient.history.presentIllness"], "Lanjutkan RPS bila source/template memang memiliki dua panel terpisah."),
+  guide(10, "Riwayat penyakit dahulu & keluarga", "history", ["patient.history.pastMedicalHistory", "patient.history.familyHistory"], "Pertahankan heading dan isi setiap panel riwayat secara terpisah."),
+  guide(11, "Kehamilan/persalinan & imunisasi", "history", ["patient.templateSection:pregnancyBirth", "patient.history.immunizationHistory"], "Isi hanya data yang terdokumentasi; jangan membuat riwayat yang hilang."),
+  guide(12, "Nutrisi & tumbuh kembang", "history", ["patient.history.nutritionHistory", "patient.templateSection:growthDevelopment"], "Pisahkan riwayat nutrisi dari tumbuh kembang."),
+  guide(13, "Antropometri", "anthropometry", ["patient.templateSection:anthropometryMeasurements", "patient.templateSection:anthropometryAssessment"], "Isi ukuran terukur dan penilaian antropometri dari source. Chart CDC bawaan dipertahankan sebagai referensi template; jangan mengarang plot/z-score."),
+  guide(14, "Pemeriksaan fisis", "physical_exam", ["patient.physicalExamBlock"], "Pisahkan keadaan umum, kesadaran, tanda vital, dan temuan yang terdokumentasi."),
+  guide(15, "Status generalis / organ", "physical_exam", ["patient.physicalExam.organFindings"], "Isi tabel native per organ; pertahankan baris kosong jika tidak ada data."),
+  guide(16, "Pemeriksaan penunjang", "investigation", ["patient.investigations.laboratory", "patient.investigations.summary"], "Pertahankan tabel laboratorium dan ringkasan hasil; jangan membawa sample template."),
+  guide(17, "Diagnosis kerja", "diagnosis", ["patient.assessment.workingDiagnosis"], "Isi diagnosis kerja yang eksplisit dari source."),
+  guide(18, "Tata laksana", "management", ["patient.templateSection:managementPart1"], "Isi tata laksana yang terdokumentasi."),
+  guide(19, "Rencana monitoring", "management", ["patient.templateSection:monitoringPlan"], "Isi rencana monitoring yang terdokumentasi; jangan menyalin terapi ke rencana."),
+  guide(20, "Penutup", "closing", [], "Pertahankan slide penutup.", false),
+];
+
 const RSUI_GROUPS: TemplateFieldGroup[] = [
   {
     id: "rsui-identity",
@@ -424,6 +474,52 @@ const RSUI_GUIDES: TemplateSlideGuide[] = [
   guide(18, "Penutup", "closing", [], "Pertahankan slide penutup.", false),
 ];
 
+const RSUI_NEW_GROUPS: TemplateFieldGroup[] = [
+  ...RSUI_GROUPS,
+  {
+    id: "rsui-current",
+    label: "RSUI · field slide terbaru",
+    description: "Field tambahan untuk tabel pasien baru, cover, riwayat sosial, antropometri, penunjang, dan rencana tata laksana pada deck 21 slide.",
+    fields: [
+      field("identifiers.initials", "Inisial pasien", { required: true }),
+      field("urgency", "Kegawatan / emergency"),
+      field("templateData.pregnancyBirth", "Riwayat kehamilan & persalinan", { multiline: true }),
+      field("history.socioeconomicHistory", "Riwayat sosial", { multiline: true }),
+      field("templateData.anthropometryAssessment", "Penilaian antropometri", { multiline: true }),
+      field("templateData.nutritionConclusion", "Kesimpulan status gizi", { multiline: true }),
+      field("templateData.managementPart1", "Tatalaksana · bagian 1", { multiline: true }),
+      field("templateData.managementPart2", "Tatalaksana · bagian 2", { multiline: true }),
+      field("templateData.managementPart3", "Tatalaksana · bagian 3", { multiline: true }),
+      field("templateData.diagnosticPlan", "Rencana diagnosis", { multiline: true }),
+      field("templateData.monitoringPlan", "Rencana monitoring", { multiline: true }),
+    ],
+  },
+];
+
+const RSUI_NEW_GUIDES: TemplateSlideGuide[] = [
+  guide(0, "Cover", "cover", ["shift.date", "shift.team", "shift.dpjp", "shift.facilitator"], "Isi tanggal, koas jaga, DPJP jaga, dan narasumber laporan jaga pada cover.", false),
+  guide(1, "Pasien baru", "shift_summary", ["shift.patientSummaryTable"], "Satu baris per seluruh pasien baru; bila kapasitas penuh, buat slide tabel lanjutan yang tetap terbaca.", false),
+  guide(2, "Identitas pasien", "patient_identity", ["patient.identityBlock", "patient.chiefComplaint"], "Isi identitas dan keluhan utama pasien yang dipilih."),
+  guide(3, "Segitiga Asesmen Gawat Anak", "pediatric_assessment", ["patient.pediatricAssessment.leftBlock", "patient.pediatricAssessment.rightBlock", "patient.assessment.summary"], "Pertahankan checklist PAT, gambar referensi, dan KESAN."),
+  guide(4, "Survei primer", "primary_survey", ["patient.primarySurveyBlock"], "Isi ABCDE sesuai urutan pada source."),
+  guide(5, "Survei sekunder / AMPLE", "secondary_survey", ["patient.secondarySurveyBlock"], "Pertahankan Allergy, Medication, Past illness, Last meal, dan Event."),
+  guide(6, "Riwayat penyakit sekarang", "anamnesis", ["patient.history.presentIllness"], "Tulis kronologi RPS secara ringkas berdasarkan source."),
+  guide(7, "Riwayat dahulu & keluarga", "history", ["patient.history.pastMedicalHistory", "patient.history.familyHistory"], "Dua panel riwayat tetap terpisah."),
+  guide(8, "Kehamilan/persalinan, imunisasi & sosial", "history", ["patient.history.birthHistory", "patient.history.immunizationHistory", "patient.history.socioeconomicHistory"], "Isi tiga riwayat sesuai panel masing-masing."),
+  guide(9, "Nutrisi & tumbuh kembang", "history", ["patient.history.nutritionHistory", "patient.templateSection:growthDevelopment"], "Pisahkan riwayat nutrisi dan tumbuh kembang."),
+  guide(10, "Status antropometri", "anthropometry", ["patient.templateSection:anthropometryAssessment", "patient.templateSection:nutritionConclusion"], "Pertahankan chart CDC bawaan sebagai referensi, isi ukuran/penilaian hanya dari source, tanpa mengarang nilai turunan."),
+  guide(11, "Pemeriksaan fisis", "physical_exam", ["patient.physicalExam.generalAppearanceBlock", "patient.physicalExam.vitalSignsBlock"], "Pisahkan keadaan umum dari tanda vital sesuai dua kolom."),
+  guide(12, "Organ / deskripsi", "physical_exam", ["patient.physicalExam.organFindings"], "Isi tabel native organ/deskripsi dan pertahankan formatnya."),
+  guide(13, "Pemeriksaan penunjang", "investigation", ["patient.investigations.laboratory", "patient.investigations.summary"], "Tabel/gambar laboratorium adalah evidence pasien; hapus sample bila tidak ada evidence pasien."),
+  guide(14, "Diagnosis akhir", "diagnosis", ["patient.templateSection:finalDiagnosis"], "Isi diagnosis akhir yang terdokumentasi."),
+  guide(15, "Tatalaksana · bagian 1", "management", ["patient.templateSection:managementPart1"], "Isi bagian tata laksana pertama dari source."),
+  guide(16, "Tatalaksana · bagian 2", "management", ["patient.templateSection:managementPart2"], "Isi bagian tata laksana kedua dari source."),
+  guide(17, "Tatalaksana · bagian 3", "management", ["patient.templateSection:managementPart3"], "Isi bagian tata laksana ketiga dari source."),
+  guide(18, "Rencana diagnosis", "management", ["patient.templateSection:diagnosticPlan"], "Isi rencana diagnosis, bukan hasil diagnosis yang sudah pasti."),
+  guide(19, "Rencana monitoring", "management", ["patient.templateSection:monitoringPlan"], "Isi rencana monitoring yang terdokumentasi."),
+  guide(20, "Penutup", "closing", [], "Pertahankan slide penutup.", false),
+];
+
 export const LAPJAG_PROFILE: TemplateProfile = {
   id: "lapjag",
   label: "Contoh PPT Lapjag",
@@ -452,7 +548,7 @@ const perinaInstructions = (rsab = false, templateLabel = rsab ? "PERINA RSAB" :
 
 export const PERINA_LAPJAG_PROFILE: TemplateProfile = {
   id: "perina-lapjag",
-  label: "Perina RSCM",
+  label: "PERINA RSCM",
   description: "Profile khusus 15 slide perinatologi dengan identitas neonatus, resusitasi, S.T.A.B.L.E., chart preterm, dan tabel laboratorium.",
   extractionInstructions: perinaInstructions(false),
   fieldGroups: PERINA_GROUPS,
@@ -553,10 +649,10 @@ const buildIgdProfile = (id: "igd-harkit" | "igd-rsut", label: string): Template
   patientInputHint: "Inisial/jenis kelamin/usia, kegawatan, keluhan, PAT, ABCDE/AMPLE, RPS, riwayat, antropometri, pemeriksaan fisis/organ, penunjang, diagnosis awal/akhir, dan tata laksana.",
 });
 
-export const IGD_HARKIT_PROFILE = buildIgdProfile("igd-harkit", "IGD HARKIT");
+const IGD_HARKIT_LEGACY_PROFILE = buildIgdProfile("igd-harkit", "IGD HARKIT");
 export const IGD_RSUT_PROFILE = buildIgdProfile("igd-rsut", "IGD RSUT");
 
-export const RSUI_PROFILE: TemplateProfile = {
+const RSUI_LEGACY_PROFILE: TemplateProfile = {
   id: "rsui",
   label: "IGD RSUI",
   description: "Profile 19 slide RSUI: identitas, PAT, survei primer/sekunder, antropometri, pemeriksaan, penunjang lab/AGD, diagnosis, dan tatalaksana.",
@@ -571,6 +667,47 @@ export const RSUI_PROFILE: TemplateProfile = {
   shiftFields: [shiftField("presenter", "Nama penyaji", "Nama penyaji", true)],
   slideGuides: RSUI_GUIDES,
   patientInputHint: "Nama, usia, jenis kelamin, nomor RM, tempat tinggal, keluhan, PAT, survei primer/sekunder, riwayat, antropometri, pemeriksaan, lab/AGD, radiologi, diagnosis, dan tatalaksana.",
+};
+
+export const IGD_HARKIT_PROFILE: TemplateProfile = {
+  id: "igd-harkit",
+  label: "IGD HARKIT",
+  description: "Profile 21 slide IGD HARKIT terbaru: daftar seluruh pasien, satu kasus utama mendalam, PAT/primary/secondary survey, riwayat, antropometri, penunjang, diagnosis, dan monitoring.",
+  extractionInstructions: [
+    "Gunakan kontrak IGD HARKIT terbaru 21 slide. Slide 2 selalu memuat seluruh pasien baru; slide klinis berikutnya hanya memakai satu pasien utama yang dipilih untuk dibahas mendalam.",
+    "Pertahankan pemisahan identitas, PAT, dua bagian primary survey, secondary survey/AMPLE, RPS, riwayat, antropometri, pemeriksaan fisis, tabel status generalis, laboratorium, diagnosis kerja, tata laksana, dan rencana monitoring.",
+    "Isi agama, status pernikahan, penilaian antropometri, dan field custom hanya bila tertulis di source. Jangan menghitung z-score atau mengarang nilai antropometri.",
+    "Chart CDC bawaan template adalah referensi visual. Plot adaptif hanya boleh dilakukan bila usia, jenis kelamin, dan ukuran yang diperlukan tersedia secara eksplisit.",
+    "Sample text, sample patient, dan contoh edukatif tidak boleh masuk ke output pasien. Evidence gambar/tabel yang tidak tersedia harus dihapus atau ditandai tidak tercantum.",
+  ].join(" "),
+  fieldGroups: IGD_HARKIT_NEW_GROUPS,
+  shiftFields: [
+    shiftField("team", "Nama mahasiswa", "Nama mahasiswa", true),
+    shiftField("facilitator", "Fasilitator Laporan Jaga", "Nama fasilitator", true),
+  ],
+  slideGuides: IGD_HARKIT_NEW_GUIDES,
+  patientInputHint: "Daftar semua pasien baru, lalu pilih satu kasus utama. Isi identitas, PAT, primary/secondary survey, RPS, riwayat, antropometri, pemeriksaan, laboratorium, diagnosis, tata laksana, dan monitoring.",
+};
+
+export const RSUI_PROFILE: TemplateProfile = {
+  id: "rsui",
+  label: "IGD RSUI",
+  description: "Profile 21 slide IGD RSUI terbaru: tabel seluruh pasien, kasus utama, PAT/ABCDE/AMPLE, anamnesis, antropometri, pemeriksaan, penunjang, diagnosis, dan rencana tata laksana.",
+  extractionInstructions: [
+    "Gunakan kontrak IGD RSUI terbaru 21 slide. Slide 2 harus memuat seluruh pasien baru; slide identitas dan klinis berikutnya hanya memakai pasien utama yang dipilih.",
+    "Pertahankan pemisahan PAT, primary survey, AMPLE, RPS, riwayat dahulu/keluarga, kehamilan/imunisasi/sosial, nutrisi/tumbuh kembang, antropometri, pemeriksaan dua kolom, tabel organ, evidence laboratorium, diagnosis akhir, tiga bagian tata laksana, rencana diagnosis, dan monitoring.",
+    "Nilai BB/U, TB/U, BB/TB, kesimpulan gizi, dan diagnosis hanya diisi bila terdokumentasi. Jangan menghitung atau mengarang nilai klinis.",
+    "Gambar chart dan evidence bawaan template adalah struktur/referensi. Sample lab harus diganti dengan evidence pasien atau dihapus bila tidak tersedia.",
+    "Jaga pemisahan pasien: semua pasien hanya masuk tabel pembuka, sedangkan rangkaian slide detail hanya untuk satu pasien utama.",
+  ].join(" "),
+  fieldGroups: RSUI_NEW_GROUPS,
+  shiftFields: [
+    shiftField("team", "Koas jaga", "Nama koas", true),
+    shiftField("dpjp", "DPJP jaga", "Nama DPJP", true),
+    shiftField("facilitator", "Narasumber Laporan Jaga", "Nama narasumber", true),
+  ],
+  slideGuides: RSUI_NEW_GUIDES,
+  patientInputHint: "Daftar semua pasien baru, lalu pilih satu kasus utama. Isi identitas, PAT, ABCDE/AMPLE, RPS, riwayat, antropometri, pemeriksaan, penunjang, diagnosis, tata laksana, dan rencana monitoring.",
 };
 
 export const GENERIC_PROFILE: TemplateProfile = {
@@ -752,10 +889,10 @@ export function getTemplateProfile(template: TemplateProfileSource | null | unde
   if (template?.profileId === "perina-harkit") return PERINA_HARKIT_PROFILE;
   if (template?.profileId === "perina-rsut") return PERINA_RSUT_PROFILE;
   if (template?.profileId === "perina-rsab") return PERINA_RSAB_PROFILE;
-  if (template?.profileId === "igd-harkit") return IGD_HARKIT_PROFILE;
+  if (template?.profileId === "igd-harkit") return template?.slides?.length === 21 ? IGD_HARKIT_PROFILE : IGD_HARKIT_LEGACY_PROFILE;
   if (template?.profileId === "igd-rsut") return IGD_RSUT_PROFILE;
   if (template?.profileId === "rscm") return RSCM_PROFILE;
-  if (template?.profileId === "rsui") return RSUI_PROFILE;
+  if (template?.profileId === "rsui") return template?.slides?.length === 21 ? RSUI_PROFILE : RSUI_LEGACY_PROFILE;
   if (template?.templateAnalysis) return profileFromTemplateAnalysis(template.templateAnalysis);
   if (template?.profileId === "generic") return genericTemplateProfile(template);
   const identity = `${template?.name ?? ""} ${template?.fileName ?? ""}`.toLowerCase();
@@ -763,10 +900,10 @@ export function getTemplateProfile(template: TemplateProfileSource | null | unde
   if (/perina\s*harkit/.test(identity)) return PERINA_HARKIT_PROFILE;
   if (/perina\s*rsut/.test(identity)) return PERINA_RSUT_PROFILE;
   if (/perina\s*rsab/.test(identity)) return PERINA_RSAB_PROFILE;
-  if (/igd\s*harkit/.test(identity)) return IGD_HARKIT_PROFILE;
+  if (/igd\s*harkit/.test(identity)) return template?.slides?.length === 21 ? IGD_HARKIT_PROFILE : IGD_HARKIT_LEGACY_PROFILE;
   if (/igd\s*rsut/.test(identity)) return IGD_RSUT_PROFILE;
   if (/\brscm\b/.test(identity)) return RSCM_PROFILE;
-  if (/\brsui\b/.test(identity)) return RSUI_PROFILE;
+  if (/\brsui\b/.test(identity)) return template?.slides?.length === 21 ? RSUI_PROFILE : RSUI_LEGACY_PROFILE;
   if (/lapjag/.test(identity)) return LAPJAG_PROFILE;
   return template ? genericTemplateProfile(template) : GENERIC_PROFILE;
 }

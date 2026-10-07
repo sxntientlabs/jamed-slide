@@ -106,15 +106,14 @@ function estimateOverflow(shape: ReviewShapeSnapshot): boolean {
   return estimatedLines > availableLines * 1.8 && shape.text.length > 90;
 }
 
-function patientNames(patients: PatientRecord[]): string[] {
-  return patients
-    .map((patient) => patient.identifiers.name?.value || patient.identifiers.initials?.value || patient.displayName)
+function patientIdentityAliases(patient: PatientRecord): string[] {
+  return Array.from(new Set([patient.identifiers.name?.value, patient.identifiers.initials?.value, patient.displayName]
     .map((name) => String(name || "").trim())
-    .filter((name) => name.length >= 2);
+    .filter((name) => name.length >= 2)));
 }
 
 function summaryOutputSlides(parsed: { slides: Array<{ title: string; text: string; shapes: Array<{ tableRows?: string[][] }> }> }): Array<{ title: string; text: string; shapes: Array<{ tableRows?: string[][] }> }> {
-  return parsed.slides.filter((slide) => /(?:pasien baru|daftar pasien|ringkasan pasien|resume jaga)/i.test(`${slide.title} ${slide.text}`));
+  return parsed.slides.filter((slide) => /(?:pasien baru|daftar pasien|ringkasan pasien|resume jaga|identitas pasien|total kasus baru)/i.test(`${slide.title} ${slide.text}`));
 }
 
 function summaryOutputText(slides: Array<{ title: string; text: string; shapes: Array<{ tableRows?: string[][] }> }>): string {
@@ -189,17 +188,21 @@ export async function inspectGeneratedPresentation(
   }
   if (expectedSummarySlides > 0 && renderedSummarySlides.length > 0) {
     const summaryText = normalizedText(summaryOutputText(renderedSummarySlides));
-    patientNames(patients).forEach((name) => {
-      if (!summaryText.includes(normalizedText(name))) {
-        issues.push({ severity: "error", title: "Pasien tidak masuk tabel ringkasan", detail: `Nama/inisial “${name}” tidak ditemukan pada tabel pasien baru. Output ditahan agar daftar pasien tidak hilang.` });
+    patients.forEach((patient) => {
+      const aliases = patientIdentityAliases(patient);
+      if (!aliases.some((name) => summaryText.includes(normalizedText(name)))) {
+        const displayName = aliases[0] || patient.displayName;
+        issues.push({ severity: "error", title: "Pasien tidak masuk tabel ringkasan", detail: `Nama/inisial “${displayName}” tidak ditemukan pada tabel pasien baru. Output ditahan agar daftar pasien tidak hilang.` });
       }
     });
   }
 
   const allText = parsed.slides.flatMap((slide) => slide.shapes.map((shape) => shape.text)).join(" ");
-  patientNames(patients).forEach((name) => {
-    if (!allText.toLowerCase().includes(name.toLowerCase())) {
-      issues.push({ severity: "warning", title: "Identitas pasien tidak terlihat di output", detail: `Nama/inisial “${name}” tidak ditemukan pada teks output; periksa binding identitas.` });
+  patients.forEach((patient) => {
+    const aliases = patientIdentityAliases(patient);
+    if (!aliases.some((name) => allText.toLowerCase().includes(name.toLowerCase()))) {
+      const displayName = aliases[0] || patient.displayName;
+      issues.push({ severity: "warning", title: "Identitas pasien tidak terlihat di output", detail: `Nama/inisial “${displayName}” tidak ditemukan pada teks output; periksa binding identitas.` });
     }
   });
   const errors = issues.filter((issue) => issue.severity === "error");

@@ -1,0 +1,1912 @@
+{
+  "file": "Laporan Jaga/[TEMPLATE] IGD HARKIT.pptx",
+  "bytes": 283292,
+  "profileId": "igd-harkit",
+  "slideCount": 17,
+  "validation": {
+    "valid": true,
+    "score": 0.96,
+    "errors": [],
+    "warnings": [
+      "Slide 6 diulang per pasien tetapi belum memiliki binding fakta pasien yang jelas."
+    ]
+  },
+  "profile": {
+    "label": "IGD HARKIT",
+    "shiftFields": [
+      "team",
+      "facilitator",
+      "dpjp"
+    ],
+    "guideCount": 17
+  },
+  "slides": [
+    {
+      "index": 0,
+      "title": "LAPORAN JAGA IGD HARI, TANGGAL Tim mahasiswa jaga: ………. Fasilitator Lapo",
+      "role": "cover",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "speakerNotes": "<number>",
+      "shapes": 5,
+      "tables": [],
+      "text": "LAPORAN JAGA IGD HARI, TANGGAL Tim mahasiswa jaga: ………. Fasilitator Laporan Jaga: dr…….. DPJP Jaga: dr. …………",
+      "bindings": [
+        {
+          "shapeId": "128",
+          "field": "shift.coverBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "title": "PASIEN BARU: ……. PASIEN No. .Nama Diagnosis Kegawatan (True/False) 1. In",
+      "role": "shift_summary",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "all_patients",
+      "speakerNotes": "<number>",
+      "shapes": 2,
+      "tables": [
+        {
+          "id": "133",
+          "name": "Google Shape;150;p26",
+          "rows": 6,
+          "cols": 4,
+          "text": "No..NamaDiagnosis Kegawatan (True/False)1. Inisial/jenis kelamin/usia2.3.4.5."
+        }
+      ],
+      "text": "PASIEN BARU: ……. PASIEN No. .Nama Diagnosis Kegawatan (True/False) 1. Inisial/jenis kelamin/usia 2. 3. 4. 5.",
+      "bindings": [
+        {
+          "shapeId": "133",
+          "field": "shift.patientSummaryTable",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "title": "IDENTITAS Nama : Usia : Tanggal lahir : Jenis kelamin : NRM : Alamat : K",
+      "role": "patient_identity",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "IDENTITAS Nama : Usia : Tanggal lahir : Jenis kelamin : NRM : Alamat : Keluhan utama:",
+      "bindings": [
+        {
+          "shapeId": "135",
+          "field": "patient.identityBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "137",
+          "field": "patient.chiefComplaint",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "title": "PEDIATRIC ASSESSMENT TRIANGLE Behaviour Tonus : Interactiveness` : Conso",
+      "role": "pediatric_assessment",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "dibaca: baik/tidak saja, jika ada masalah dibacakan KESIMPULAN…. ada kegawatan/tidak <number>",
+      "shapes": 3,
+      "tables": [],
+      "text": "PEDIATRIC ASSESSMENT TRIANGLE Behaviour Tonus : Interactiveness` : Consolability : Look or gaze : Speech and cry : Breathing Body Colour Kesan: Tidak terdapat kegawatdaruratan/kegawatan respirasi/kegawatan sirkulasi/kegawatan neurologi",
+      "bindings": [
+        {
+          "shapeId": "139",
+          "field": "patient.pediatricAssessmentBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "140",
+          "field": "patient.assessment.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "title": "PRIMARY SURVEY Airway : Breathing : Circulation : Disability : Exposure ",
+      "role": "primary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "<number>",
+      "shapes": 3,
+      "tables": [],
+      "text": "PRIMARY SURVEY Airway : Breathing : Circulation : Disability : Exposure : Allergy : Medication history : Past illness : Last meal : Events leading to admission : Kesan: ………..",
+      "bindings": [
+        {
+          "shapeId": "142",
+          "field": "patient.primarySurveyBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "143",
+          "field": "patient.assessment.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "title": "SECONDARY SURVEY RIWAYAT PENYAKIT SEKARANG",
+      "role": "secondary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "tulispoin-poinpenting <number>",
+      "shapes": 1,
+      "tables": [],
+      "text": "SECONDARY SURVEY RIWAYAT PENYAKIT SEKARANG",
+      "bindings": []
+    },
+    {
+      "index": 6,
+      "title": "Riwayat penyakit dahulu . Riwayat penyakit keluarga . Riwayat Kehamilan ",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "<number>",
+      "shapes": 12,
+      "tables": [],
+      "text": "Riwayat penyakit dahulu . Riwayat penyakit keluarga . Riwayat Kehamilan & Kelahiran",
+      "bindings": [
+        {
+          "shapeId": "146",
+          "field": "patient.history.pastMedicalHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "151",
+          "field": "patient.history.familyHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "154",
+          "field": "patient.templateSection",
+          "key": "pregnancyBirth",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "155",
+          "field": "patient.templateSection",
+          "key": "pregnancyBirth",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "156",
+          "field": "patient.templateSection",
+          "key": "pregnancyBirth",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "title": ". Riwayat Imunisasi . Riwayat Nutrisi . Riwayat sosioekonomi",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "dibacakan kesannya saja <number>",
+      "shapes": 12,
+      "tables": [],
+      "text": ". Riwayat Imunisasi . Riwayat Nutrisi . Riwayat sosioekonomi",
+      "bindings": [
+        {
+          "shapeId": "160",
+          "field": "patient.history.immunizationHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "164",
+          "field": "patient.history.nutritionHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "168",
+          "field": "patient.history.socioeconomicHistory",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "title": "STATUS ANTROPOMETRI BB : kg TB : cm BB/U : TB/U : BB/TB : Height age: ta",
+      "role": "anthropometry",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "STATUS ANTROPOMETRI BB : kg TB : cm BB/U : TB/U : BB/TB : Height age: tahun RDA : kkal/hari Kesan : Gizi ……. perawakan ……..",
+      "bindings": [
+        {
+          "shapeId": "172",
+          "field": "patient.anthropometryBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "173",
+          "field": "patient.templateSection",
+          "key": "nutritionConclusion",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "title": "PEMERIKSAAN FISIS Keadaan Umum Kesadaran ……..(GCS ……..) Tanda Vital Teka",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 5,
+      "tables": [],
+      "text": "PEMERIKSAAN FISIS Keadaan Umum Kesadaran ……..(GCS ……..) Tanda Vital Tekanan darah: Laju nadi: Laju napas: Suhu: SpO2:",
+      "bindings": [
+        {
+          "shapeId": "176",
+          "field": "patient.physicalExam.generalAppearanceBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "178",
+          "field": "patient.physicalExam.vitalSignsBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "title": "Organ Deskripsi Kepala Mata Mulut Leher Dada Jantung Paru Abdomen Ekstre",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 1,
+      "tables": [
+        {
+          "id": "179",
+          "name": "Google Shape;237;p35",
+          "rows": 11,
+          "cols": 2,
+          "text": "OrganDeskripsiKepalaMataMulutLeherDadaJantungParuAbdomenEkstremitasKulit"
+        }
+      ],
+      "text": "Organ Deskripsi Kepala Mata Mulut Leher Dada Jantung Paru Abdomen Ekstremitas Kulit",
+      "bindings": [
+        {
+          "shapeId": "179",
+          "field": "patient.physicalExam.organFindings",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "title": "DIAGNOSIS AWAL …………………………………… . (ICD 10…..)",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "DIAGNOSIS AWAL …………………………………… . (ICD 10…..)",
+      "bindings": [
+        {
+          "shapeId": "181",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "title": "TATA LAKSANA AWAL",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "TATA LAKSANA AWAL",
+      "bindings": [
+        {
+          "shapeId": "183",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "title": "PEMERIKSAAN PENUNJANG (LABORATORIUM, RADIOLOGI)",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "PEMERIKSAAN PENUNJANG (LABORATORIUM, RADIOLOGI)",
+      "bindings": [
+        {
+          "shapeId": "185",
+          "field": "patient.templateSection",
+          "key": "supportingInvestigations",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "title": "DIAGNOSIS AKHIR ……………………………… .(ICD 10 …………)",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "DIAGNOSIS AKHIR ……………………………… .(ICD 10 …………)",
+      "bindings": [
+        {
+          "shapeId": "187",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "title": "TATA LAKSANA AKHIR",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "TATA LAKSANA AKHIR",
+      "bindings": [
+        {
+          "shapeId": "189",
+          "field": "patient.templateSection",
+          "key": "finalManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "title": "TERIMA KASIH",
+      "role": "closing",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 2,
+      "tables": [],
+      "text": "TERIMA KASIH",
+      "bindings": []
+    }
+  ]
+}
+{
+  "file": "Laporan Jaga/Template Baru IGD HARKIT.pptx",
+  "bytes": 1094998,
+  "profileId": "igd-harkit",
+  "slideCount": 21,
+  "validation": {
+    "valid": false,
+    "score": 0.04,
+    "errors": [
+      "Renderer belum memiliki jalur aman untuk patient.templateSection pada shape picture.",
+      "Ada binding yang tidak aman untuk dirender.",
+      "Slide 17 bertanda per pasien tetapi berperan sebagai slide statis.",
+      "Ada slide per pasien yang belum aman untuk diulang."
+    ],
+    "warnings": [
+      "Slide 18 diulang per pasien tetapi belum memiliki binding fakta pasien yang jelas.",
+      "Slide 20 diulang per pasien tetapi belum memiliki binding fakta pasien yang jelas."
+    ]
+  },
+  "profile": {
+    "label": "IGD HARKIT",
+    "shiftFields": [
+      "team",
+      "facilitator",
+      "dpjp"
+    ],
+    "guideCount": 17
+  },
+  "slides": [
+    {
+      "index": 0,
+      "title": "Laporan Jaga Malam IGD RSABHK Senin, 5 Oktober 2026 Nama Mahasiswa Fasil",
+      "role": "cover",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 6,
+      "tables": [],
+      "text": "Laporan Jaga Malam IGD RSABHK Senin, 5 Oktober 2026 Nama Mahasiswa Fasilitator Laporan Jaga: Nama Fasil Module: Pediatric and Adolescent Health - Rotation 4 - 2026",
+      "bindings": [
+        {
+          "shapeId": "48",
+          "field": "shift.facilitator",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "title": "Identitas Pasien No Identitas Diagnosis Kerja Kegawatan 1. 2. 3. 4.",
+      "role": "shift_summary",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "all_patients",
+      "shapes": 6,
+      "tables": [
+        {
+          "id": "56",
+          "name": "Google Shape;72;p2",
+          "rows": 5,
+          "cols": 4,
+          "text": "NoIdentitasDiagnosis KerjaKegawatan1.2.3.4."
+        }
+      ],
+      "text": "Identitas Pasien No Identitas Diagnosis Kerja Kegawatan 1. 2. 3. 4.",
+      "bindings": [
+        {
+          "shapeId": "56",
+          "field": "shift.patientSummaryTable",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "title": "Identitas Pasien Nama : NRM : Tanggal Lahir : Jenis Kelamin : Usia : Ala",
+      "role": "patient_identity",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 7,
+      "tables": [],
+      "text": "Identitas Pasien Nama : NRM : Tanggal Lahir : Jenis Kelamin : Usia : Alamat : Agama : Status Pernikahan :",
+      "bindings": [
+        {
+          "shapeId": "65",
+          "field": "patient.identityBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "title": "PAT Assessment Appearance Tonus : Adekuat Interaction : Adekuat Consolab",
+      "role": "pediatric_assessment",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 8,
+      "tables": [],
+      "text": "PAT Assessment Appearance Tonus : Adekuat Interaction : Adekuat Consolability : Adekuat Look/Gaze : Adekuat Speech/cry : Adekuat Breathing Napas cuping hidung (-) Suara napas tambahan stridor (-), audible wheezing (-) Retraksi intercostal (-) Posisi abnormal (-) Circulation Sianosis (-) Pucat (-) Kutis marmorata (-) KESAN: Stabil",
+      "bindings": [
+        {
+          "shapeId": "69",
+          "field": "patient.pediatricAssessmentBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "70",
+          "field": "patient.assessment.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "title": "Primary Survey Airway: Clear Breathing RR: 26 x Napas cuping hidung (-) ",
+      "role": "primary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Nafas cepat dan dalam → hati-hati karena bisa dikira akibat causa metabolik Cantumkan akral dingin/hangat → tidak terlalu akurat, tergantung suhu lingkungan Cantumkan diuresis → pemantauan balance cairan",
+      "shapes": 9,
+      "tables": [],
+      "text": "Primary Survey Airway: Clear Breathing RR: 26 x Napas cuping hidung (-) Retraksi interkostal (-) Ronki (-/-), Wheezing (-/-) SpO2: 98% on RA Circulation HR 128x/min Pola reguler Akral hangat, CRT < 2 detik Nadi Kuat TD 120/76 (p90) Disability: GCS 15 (E4V5M6), GDS 209 mg/dL Exposure: Suhu 38,5 Kesan: takipneu,takikardia, dan hiperglikemia",
+      "bindings": [
+        {
+          "shapeId": "77",
+          "field": "patient.primarySurveyBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "79",
+          "field": "patient.assessment.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "title": "Primary Survey Airway: Clear Breathing RR: Napas cuping hidung (-) Retra",
+      "role": "secondary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Nafas cepat dan dalam → hati-hati karena bisa dikira akibat causa metabolik Cantumkan akral dingin/hangat → tidak terlalu akurat, tergantung suhu lingkungan Cantumkan diuresis → pemantauan balance cairan",
+      "shapes": 9,
+      "tables": [],
+      "text": "Primary Survey Airway: Clear Breathing RR: Napas cuping hidung (-) Retraksi interkostal (-) Ronki (-/-), Wheezing (-/-) SpO2: 98% on RA Circulation HR Pola reguler Akral hangat, CRT < 2 detik Nadi Kuat TD 120/76 (p90) Disability: GCS 15 (E4V5M6), GDS 209 mg/dL Exposure: Suhu Kesan: takipneu,takikardia, dan hiperglikemia",
+      "bindings": [
+        {
+          "shapeId": "86",
+          "field": "patient.secondarySurveyBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "title": "Pediatric Assesment Kesan: Cardiopulmonary failure Breathing: Retraksi: ",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Nafas cepat dan dalam → hati-hati karena bisa dikira akibat causa metabolik Cantumkan akral dingin/hangat → tidak terlalu akurat, tergantung suhu lingkungan Cantumkan diuresis → pemantauan balance cairan",
+      "shapes": 9,
+      "tables": [],
+      "text": "Pediatric Assesment Kesan: Cardiopulmonary failure Breathing: Retraksi: (-) Nafas cuping hidung: (-) Suara nafas tambahan: (-) Pola napas: (-) Body Colour Pallor: (-) Mottling: (-) Cyanosis: (-) Behaviour Tonus: lemah Interactiveness: adekuat Consolability: adekuat Look/gaze: adekuat Speech/cry: Triangle",
+      "bindings": [
+        {
+          "shapeId": "92",
+          "field": "patient.history.pastMedicalHistory",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "title": "Secondary Survey Allergy: Tidak ada alergi Medication: NovoRapid 11–13–1",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Nafas cepat dan dalam → hati-hati karena bisa dikira akibat causa metabolik Cantumkan akral dingin/hangat → tidak terlalu akurat, tergantung suhu lingkungan Cantumkan diuresis → pemantauan balance cairan",
+      "shapes": 7,
+      "tables": [],
+      "text": "Secondary Survey Allergy: Tidak ada alergi Medication: NovoRapid 11–13–11 IU, Levemir 13 IU Past Medical History: Last Meal : Terakhir makan pukul 07.00, makan telur Event Lead : Demam 8 jam SMRS",
+      "bindings": [
+        {
+          "shapeId": "101",
+          "field": "patient.history.socioeconomicHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "102",
+          "field": "patient.history.immunizationHistory",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "title": "Riwayat Penyakit Sekarang xxxx",
+      "role": "anthropometry",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Faktor faktor yang mentrigger sesaknya harus digali TB jarang sesak, tapi hati-hati kalo misal waktu awal TBnya emg ga ketauan, bisa aja tiba tiba sesak karena efusi pleuranya sendiri",
+      "shapes": 6,
+      "tables": [],
+      "text": "Riwayat Penyakit Sekarang xxxx",
+      "bindings": [
+        {
+          "shapeId": "113",
+          "field": "patient.anthropometryBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "title": "Riwayat Penyakit Sekarang xxxx",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Faktor faktor yang mentrigger sesaknya harus digali TB jarang sesak, tapi hati-hati kalo misal waktu awal TBnya emg ga ketauan, bisa aja tiba tiba sesak karena efusi pleuranya sendiri",
+      "shapes": 6,
+      "tables": [],
+      "text": "Riwayat Penyakit Sekarang xxxx",
+      "bindings": [
+        {
+          "shapeId": "115",
+          "field": "patient.physicalExamBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "title": "Riwayat Penyakit Dahulu Riwayat Penyakit Keluarga",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Kliegman RM, St. Geme JW III, Blum NJ. Nelson textbook of pediatrics. 21st ed. Philadelphia: Elsevier; 2019. p. 772.",
+      "shapes": 7,
+      "tables": [],
+      "text": "Riwayat Penyakit Dahulu Riwayat Penyakit Keluarga",
+      "bindings": [
+        {
+          "shapeId": "122",
+          "field": "patient.physicalExamBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "title": "Secondary Survey Riwayat Kehamilan dan Persalinan Riwayat Imunisasi",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Kliegman RM, St. Geme JW III, Blum NJ. Nelson textbook of pediatrics. 21st ed. Philadelphia: Elsevier; 2019. p. 772.",
+      "shapes": 7,
+      "tables": [],
+      "text": "Secondary Survey Riwayat Kehamilan dan Persalinan Riwayat Imunisasi",
+      "bindings": [
+        {
+          "shapeId": "127",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "128",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "129",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "130",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "131",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "132",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "133",
+          "field": "patient.templateSection",
+          "key": "initialDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "title": "Nutrisi dan Tumbuh Kembang Riwayat Nutrisi Riwayat Tumbuh Kembang",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 7,
+      "tables": [],
+      "text": "Nutrisi dan Tumbuh Kembang Riwayat Nutrisi Riwayat Tumbuh Kembang",
+      "bindings": [
+        {
+          "shapeId": "134",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "135",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "136",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "137",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "138",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "139",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "140",
+          "field": "patient.templateSection",
+          "key": "initialManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "title": "Antropometri BB: TB: BB/U: TB/U: BB/TB: Kesan:",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "Antropometri BB: TB: BB/U: TB/U: BB/TB: Kesan:",
+      "bindings": [
+        {
+          "shapeId": "141",
+          "field": "patient.templateSection",
+          "key": "supportingInvestigations",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "142",
+          "field": "patient.templateSection",
+          "key": "supportingInvestigations",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "143",
+          "field": "patient.templateSection",
+          "key": "supportingInvestigations",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "144",
+          "field": "patient.templateSection",
+          "key": "supportingInvestigations",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "title": "Pemeriksaan Fisik Keadaan Umum: Tampak sakit sedang Kesadaran: GCS E4V5M",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 6,
+      "tables": [],
+      "text": "Pemeriksaan Fisik Keadaan Umum: Tampak sakit sedang Kesadaran: GCS E4V5M6 Suhu: 38,5 C TD : 120/76 mmHg (lengan kanan) Laju nadi: 128x/menit , irama reguler, isi kuat RR: 26x/menit SpO2: 98% on room air",
+      "bindings": [
+        {
+          "shapeId": "145",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "146",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "147",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "148",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "149",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "150",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "title": "Status Generalis Kepala Normosefali, rambut tidak susah dicabut Mata Kon",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Lakukan perkusi karena kadang dapet klu terkait efusi pleura",
+      "shapes": 3,
+      "tables": [
+        {
+          "id": "153",
+          "name": "Google Shape;225;p15",
+          "rows": 10,
+          "cols": 2,
+          "text": "KepalaNormosefali, rambut tidak susah dicabutMataKonjungtiva tidak pucat, tidak ada infeksi konjungtiva, tidak ada skler"
+        }
+      ],
+      "text": "Status Generalis Kepala Normosefali, rambut tidak susah dicabut Mata Konjungtiva tidak pucat, tidak ada infeksi konjungtiva, tidak ada sklera ikterik, pupil bulat isokor 3mm/3 mm, refleks cahaya langsung positif bilateral dan refleks cahaya tidak langsung positif bilateral lambat, tidak ada mata cekung Mulut Leher Tidak ada pembesaran KGB, JVP tidak meningkat, tonsil T1-T1, kaku kuduk (-) Dada Kembang dada simetris, retraksi intercostal (-) Jantung Bunyi jantung S1 dan S2 normal, tidak ada murmu",
+      "bindings": [
+        {
+          "shapeId": "151",
+          "field": "patient.templateSection",
+          "key": "finalManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "152",
+          "field": "patient.templateSection",
+          "key": "finalManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "153",
+          "field": "patient.templateSection",
+          "key": "finalManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "title": "Kesimpulan: Leukositosis Trombositosis Shift to the left → infeksi bakte",
+      "role": "closing",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Sepsis: Tanda tanda disfungsi organ, bisa multipel bisa ½ aja → ginjal (AKI), paru Mengancam kehidupan Disregulasi imun pada faktor infeksi → tanda-tanda kuman ada Anaknya demam Ada mulai gangguan hasil lab → CRP, leukosit, segmen → neutrofil shift to the left >70%",
+      "shapes": 3,
+      "tables": [
+        {
+          "id": "155",
+          "name": "Google Shape;231;p20",
+          "rows": 14,
+          "cols": 4,
+          "text": "HEMATOLOGISatuanNilai rujukanHemoglobin15.1g/dL13.0 – 18.0Hematokrit44.5%40.0 – 54.0Jumlah Leukosit14.27 ↑10³/µL4.50 – 1"
+        }
+      ],
+      "text": "Kesimpulan: Leukositosis Trombositosis Shift to the left → infeksi bakteri HEMATOLOGI Satuan Nilai rujukan Hemoglobin 15.1 g/dL 13.0 – 18.0 Hematokrit 44.5 % 40.0 – 54.0 Jumlah Leukosit 14.27 ↑ 10³/µL 4.50 – 13.00 Hitung Jenis Basofil 0.3 % 0.0 – 1.0 Eosinofil 0.0 ↓ % 1.0 – 6.0 Neutrofil Batang 0.0 ↓ % 2.0 – 6.0 Neutrofil Segmen 86.3 ↑ % 50.0 – 70.0 Neutrofil Segmen Absolut 12.32 ↑ 10³/µL 1.80 – 8.00 Limfosit 8.3 ↓ % 20.0 – 40.0 Limfosit Absolut 1.18 ↓ 10³/µL 1.20 – 5.20 Monosit 5.1 % 2.0 – 9.0 ",
+      "bindings": []
+    },
+    {
+      "index": 17,
+      "title": "Diagnosis kerja A",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Cardiogenik: tanda gagal jantung (forward/backward) Backward: cairan masuk kembali ke vena kava masuk ke jaringan jaringan jadi bengkak Septic syok: kegagalan organ, mengancam nyawa, disfungsi imun Disregulasi imun: CRP naik, leukopsit tinggi Komponen laktat: kalo meningkat, sepsis",
+      "shapes": 6,
+      "tables": [],
+      "text": "Diagnosis kerja A",
+      "bindings": []
+    },
+    {
+      "index": 18,
+      "title": "Tata laksana xxxx",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Nutrisi, edukasi, monitoring Tulis rencana pemeriksaan → curiga permasalahan di ginjal, misal tatalaksananya apa.. Pake HD Monitoring → terkait pasien ini awalnya kan dikasi oksigen Pantau usaha napas Saturasi oksigen → tentukan target saturasi Target transfusi pada penyakit kronik tidak tinggi → 8.5 - 9",
+      "shapes": 6,
+      "tables": [],
+      "text": "Tata laksana xxxx",
+      "bindings": []
+    },
+    {
+      "index": 19,
+      "title": "Rencana Monitoring xxx",
+      "role": "unknown",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "speakerNotes": "Nutrisi, edukasi, monitoring Tulis rencana pemeriksaan → curiga permasalahan di ginjal, misal tatalaksananya apa.. Pake HD Monitoring → terkait pasien ini awalnya kan dikasi oksigen Pantau usaha napas Saturasi oksigen → tentukan target saturasi Target transfusi pada penyakit kronik tidak tinggi → 8.5 - 9",
+      "shapes": 6,
+      "tables": [],
+      "text": "Rencana Monitoring xxx",
+      "bindings": []
+    },
+    {
+      "index": 20,
+      "title": "Terima Kasih Module: Pediatric and Adolescent Health - Rotation 4 - 2026",
+      "role": "closing",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 6,
+      "tables": [],
+      "text": "Terima Kasih Module: Pediatric and Adolescent Health - Rotation 4 - 2026",
+      "bindings": []
+    }
+  ]
+}
+{
+  "file": "Laporan Jaga/[TEMPLATE] RSUI.pptx",
+  "bytes": 132155,
+  "profileId": "rsui",
+  "slideCount": 19,
+  "validation": {
+    "valid": true,
+    "score": 1,
+    "errors": [],
+    "warnings": []
+  },
+  "profile": {
+    "label": "IGD RSUI",
+    "shiftFields": [
+      "presenter"
+    ],
+    "guideCount": 19
+  },
+  "slides": [
+    {
+      "index": 0,
+      "title": "Lap oran Jaga Mahasiswa RSUI Nama penyaji dan tgl",
+      "role": "cover",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 2,
+      "tables": [],
+      "text": "Lap oran Jaga Mahasiswa RSUI Nama penyaji dan tgl",
+      "bindings": [
+        {
+          "shapeId": "80",
+          "field": "shift.presenter",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "title": "Nama: Usia: Jenis kelamin: Nomor RM: Tempat tinggal: Foto pasien dengan ",
+      "role": "patient_identity",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "Nama: Usia: Jenis kelamin: Nomor RM: Tempat tinggal: Foto pasien dengan mata ditutup untuk menyamarkan idenditas dan tidak untuk disebarkan di luar forum jaga kecuali sdh dimintakan ijin tertulis Identitas KELUHAN UTAMA",
+      "bindings": [
+        {
+          "shapeId": "86",
+          "field": "patient.identityBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "88",
+          "field": "patient.chiefComplaint",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "title": "Tampilan Tonus Interaksi Kenyamanan Kontak mata Suara/Tangisan Upaya nap",
+      "role": "pediatric_assessment",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "Tampilan Tonus Interaksi Kenyamanan Kontak mata Suara/Tangisan Upaya napas Napas cuping hidung suara napas tambahan r etraksi posisi abnormal Sirkulasi Sianosis p ucat kutis marmorata Segitiga Asesmen Gawat Anak KESAN:",
+      "bindings": [
+        {
+          "shapeId": "94",
+          "field": "patient.pediatricAssessment.leftBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "96",
+          "field": "patient.assessment.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "title": "Airway Breathing Circulation Disability Exposure Allergy Medication Past",
+      "role": "primary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "Airway Breathing Circulation Disability Exposure Allergy Medication Past Medical History Last Meal Event Lead Survei Primer KESIMPULAN",
+      "bindings": [
+        {
+          "shapeId": "102",
+          "field": "patient.primarySurveyBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "104",
+          "field": "patient.assessment.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "title": "Tatalaksana kegawatdaruratan",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Tatalaksana kegawatdaruratan",
+      "bindings": [
+        {
+          "shapeId": "109",
+          "field": "patient.templateSection",
+          "key": "emergencyManagement",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "110",
+          "field": "patient.templateSection",
+          "key": "emergencyManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "title": "Riwayat Penyakit Sekarang Survei Sekunder",
+      "role": "secondary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Riwayat Penyakit Sekarang Survei Sekunder",
+      "bindings": [
+        {
+          "shapeId": "116",
+          "field": "patient.history.presentIllness",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "title": "Riwayat Penyakit Dahulu Riwayat Penyakit Keluarga Survei Sekunder",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Riwayat Penyakit Dahulu Riwayat Penyakit Keluarga Survei Sekunder",
+      "bindings": [
+        {
+          "shapeId": "123",
+          "field": "patient.history.pastMedicalHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "124",
+          "field": "patient.history.familyHistory",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "title": "Kehamilan dan Persalinan Riwayat imunisasi Survei Sekunder",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Kehamilan dan Persalinan Riwayat imunisasi Survei Sekunder",
+      "bindings": [
+        {
+          "shapeId": "130",
+          "field": "patient.templateSection",
+          "key": "pregnancyBirth",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "131",
+          "field": "patient.history.immunizationHistory",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "title": "Nutrisi Riwayat tumbuh kembang Survei Sekunder",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Nutrisi Riwayat tumbuh kembang Survei Sekunder",
+      "bindings": [
+        {
+          "shapeId": "137",
+          "field": "patient.history.nutritionHistory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "138",
+          "field": "patient.templateSection",
+          "key": "growthDevelopment",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "title": "BB TB Lingkar kepala LiLA BB/U TB/U BB/TB Status Antropometri Kesimpulan",
+      "role": "anthropometry",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "BB TB Lingkar kepala LiLA BB/U TB/U BB/TB Status Antropometri Kesimpulan",
+      "bindings": [
+        {
+          "shapeId": "144",
+          "field": "patient.anthropometryBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "147",
+          "field": "patient.templateSection",
+          "key": "nutritionConclusion",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "title": "Keadaan Umum Kesadaran Laju nadi Tekanan darah Laju napas Saturasi Oksig",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Keadaan Umum Kesadaran Laju nadi Tekanan darah Laju napas Saturasi Oksigen Suhu Pemeriksaan Fisis",
+      "bindings": [
+        {
+          "shapeId": "152",
+          "field": "patient.physicalExamBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "title": "Organ Deskripsi Kepala Mata THT Leher Dada Jantung Paru Abdomen Genitali",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [
+        {
+          "id": "159",
+          "name": "Google Shape;159;p29",
+          "rows": 11,
+          "cols": 2,
+          "text": "OrganDeskripsiKepalaMataTHTLeherDadaJantungParuAbdomenGenitaliaEkstremitas"
+        }
+      ],
+      "text": "Organ Deskripsi Kepala Mata THT Leher Dada Jantung Paru Abdomen Genitalia Ekstremitas ‹#›",
+      "bindings": [
+        {
+          "shapeId": "159",
+          "field": "patient.physicalExam.organFindings",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "title": "Diagnosis kerja",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Diagnosis kerja",
+      "bindings": [
+        {
+          "shapeId": "166",
+          "field": "patient.assessment.workingDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "title": "Pemeriksaan penunjang Tanggal Satuan Nilai normal Hemoglobin g/dL Hemato",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [
+        {
+          "id": "172",
+          "name": "Google Shape;172;p31",
+          "rows": 11,
+          "cols": 4,
+          "text": "TanggalSatuanNilai normalHemoglobing/dLHematokrit%Leukosit/uLTrombosit/uLHitung jenis%SGOT/SGPTg/dLUr/Crg/dLLFGNa/K/ClmE"
+        },
+        {
+          "id": "173",
+          "name": "Google Shape;173;p31",
+          "rows": 7,
+          "cols": 4,
+          "text": "AGDSatuanNilai normalpHPCO2PO2SaO2%BEHCO3"
+        }
+      ],
+      "text": "Pemeriksaan penunjang Tanggal Satuan Nilai normal Hemoglobin g/dL Hematokrit % Leukosit /uL Trombosit /uL Hitung jenis % SGOT/SGPT g/dL Ur/Cr g/dL LFG Na/K/Cl mEq/L GDS g/dL AGD Satuan Nilai normal pH PCO2 PO2 SaO2 % BE HCO3 Kesimpulan",
+      "bindings": [
+        {
+          "shapeId": "172",
+          "field": "patient.investigations.laboratory",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "173",
+          "field": "patient.templateSection",
+          "key": "bloodGasTable",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "174",
+          "field": "patient.investigations.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "title": "Radiologi Interpretasi Pemeriksaan Penunjang",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Radiologi Interpretasi Pemeriksaan Penunjang",
+      "bindings": [
+        {
+          "shapeId": "179",
+          "field": "patient.templateSection",
+          "key": "radiology",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "180",
+          "field": "patient.templateSection",
+          "key": "radiologyInterpretation",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "title": "Pemeriksaan lain Pemeriksaan penunjang",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Pemeriksaan lain Pemeriksaan penunjang",
+      "bindings": [
+        {
+          "shapeId": "186",
+          "field": "patient.templateSection",
+          "key": "otherExaminations",
+          "confidence": 0.91
+        },
+        {
+          "shapeId": "187",
+          "field": "patient.templateSection",
+          "key": "otherExaminations",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "title": "Diagnosis akhir",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Diagnosis akhir",
+      "bindings": [
+        {
+          "shapeId": "194",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "title": "Tatalaksana",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Tatalaksana",
+      "bindings": [
+        {
+          "shapeId": "200",
+          "field": "patient.templateSection",
+          "key": "finalManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "title": "Terima kasih",
+      "role": "closing",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 2,
+      "tables": [],
+      "text": "Terima kasih",
+      "bindings": []
+    }
+  ]
+}
+{
+  "file": "Laporan Jaga/Template Jaga Baru RSUI.pptx",
+  "bytes": 756935,
+  "profileId": "rsui",
+  "slideCount": 21,
+  "validation": {
+    "valid": false,
+    "score": 0.04,
+    "errors": [
+      "Renderer belum memiliki jalur aman untuk patient.assessment.workingDiagnosis pada shape graphicFrame.",
+      "Ada binding yang tidak aman untuk dirender.",
+      "Slide 19 bertanda per pasien tetapi berperan sebagai slide statis.",
+      "Ada slide per pasien yang belum aman untuk diulang."
+    ],
+    "warnings": [
+      "Slide 8 diulang per pasien tetapi belum memiliki binding fakta pasien yang jelas.",
+      "Slide 9 diulang per pasien tetapi belum memiliki binding fakta pasien yang jelas."
+    ]
+  },
+  "profile": {
+    "label": "IGD RSUI",
+    "shiftFields": [
+      "presenter"
+    ],
+    "guideCount": 19
+  },
+  "slides": [
+    {
+      "index": 0,
+      "title": "Lap ora n Jaga Mah asis wa RSU I Koas Jaga: Nama Koas DPJP Jaga: dr. ...",
+      "role": "cover",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 3,
+      "tables": [],
+      "text": "Lap ora n Jaga Mah asis wa RSU I Koas Jaga: Nama Koas DPJP Jaga: dr. .... Narasumber Laporan Jaga: ........ Selasa, 6 Oktober 2026",
+      "bindings": [
+        {
+          "shapeId": "18",
+          "field": "shift.dpjp",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "title": "Tota l Kas us Bar u No. Inisial, usia Diagnosis PAT Emergency 1 An. EA, ",
+      "role": "patient_identity",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [
+        {
+          "id": "21",
+          "name": "Google Shape;42;h317392bae216dc08_0_4",
+          "rows": 4,
+          "cols": 5,
+          "text": "No.Inisial, usiaDiagnosisPATEmergency1An. EA, 6thn 9blnFebris H5 e.c Influenza AAnemia mikrositik hipokromik e.c. susp. "
+        }
+      ],
+      "text": "Tota l Kas us Bar u No. Inisial, usia Diagnosis PAT Emergency 1 An. EA, 6thn 9bln Febris H5 e.c Influenza A Anemia mikrositik hipokromik e.c. susp. thalassemia mayor Perawakan normal, Gizi baik Gangguan sirkulasi Urgent 2 By. A, 9bln Anemia gravis e.c. susp. Thalassemia mayor dd/ ADB Berat badan normal, perawakan sangat pendek, gizi lebih Imunisasi tidak lengkap Gangguan sirkulasi Urgent 3 An. IP, 3thn 9bln Anemia mikrositik hipokromik e.c. susp. ADB Febris H6 e.c. influenza A Stabil False",
+      "bindings": [
+        {
+          "shapeId": "21",
+          "field": "patient.identityBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "title": "Nama: An. EA Usia: 6 tahun 9 bulan Jenis kelamin: Perempuan Nomor RM: 00",
+      "role": "pediatric_assessment",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Nama: An. EA Usia: 6 tahun 9 bulan Jenis kelamin: Perempuan Nomor RM: 00399824 Tempat tinggal: BSI 1 Pengasinan Sawangan Depok Iden titas KELUHAN UTAMA Pucat dan lemas sejak 4 hari SMRS",
+      "bindings": [
+        {
+          "shapeId": "22",
+          "field": "patient.pediatricAssessmentBlock",
+          "confidence": 0.96
+        },
+        {
+          "shapeId": "24",
+          "field": "patient.pediatricAssessment.rightBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "title": "Tampilan Tonus (+) Respon (+) Interaktif (+) Kontak mata (+) Suara/Tangi",
+      "role": "primary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 6,
+      "tables": [],
+      "text": "Tampilan Tonus (+) Respon (+) Interaktif (+) Kontak mata (+) Suara/Tangisan(+) Upaya napas Napas cuping hidung (-) suara napas tambahan (-) Retraksi (-) posisi abnormal (-) Sirkulasi Sianosis (-) Pucat (+) kutis marmorata (-) Segit iga Ases men Gaw at Ana k KESAN: Gangguan Sirkulasi",
+      "bindings": [
+        {
+          "shapeId": "26",
+          "field": "patient.primarySurveyBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "title": "Airway: clear Breathing: simetris, RR 22 kali/menit, SpO2 99% RA Circula",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Airway: clear Breathing: simetris, RR 22 kali/menit, SpO2 99% RA Circulation: Klinis pucat, HR 112 kali/menit, TD 93/67 mmHg, CRT<2, Dissability: GCS E4M6V5 Exposure: T 37,3 C Surv ei Prim er",
+      "bindings": [
+        {
+          "shapeId": "31",
+          "field": "patient.templateSection",
+          "key": "emergencyManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "title": "Allergy: - Medication: Paracetamol Past Illness: Anemia berulang Last Me",
+      "role": "secondary_survey",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Allergy: - Medication: Paracetamol Past Illness: Anemia berulang Last Meal: makan biasa 5 jam SMRS Event Lead: Demam 4 hari SMRS Surv ei Prim er",
+      "bindings": [
+        {
+          "shapeId": "33",
+          "field": "patient.history.presentIllness",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "title": "Pasien datang ke IGD dengan keluhan pucat dan lemas sejak 4 hari SMRS. K",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Pasien datang ke IGD dengan keluhan pucat dan lemas sejak 4 hari SMRS. Keluhan disertai demam 40,3C dengan batuk tanpa adanya mual maupun muntah. Pasien lebih banyak berbaring dan mengalami penurunan nafsu makan (hanya 4-5 sendok setiap makan) serta mulai mengigau sejak pertama kali keluhan muncul. Keluhan demam tidak disertai sesak napas, kejang, pilek, atau keluar cairan dari telinga. Pasien sudah dibawa ke klinik tugu pada hari jumat dan mendapat supositoria, namun keluhan tidak membaik. Pasi",
+      "bindings": [
+        {
+          "shapeId": "35",
+          "field": "patient.history.presentIllness",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "title": "Riwayat Penyakit Dahulu Pasien mengalami keluhan serupa dan memerlukan t",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Riwayat Penyakit Dahulu Pasien mengalami keluhan serupa dan memerlukan transfusi darah pada usia 2, 3, dan 5 tahun, memakai 2 kantong darah setiap transfusi. Satu bulan SMRS, pasien mulai mengalami batuk kering yang memberat saat malam hari dan membuat pasien terbangun pada malam hari selama 5 hari. Surv ei Seku nder Riwayat Penyakit Keluarga Tidak ada riwayat penyakit serupa di keluarga. Adik perempuan pasien berusia 3 tahun, dikatakan sehat. Tidak ada riwayat alergi atau sakit berat pada ayah ",
+      "bindings": []
+    },
+    {
+      "index": 8,
+      "title": "Kehamilan dan Persalinan Pasien anak pertama dari 2 bersaudara, lahir no",
+      "role": "history",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "Kehamilan dan Persalinan Pasien anak pertama dari 2 bersaudara, lahir normal cukup bulan, berat dan panjang lahir tidak diketahui. Riwayat imunisasi Ayah tidak mengetahui pasti imunisasi pasien, dikatakan lengkap Surv ei Seku nder Riwayat sosial Pasien saat ini menjalani pendidikan TK.",
+      "bindings": []
+    },
+    {
+      "index": 9,
+      "title": "Nutrisi Pasien makan 3x sehari dengan variasi daging ayam, sayur, dan ik",
+      "role": "anthropometry",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Nutrisi Pasien makan 3x sehari dengan variasi daging ayam, sayur, dan ikan lele. Menjelang manifestasi gejala, pasien diberikan buah bit, suplemen zat besi, dan daging merah, namun tidak terdapat perbaikan gejala. Pasien diberikan ASI selama 2 tahun tanpa diganti susu formula. MPASI dimulai setelah 6 bulan. Riwayat tumbuh kembang BB 19kg, TB 115cm Tumbuh kembang sesuai usia Pasien dapat beraktivitas mandiri (makan, minum, membantu pekerjaan rumah) dan aktif bermain S u rv ei S e k u n d e r",
+      "bindings": [
+        {
+          "shapeId": "44",
+          "field": "patient.anthropometryBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "title": "BB/U: 86% (Normal / Gizi Baik) TB/U: Percentil 10-25 (Perawakan normal) ",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "BB/U: 86% (Normal / Gizi Baik) TB/U: Percentil 10-25 (Perawakan normal) BB/TB: 92,6% (Gizi Baik) RDA: 1.845 kkal St at u s A n tr o p o m et ri Kesimpulan: Perawakan normal, Gizi baik",
+      "bindings": [
+        {
+          "shapeId": "47",
+          "field": "patient.physicalExamBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "title": "Keadaan Umum: Tampak sakit sedang Kesadaran: GCS15 E4M6V5 Laju nadi: 112",
+      "role": "physical_exam",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 3,
+      "tables": [],
+      "text": "Keadaan Umum: Tampak sakit sedang Kesadaran: GCS15 E4M6V5 Laju nadi: 112x/menit, reguler, teraba kuat, isi cukup Tekanan darah: 93/67 mmHg Laju napas: 22x/menit, reguler, napas dalam, abdominotorakal Saturasi Oksigen: 99% on RA Suhu: 37,3C P e m e ri k s a a n Fi si s",
+      "bindings": [
+        {
+          "shapeId": "51",
+          "field": "patient.physicalExamBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "title": "Organ Deskripsi Kepala Normocephali Wajah Tidak ada dismorfik, gerakan w",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [
+        {
+          "id": "54",
+          "name": "Google Shape;119;h317392bae216dc08_0_51",
+          "rows": 10,
+          "cols": 2,
+          "text": "OrganDeskripsiKepalaNormocephaliWajahTidak ada dismorfik, gerakan wajah kesan simetris, tidak ada moon-face. Terdapat ka"
+        }
+      ],
+      "text": "Organ Deskripsi Kepala Normocephali Wajah Tidak ada dismorfik, gerakan wajah kesan simetris, tidak ada moon-face. Terdapat karakteristik facies Cooley (pangkal hidung rendah, wajah bagian tengah datar, filtrum halus) Mata Konjungtiva anemis , sklera tidak ikterik, gerakan bola mata baik, palpebra tidak edema, pupil isokor, refleks cahaya langsung dan tidak langsung (++/++) Mulut Bibir dan mukosa basah namun tampak pucat , tidak terdapat sianosis, tidak ada coated tongue, faring tidak hiperemis, ",
+      "bindings": [
+        {
+          "shapeId": "54",
+          "field": "patient.assessment.workingDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "title": "Pemeriksaan penunjang Kesimpulan: Anemia Mikrositik Hipokromik Leukopeni",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 4,
+      "tables": [],
+      "text": "Pemeriksaan penunjang Kesimpulan: Anemia Mikrositik Hipokromik Leukopenia Positif infeksi Influenza A",
+      "bindings": [
+        {
+          "shapeId": "57",
+          "field": "patient.investigations.summary",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "title": "Diagnosis akhir Febris H5 e.c Influenza A Anemia mikrositik hipokromik e",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Diagnosis akhir Febris H5 e.c Influenza A Anemia mikrositik hipokromik e.c. susp. thalassemia mayor Perawakan normal, Gizi baik",
+      "bindings": [
+        {
+          "shapeId": "61",
+          "field": "patient.investigationsBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "title": "Tatalaksana Tata laksana IGD: Transfusi PRC bertahap Volume (mL) = dHb (",
+      "role": "investigation",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Tatalaksana Tata laksana IGD: Transfusi PRC bertahap Volume (mL) = dHb (target 6 g/dL) x BB x 4 = (6g/dL–4.8g/dL) x 19 kg x 4 = 91,2 mL Prevensi Transfusion-Associated Circulatory Overload (TACO) = 10–15 mL/kg/dosis = 15 mL/kg x 19 kg = 285 mL mL Jika sudah mencapai 6 g/dL, target diubah menjadi 12 g/dL Volume (mL) = dHb (target 12 g/dL) x BB x 4 = (12 g/dL–6g/dL) x 19 kg x 4 = 456 g/dL Transfusi 285 mL terlebih dahulu selama 3–4 jam, dilanjutkan 171 g/dL di hari berikutnya",
+      "bindings": [
+        {
+          "shapeId": "63",
+          "field": "patient.templateSection",
+          "key": "otherExaminations",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "title": "Tatalaksana Tata laksana IGD: Cairan rumatan KA-EN 1B 100 mL/kg/hari (10",
+      "role": "diagnosis",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Tatalaksana Tata laksana IGD: Cairan rumatan KA-EN 1B 100 mL/kg/hari (10 kg pertama) = 100 x 19 = 1.9 L/hari 50 mL/kg/hari (9 kg) = 50 x 9 = 450 mL/hari Total: 2.35L/hari = ~100mL/jam 60 tetes/1 mL x 100 mL/jam = 6000 tetes/jam = 100 tpm",
+      "bindings": [
+        {
+          "shapeId": "65",
+          "field": "patient.templateSection",
+          "key": "finalDiagnosis",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "title": "Tatalaksana Antipiretik Paracetamol 10–15 mg/kgBB/kali = 190–285 mg per ",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Tatalaksana Antipiretik Paracetamol 10–15 mg/kgBB/kali = 190–285 mg per dosis, diulang setiap 6–8 jam. Sediaan sirup 120 mg/5 ml dapat diberikan sebanyak 1,5–2 sendok takar",
+      "bindings": [
+        {
+          "shapeId": "67",
+          "field": "patient.templateSection",
+          "key": "finalManagement",
+          "confidence": 0.91
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "title": "Tatalaksana Rencana diagnosis: Thalassemia Apusan darah tepi -> eritrosi",
+      "role": "closing",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Tatalaksana Rencana diagnosis: Thalassemia Apusan darah tepi -> eritrosit mikrositik hipokromik dengan poikilocytosis, sel target, dan basophilic stippling Hitung retikulosit -> normal atau meningkat sedikit Uji hemolisis -> peningkatan LDH, hiperbilirubinemia tidak terkonjugasi, haptoglobin rendah. Studi besi -> ferritin, serum besi, TIBC -> eksklusi ADB -> ferritin meningkat Elektroforesis hemoglobin Testing genetik",
+      "bindings": []
+    },
+    {
+      "index": 19,
+      "title": "Tatalaksana Rencana monitoring: Pantau reaksi transfusi Pantau status he",
+      "role": "management",
+      "repeat": true,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "focus_patient",
+      "shapes": 2,
+      "tables": [],
+      "text": "Tatalaksana Rencana monitoring: Pantau reaksi transfusi Pantau status hemodinamik",
+      "bindings": [
+        {
+          "shapeId": "71",
+          "field": "patient.managementBlock",
+          "confidence": 0.96
+        }
+      ]
+    },
+    {
+      "index": 20,
+      "title": "Terima kasih",
+      "role": "closing",
+      "repeat": false,
+      "inclusion": "routine",
+      "include": true,
+      "patientScope": "static",
+      "shapes": 2,
+      "tables": [],
+      "text": "Terima kasih",
+      "bindings": []
+    }
+  ]
+}

@@ -219,10 +219,11 @@ test("IGD HARKIT summary fills reserved empty table rows for every detected pati
   const generated = await generatePresentation(template, patients, template.bindings, shift, { focusPatientId: patients[0].id });
   const output = await JSZip.loadAsync(new Uint8Array(await generated.blob.arrayBuffer()));
   const slideFiles = Object.keys(output.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
-  const summaryXmls = await Promise.all(slideFiles.map(async (name) => output.file(name)!.async("string"))).then((slides) => slides.filter((xml) => xml.includes("PASIEN BARU")));
-  expect(summaryXmls).toHaveLength(1);
-  const summaryText = summaryXmls[0];
-  expect(summaryText).toContain("PASIEN BARU: 5 PASIEN");
+  const summaryXmls = await Promise.all(slideFiles.map(async (name) => output.file(name)!.async("string"))).then((slides) => slides.filter((xml) => /Kegawatan|TOTAL KASUS BARU|PASIEN BARU/i.test(xml)));
+  expect(summaryXmls).toHaveLength(2);
+  const summaryText = summaryXmls.join(" ");
+  expect(summaryText).toContain("Identitas Pasien");
+  expect(summaryText).toContain("5 pasien");
   expect(summaryText).toContain("Julia");
   expect(summaryText).toContain("Rafael");
   expect(summaryText).toContain("Gita");
@@ -238,6 +239,7 @@ test("every built-in summary template keeps the full patient roster", async () =
     "[TEMPLATE] RSCM.pptx",
     "[TEMPLATE] IGD HARKIT.pptx",
     "[TEMPLATE] IGD RSUT.pptx",
+    "[TEMPLATE] RSUI.pptx",
   ];
   const patients = extractPatients(`PASIEN BARU: 5 PASIEN
 1. Julia / 20 tahun | Demam | T
@@ -257,7 +259,7 @@ test("every built-in summary template keeps the full patient roster", async () =
     const review = await inspectGeneratedPresentation(generated.blob, template, patients, patients[0].id);
     expect(review.review.issues.filter((issue) => issue.severity === "error"), fileName).toEqual([]);
     const summaryText = review.snapshot.slides
-      .filter((slide) => /(?:pasien baru|daftar pasien|ringkasan pasien|resume jaga)/i.test(`${slide.title} ${slide.text}`))
+      .filter((slide) => /(?:pasien baru|daftar pasien|ringkasan pasien|resume jaga|identitas pasien|total kasus baru)/i.test(`${slide.title} ${slide.text}`))
       .map((slide) => slide.text)
       .join(" ");
     for (const name of ["Julia", "Rafael", "Gita", "Lutfi", "An. R"]) {
@@ -402,10 +404,10 @@ test("built-in department profiles map their slide contracts and generate indepe
     { fileName: "[TEMPLATE} PERINA HARKIT.pptx", profileId: "perina-harkit", slideCount: 15, requiredKey: "antenatalConsultation" },
     { fileName: "[TEMPLATE} PERINA RSUT.pptx", profileId: "perina-rsut", slideCount: 15, requiredKey: "antenatalConsultation" },
     { fileName: "[TEMPLATE] PERINA RSAB.pptx", profileId: "perina-rsab", slideCount: 15, requiredKey: "resuscitationTimeline" },
-    { fileName: "[TEMPLATE] IGD HARKIT.pptx", profileId: "igd-harkit", slideCount: 17, requiredKey: "pregnancyBirth" },
+    { fileName: "[TEMPLATE] IGD HARKIT.pptx", profileId: "igd-harkit", slideCount: 21, requiredKey: "managementPart1" },
     { fileName: "[TEMPLATE] IGD RSUT.pptx", profileId: "igd-rsut", slideCount: 17, requiredKey: "pregnancyBirth" },
     { fileName: "[TEMPLATE] RSCM.pptx", profileId: "rscm", slideCount: 17, requiredKey: "pregnancyBirth" },
-    { fileName: "[TEMPLATE] RSUI.pptx", profileId: "rsui", slideCount: 19, requiredKey: "radiologyInterpretation" },
+    { fileName: "[TEMPLATE] RSUI.pptx", profileId: "rsui", slideCount: 21, requiredKey: "monitoringPlan" },
   ] as const;
   const patient = extractPatients(syntheticNotes, "profile-source").patients[0];
   const shift: ShiftDetails = {

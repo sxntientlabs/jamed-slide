@@ -15,7 +15,7 @@ const BUILT_IN_DISPLAY_LABELS: Record<string, string> = {
   "PERINA RSUT": "PERINA RSUT",
   RSCM: "IGD RSCM",
   RSUI: "IGD RSUI",
-  "PERINA Lapjag": "Perina RSCM",
+  "PERINA Lapjag": "PERINA RSCM",
 };
 
 // Keep legacy archive entries available for existing saved workspaces, but do
