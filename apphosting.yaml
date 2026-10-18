@@ -26,3 +26,26 @@ env:
     value: "https://server.eltexlabs.com/koasis-renderer"
     availability:
       - RUNTIME
+  # Add INSTABOX_API_KEY yourself in the Firebase App Hosting Environment
+  # settings. It must never be a VITE_* variable or appear in the browser
+  # bundle.
+  - variable: INSTABOX_API_URL
+    value: "https://api.instabox.sh"
+    availability:
+      - RUNTIME
+  - variable: INSTABOX_TEMPLATE
+    value: "agent-browser"
+    availability:
+      - RUNTIME
+  - variable: INSTABOX_ALLOW_PROVISIONING
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: INSTABOX_MACHINE_TIMEOUT_MS
+    value: "14400000"
+    availability:
+      - RUNTIME
+  - variable: INSTABOX_AUTO_SUSPEND_MS
+    value: "1800000"
+    availability:
+      - RUNTIME

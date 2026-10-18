@@ -7,9 +7,10 @@ import { KoasisWorkspacePanel, type KoasisWorkspace, type WorkspaceTask } from "
 import { KoasisWorkflowDialog, type KoasisWorkflowKind } from "./KoasisWorkflowDialog";
 import { MkarRotationCockpit, type MkarCockpitAction } from "./MkarRotationCockpit";
 import { KoasisClinicalWorkspace } from "./KoasisClinicalWorkspace";
-import { AicssCodeBlock, AicssDataTable, AicssSecureInputDemo, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
+import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
 import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentRunStatus } from "../lib/agentChatClient";
 import { searchEvidenceSources, type EvidenceSource } from "../lib/evidenceSearchClient";
+import { ComputerClientError, getComputerStatus, openComputerSession, pauseComputer, revokeComputerSession, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
 import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisModelId, type KoasisReasoningLevel } from "../lib/koasisModels";
 import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
@@ -230,6 +231,123 @@ const MANUS_COMPUTER_CARDS = [
   { title: "Use your own files", detail: "Bring de-identified notes and source packs into a reviewable task.", tags: ["Files", "Review"], tone: "files" },
   { title: "Connect your devices", detail: "Continue a task from the devices you use during the day.", tags: ["Mobile", "Desktop"], tone: "devices" },
 ];
+
+const COMPUTER_STATE_LABELS: Record<string, string> = {
+  creating: "Menyiapkan",
+  starting: "Menyalakan",
+  running: "Berjalan",
+  stopping: "Mematikan",
+  stopped: "Berhenti",
+  suspending: "Menjeda",
+  suspended: "Paused",
+  resuming: "Melanjutkan",
+  deleting: "Menghapus",
+  deleted: "Terhapus",
+  error: "Error",
+};
+
+function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<string> }) {
+  const [status, setStatus] = useState<ComputerStatus | null>(null);
+  const [session, setSession] = useState<ComputerSession | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<"open" | "control" | "pause" | "revoke" | null>(null);
+  const [error, setError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+
+  const loadStatus = async () => {
+    setLoading(true);
+    try {
+      const token = await getAuthToken();
+      const nextStatus = await getComputerStatus({ authToken: token });
+      setStatus(nextStatus);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof ComputerClientError ? caught.message : "Status Computer belum bisa dimuat.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadStatus();
+  }, []);
+
+  useEffect(() => {
+    if (!session) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [session]);
+
+  const openSession = async (viewOnly: boolean) => {
+    setBusyAction(viewOnly ? "open" : "control");
+    setError("");
+    try {
+      const token = await getAuthToken();
+      const nextSession = await openComputerSession(viewOnly, { authToken: token });
+      setSession(nextSession);
+      setStatus((current) => current ? { ...current, machine: nextSession.machine, activeSession: { id: nextSession.sessionId, viewOnly: nextSession.viewOnly, expiresAt: nextSession.expiresAt, status: "active" } } : current);
+    } catch (caught) {
+      setError(caught instanceof ComputerClientError ? caught.message : "Desktop Computer belum bisa dibuka.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const revokeSession = async () => {
+    setBusyAction("revoke");
+    try {
+      const token = await getAuthToken();
+      await revokeComputerSession({ authToken: token });
+      setSession(null);
+      await loadStatus();
+    } catch (caught) {
+      setError(caught instanceof ComputerClientError ? caught.message : "Session Computer belum bisa ditutup.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const pauseMachine = async () => {
+    setBusyAction("pause");
+    try {
+      const token = await getAuthToken();
+      const result = await pauseComputer({ authToken: token });
+      setSession(null);
+      setStatus((current) => current ? { ...current, machine: result.machine, activeSession: null } : current);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof ComputerClientError ? caught.message : "Machine belum bisa dijeda.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const machine = status?.machine;
+  const sessionExpired = Boolean(session && Date.parse(session.expiresAt) <= now);
+  const stateLabel = machine ? COMPUTER_STATE_LABELS[machine.state] || machine.state : "Belum dibuat";
+  const minutesLeft = session ? Math.max(0, Math.ceil((Date.parse(session.expiresAt) - now) / 60_000)) : 0;
+
+  return <section className="manus-page manus-computers-page">
+    <div className="manus-page-heading"><div><h1>Computers</h1><p className="manus-page-subtitle">Workspace Linux pribadi untuk agent dan task yang kamu jalankan.</p></div><button type="button" className="manus-button-secondary" onClick={() => void loadStatus()} disabled={loading}><RotateCcw size={14} className={loading ? "koasis-spinner" : undefined} /> Refresh</button></div>
+
+    {error && <div className="manus-computer-alert" role="alert"><ShieldCheck size={15} /><span>{error}</span></div>}
+
+    <section className="manus-computer-control-card" aria-busy={loading}>
+      <div className="manus-computer-control-heading"><div><span className="manus-section-kicker">Instabox workspace</span><h2>{machine?.name || "Computer belum terhubung"}</h2><p>{loading ? "Memeriksa koneksi backend…" : status?.configured ? "API key tetap di server; browser hanya menerima link desktop sementara." : "Backend App Hosting belum memiliki kredensial Instabox."}</p></div><span className={`manus-computer-state ${machine?.state || "unconfigured"}`}><i />{stateLabel}</span></div>
+
+      {!loading && !status?.configured && <div className="manus-computer-empty"><Monitor size={24} /><strong>Instabox belum dikonfigurasi</strong><small>Tambahkan INSTABOX_API_KEY melalui Secret Manager App Hosting. Tidak ada key yang dikirim ke browser.</small></div>}
+      {!loading && status?.configured && !machine && <div className="manus-computer-empty"><Monitor size={24} /><strong>Belum ada machine untuk akun ini</strong><small>{status.provisioningEnabled ? "Machine akan dibuat saat kamu membuka workspace pertama kali." : "Provisioning per-user masih dimatikan di server."}</small>{status.provisioningEnabled && <button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction)}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Plus size={14} />} Buat dan buka Computer</button>}</div>}
+
+      {machine && <div className="manus-computer-details"><div><small>Resources</small><strong>{machine.vcpus} vCPU · {Math.round(machine.memoryMiB / 1024)} GiB RAM · {machine.storageGiB} GiB</strong></div><div><small>Lifecycle</small><strong>Auto-pause {machine.autoSuspendAfterSeconds ? `${Math.round(machine.autoSuspendAfterSeconds / 60)} menit idle` : "manual"}</strong></div><div><small>Machine ID</small><strong>{machine.id}</strong></div></div>}
+
+      {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button><button type="button" className="manus-button-secondary" onClick={() => void pauseMachine()} disabled={Boolean(busyAction) || machine.state !== "running"}>{busyAction === "pause" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Square size={13} />} Pause machine</button></div>}
+    </section>
+
+    {session && <section className="manus-computer-viewer"><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Live desktop</span><strong>{session.viewOnly ? "View-only session" : "Control session"}</strong></div><div><span className="manus-computer-expiry">{sessionExpired ? "Link kedaluwarsa" : `${minutesLeft} menit tersisa`}</span><button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Session sudah berakhir</strong><small>Buka desktop lagi untuk membuat link baru.</small></div> : <iframe className="manus-computer-iframe" src={session.streamUrl} title="Instabox desktop" allow="clipboard-read; clipboard-write" />}</section>}
+
+    <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Security boundary</span><h2>Input tetap terkontrol</h2><p>Koasis tidak menyimpan screenshot, password, atau isi ketikan ke PostgreSQL. Link desktop dibuat sementara dan bisa dicabut kapan saja.</p></div><div className="manus-computer-security-note"><ShieldCheck size={18} /><span><strong>Server-side API key</strong><small>Firebase ID token memetakan user ke machine miliknya.</small></span></div></section>
+  </section>;
+}
 
 function HomeStudioKicker({ visual, label }: { visual: HomeStudioVisual; label: string }) {
   const icons = visual === "sources"
@@ -621,7 +739,7 @@ function HomeSurface({ workspace, tasks, onAction, onOpenWorkspace }: { workspac
   </div>;
 }
 
-function ManusPageSurface({ page, onStartTask }: { page: Exclude<ManusPage, "home">; onStartTask: () => void }) {
+function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<ManusPage, "home">; onStartTask: () => void; getAuthToken: () => Promise<string> }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -669,13 +787,7 @@ function ManusPageSurface({ page, onStartTask }: { page: Exclude<ManusPage, "hom
   }
 
   if (page === "computers") {
-    return <section className="manus-page manus-computers-page">
-      <div className="manus-page-heading"><h1>Computers</h1><button type="button" className="manus-button-secondary" onClick={onStartTask}><Plus size={15} /> Create workspace</button></div>
-      <h2>Find the perfect setup for you</h2>
-      <div className="manus-computer-grid">{MANUS_COMPUTER_CARDS.map((card) => <button type="button" className={`manus-computer-card ${card.tone}`} key={card.title} onClick={onStartTask}><div className="manus-computer-art"><span /><span /><span /></div><div className="manus-computer-copy"><strong>{card.title}</strong><small>{card.detail}</small><span>{card.tags.map((tag) => <em key={tag}>{tag}</em>)}</span></div></button>)}</div>
-      <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Agent control</span><h2>Secure input</h2><p>Credentials are collected in a dedicated surface before a connected computer can use them.</p></div><AicssSecureInputDemo /></section>
-      <div className="manus-computers-footer"><span>Connect your devices</span><button type="button" className="manus-button-secondary" onClick={onStartTask}><Monitor size={15} /> Connect new device</button><button type="button" className="manus-button-secondary" onClick={onStartTask}><Bell size={15} /> Notifications</button></div>
-    </section>;
+    return <ComputerPageSurface getAuthToken={getAuthToken} />;
   }
 
   if (page === "automations") {
@@ -1593,7 +1705,7 @@ export function AgenticChat() {
       <div className={`koasis-content ${workspacePanelOpen ? "with-board" : "without-board"}`}>
         <section className="koasis-conversation">
           <div className="koasis-conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
-        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}
+        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}
             {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onAction={handleAction} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
           </div>
           {showJumpToLatest && <button type="button" className="koasis-jump-latest" onClick={jumpToLatest}><ArrowDown size={14} /> Terbaru</button>}

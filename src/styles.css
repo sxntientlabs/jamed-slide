@@ -2773,6 +2773,42 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .manus-computer-copy small { min-height: 30px; color: var(--ko-muted); font-size: 8px; line-height: 1.35; }
 .manus-computer-copy > span { display: flex; gap: 5px; }
 .manus-computer-copy em { padding: 4px 6px; border-radius: 5px; color: var(--ko-muted); background: var(--ko-panel-soft); font-size: 7px; font-style: normal; }
+.manus-page-subtitle { margin: 4px 0 0; color: var(--ko-muted); font-size: 9px; line-height: 1.4; }
+.manus-computer-alert { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; border: 1px solid rgba(210, 145, 86, .35); border-radius: 9px; padding: 10px 11px; color: #e0b28a; background: rgba(115, 70, 35, .16); font-size: 9px; line-height: 1.4; }
+.manus-computer-control-card { display: grid; gap: 16px; border: 1px solid var(--ko-line); border-radius: 12px; padding: 17px; background: var(--ko-panel-soft); }
+.manus-computer-control-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.manus-computer-control-heading h2 { margin: 5px 0 4px; font-size: 18px; }
+.manus-computer-control-heading p { max-width: 520px; margin: 0; color: var(--ko-muted); font-size: 9px; line-height: 1.5; }
+.manus-computer-state { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid var(--ko-line); border-radius: 999px; padding: 5px 8px; color: var(--ko-muted); background: var(--ko-panel); font-size: 8px; white-space: nowrap; }
+.manus-computer-state i { width: 6px; height: 6px; display: block; border-radius: 50%; background: var(--ko-subtle); }
+.manus-computer-state.running { color: #9ac6a6; border-color: rgba(106, 163, 121, .35); }
+.manus-computer-state.running i { background: #70b985; }
+.manus-computer-state.suspended, .manus-computer-state.stopped { color: #d1b98d; }
+.manus-computer-state.suspended i, .manus-computer-state.stopped i { background: #b99c6b; }
+.manus-computer-state.error { color: #df9a94; }
+.manus-computer-state.error i { background: #cf6e69; }
+.manus-computer-empty { min-height: 176px; display: grid; place-items: center; align-content: center; gap: 7px; border: 1px dashed var(--ko-line-strong); border-radius: 9px; padding: 18px; color: var(--ko-muted); text-align: center; }
+.manus-computer-empty > svg { color: var(--ko-subtle); }
+.manus-computer-empty strong { color: var(--ko-ink-soft); font-size: 12px; font-weight: 500; }
+.manus-computer-empty small { max-width: 430px; color: var(--ko-muted); font-size: 9px; line-height: 1.5; }
+.manus-computer-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.manus-computer-details > div { min-width: 0; display: grid; gap: 5px; border: 1px solid var(--ko-line); border-radius: 8px; padding: 9px 10px; background: var(--ko-panel); }
+.manus-computer-details small { color: var(--ko-subtle); font-size: 8px; }
+.manus-computer-details strong { overflow: hidden; color: var(--ko-ink-soft); font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.manus-computer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.manus-computer-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.manus-computer-viewer { display: grid; gap: 10px; margin-top: 14px; border: 1px solid var(--ko-line); border-radius: 12px; padding: 12px; background: #101112; }
+.manus-computer-viewer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.manus-computer-viewer-heading > div:last-child { display: flex; align-items: center; gap: 8px; }
+.manus-computer-viewer-heading strong { display: block; margin-top: 4px; color: var(--ko-ink); font-size: 11px; font-weight: 500; }
+.manus-computer-expiry { color: var(--ko-muted); font-size: 8px; }
+.manus-computer-viewer .manus-button-secondary { display: inline-flex; align-items: center; gap: 5px; }
+.manus-computer-iframe { width: 100%; min-height: min(62vh, 620px); display: block; border: 1px solid var(--ko-line); border-radius: 8px; background: #090a0a; }
+.manus-computer-security-note { min-height: 78px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--ko-line); border-radius: 9px; padding: 12px; color: #91b6d0; background: var(--ko-panel-soft); }
+.manus-computer-security-note > svg { flex: 0 0 auto; }
+.manus-computer-security-note span { display: grid; gap: 4px; }
+.manus-computer-security-note strong { color: var(--ko-ink-soft); font-size: 10px; font-weight: 500; }
+.manus-computer-security-note small { color: var(--ko-muted); font-size: 8px; line-height: 1.4; }
 .manus-secure-input-section { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); align-items: start; gap: 22px; margin-top: 24px; border-top: 1px solid var(--ko-line); padding-top: 18px; }
 .manus-secure-input-section > div:first-child { display: grid; align-content: start; gap: 6px; }
 .manus-secure-input-section h2 { margin: 0; font-size: 16px; }
@@ -2815,6 +2851,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .manus-plugin-featured { grid-template-columns: 1fr; }
   .manus-plugin-grid { grid-template-columns: 1fr; }
   .manus-computer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .manus-computer-details { grid-template-columns: 1fr; }
   .manus-secure-input-section { grid-template-columns: 1fr; }
   .manus-computers-footer { align-items: flex-start; flex-wrap: wrap; }
   .manus-computers-footer span { flex-basis: 100%; }
@@ -2833,6 +2870,10 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .manus-library-row time { display: none; }
   .manus-library-row strong { font-size: 9px; }
   .manus-computer-grid { grid-template-columns: 1fr; }
+  .manus-computer-control-heading, .manus-computer-viewer-heading { align-items: flex-start; flex-direction: column; }
+  .manus-computer-viewer-heading > div:last-child { width: 100%; justify-content: space-between; }
+  .manus-computer-actions button { flex: 1 1 calc(50% - 4px); justify-content: center; }
+  .manus-computer-iframe { min-height: 52vh; }
   .manus-secure-input-section { gap: 12px; }
   .manus-computers-footer .manus-button-secondary { flex: 1 1 calc(50% - 4px); }
   .manus-agents-page h1 { font-size: 23px; }
