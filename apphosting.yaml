@@ -20,7 +20,9 @@ env:
     value: "*"
     availability:
       - RUNTIME
-  - variable: VITE_KOASIS_API_BASE_URL
-    value: "https://server.eltexlabs.com/koasis-app"
+  # The browser uses App Hosting's same-origin /api routes. The renderer is
+  # the only heavy service that App Hosting calls on the Dokploy VPS.
+  - variable: JAMED_RENDERER_URL
+    value: "https://server.eltexlabs.com/koasis-renderer"
     availability:
-      - BUILD
+      - RUNTIME
