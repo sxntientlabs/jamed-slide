@@ -13,6 +13,7 @@ import type {
 import { buildLocalTemplateAnalysis } from "./templateProfiles";
 import { validateTemplateContract } from "./templateContract";
 import { guideIsIncluded, inferPatientScope, inferSlideInclusion, normalizePatientScope, normalizeSlideInclusion } from "./templateSlides";
+import { koasisApiUrl } from "./koasisApi";
 
 export { buildLocalTemplateAnalysis } from "./templateProfiles";
 export { validateTemplateContract } from "./templateContract";
@@ -406,7 +407,7 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
 export async function analyzeTemplateWithAi(template: ParsedTemplate, authToken?: string): Promise<{ template: ParsedTemplate; analysis: TemplateAnalysis; error?: string }> {
   const local = buildLocalTemplateAnalysis(template);
   try {
-    const response = await fetch("/api/template/analyze", {
+    const response = await fetch(koasisApiUrl("/api/template/analyze"), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
       body: JSON.stringify({

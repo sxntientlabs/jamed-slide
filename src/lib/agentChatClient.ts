@@ -1,5 +1,6 @@
 import type { AgentId, AgentSourcePolicy } from "./agentCatalog";
 import type { KoasisModelId, KoasisReasoningLevel } from "./koasisModels";
+import { koasisApiUrl } from "./koasisApi";
 
 export type AgentChatAttachment = {
   name: string;
@@ -110,7 +111,7 @@ export async function sendAgentChat(
 ): Promise<AgentChatResult> {
   const requestId = createRequestId();
   options.onStatus?.({ phase: "accepted", message: "Permintaan diterima", requestId });
-  const response = await fetch("/api/agent/chat", {
+  const response = await fetch(koasisApiUrl("/api/agent/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}) },
     body: JSON.stringify({ messages, agentId, requestId, context: options.context }),

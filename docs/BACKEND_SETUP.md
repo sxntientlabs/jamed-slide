@@ -28,6 +28,8 @@ KOASIS_POSTGRES_MAX_CONNECTIONS=5
 
 `DATABASE_URL` juga diterima sebagai fallback, tetapi `KOASIS_POSTGRES_URL` lebih eksplisit untuk deployment Koasis. Jangan commit `.env.local` atau service-account JSON.
 
+Jika frontend berjalan di Firebase App Hosting dan API berjalan di Dokploy, isi `VITE_KOASIS_API_BASE_URL` pada build frontend dengan URL service API Dokploy, misalnya `https://server.example.com/koasis-app`. Tambahkan origin frontend ke `KOASIS_CORS_ORIGINS`; PostgreSQL tetap gunakan host internal Dokploy dan jangan buka port database ke publik.
+
 ## Dokploy / VPS
 
 Di service aplikasi Dokploy untuk Koasis:

@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { createAiAgentPlugin } from "./server/aiAgent";
 import { createKoasisBackendPlugin } from "./server/koasisBackend";
+import { createKoasisCorsPlugin } from "./server/koasisCors";
 import { createPresentationRendererPlugin } from "./server/presentationRenderer";
 
 export default defineConfig(({ mode }) => {
@@ -13,7 +14,7 @@ export default defineConfig(({ mode }) => {
         .map((host) => host.trim())
         .filter(Boolean);
   return {
-    plugins: [react(), createAiAgentPlugin(env), createKoasisBackendPlugin(env), createPresentationRendererPlugin(env)],
+    plugins: [react(), createKoasisCorsPlugin(env), createAiAgentPlugin(env), createKoasisBackendPlugin(env), createPresentationRendererPlugin(env)],
     server: {
       port: 4173,
     },

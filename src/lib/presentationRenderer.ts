@@ -1,3 +1,5 @@
+import { koasisApiUrl } from "./koasisApi";
+
 export interface RenderedPresentation {
   engine: string;
   slideCount: number;
@@ -15,7 +17,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 export async function renderPresentationForPreview(blob: Blob): Promise<RenderedPresentation> {
-  const response = await fetch("/api/presentation/render", {
+  const response = await fetch(koasisApiUrl("/api/presentation/render"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ pptxBase64: arrayBufferToBase64(await blob.arrayBuffer()) }),

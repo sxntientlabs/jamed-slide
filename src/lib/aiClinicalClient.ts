@@ -1,4 +1,5 @@
 import type { PatientAttachment, PatientRecord, ShiftDetails } from "../types";
+import { koasisApiUrl } from "./koasisApi";
 
 interface ExtractionResponse {
   engine?: string;
@@ -18,7 +19,7 @@ export async function extractPatientsWithAi(
   media: PatientAttachment[] = [],
   authToken?: string,
 ): Promise<PatientRecord[]> {
-  const response = await fetch("/api/clinical/extract", {
+  const response = await fetch(koasisApiUrl("/api/clinical/extract"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
     body: JSON.stringify({ sourceText, sourceId, patientLabel, shiftContext, templateProfile, templateInstructions, templateContract, media }),

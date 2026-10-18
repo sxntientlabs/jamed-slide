@@ -1,3 +1,5 @@
+import { koasisApiUrl } from "./koasisApi";
+
 export type EvidenceSource = {
   id: string;
   source: string;
@@ -42,7 +44,7 @@ export async function searchEvidenceSources(
   query: string,
   options: EvidenceSearchOptions = {},
 ): Promise<EvidenceSearchResult> {
-  const response = await fetch("/api/evidence/search", {
+  const response = await fetch(koasisApiUrl("/api/evidence/search"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
