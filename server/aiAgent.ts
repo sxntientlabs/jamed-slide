@@ -17,6 +17,7 @@ import type {
 import { getAgentDefinition, type AgentDefinition } from "../src/lib/agentCatalog";
 import type { KoasisModelId, KoasisReasoningLevel } from "../src/lib/koasisModels";
 import { detectSensitiveIdentifiers } from "../src/lib/privacyGuard";
+import { EvidenceSearchUnavailableError, searchFederatedEvidence } from "./evidenceSearch";
 
 const MAX_REQUEST_BYTES = 12_000_000;
 const MAX_MEDIA_ITEMS = 6;
@@ -43,6 +44,10 @@ interface AgentSettings {
   modelElective: string;
   modelExecutive: string;
   firebaseProjectId: string;
+  ncbiApiKey: string;
+  ncbiEmail: string;
+  crossrefEmail: string;
+  openAlexEmail: string;
 }
 
 interface ExtractRequest {
@@ -124,6 +129,7 @@ interface AgentChatRequest {
 interface EvidenceSearchRequest {
   query?: unknown;
   limit?: unknown;
+  providers?: unknown;
 }
 
 interface JsonObject {
@@ -1222,7 +1228,7 @@ async function prepareAgentChatRequest(
   const sourceBoundary = agent.sourcePolicy === "source-required" && workspaceContext?.sourceMode !== "attachments" && workspaceContext?.sourceMode !== "sources"
     ? "No source is present in this request. Ask for a source or produce a verification/search plan; do not state a guideline or evidence conclusion."
     : agent.sourcePolicy === "source-required" && workspaceContext?.sourceMode === "sources"
-      ? "Koasis Evidence Desk supplied candidate records and possibly abstracts from Europe PMC. Use only those supplied records, cite their identifiers, distinguish abstract/metadata review from full-text review, and require manual inspection of the original before clinical use."
+      ? "Koasis Evidence Desk supplied candidate records and possibly abstracts from federated public metadata providers. Use only those supplied records, cite their identifiers and provider provenance, distinguish abstract/metadata review from full-text review, treat missing retraction data as unknown, and require manual inspection of the original before clinical use."
     : agent.sourcePolicy === "rubric-required"
       ? "A named rubric and its required measured inputs must be present before calculating any score."
       : "Use only facts explicitly provided in the conversation or attachment.";
@@ -1461,30 +1467,30 @@ async function handleEvidenceSearch(request: IncomingMessage, response: ServerRe
     }
     const requestedLimit = numberValue(body.limit) || 5;
     const limit = Math.max(1, Math.min(EVIDENCE_SEARCH_MAX_RESULTS, Math.round(requestedLimit)));
-    const url = new URL("https://www.ebi.ac.uk/europepmc/webservices/rest/search");
-    url.searchParams.set("query", query);
-    url.searchParams.set("format", "json");
-    url.searchParams.set("resultType", "core");
-    url.searchParams.set("pageSize", String(limit));
-    const upstream = await fetchWithTimeout(url.toString(), { headers: { Accept: "application/json" } }, EVIDENCE_SEARCH_TIMEOUT_MS);
-    if (!upstream.ok) throw new Error(`Europe PMC returned HTTP ${upstream.status}`);
-    const payload = asRecord(await upstream.json());
-    const resultList = asRecord(payload.resultList);
-    const rawResults = Array.isArray(resultList.result) ? resultList.result : [];
-    const results = rawResults.map(normalizeEvidenceSource).filter((item): item is JsonObject => Boolean(item));
+    const providers = Array.isArray(body.providers)
+      ? body.providers.filter((provider): provider is "pubmed" | "europepmc" | "openalex" | "crossref" => provider === "pubmed" || provider === "europepmc" || provider === "openalex" || provider === "crossref").slice(0, 4)
+      : undefined;
+    const result = await searchFederatedEvidence({
+      query,
+      limit,
+      providers,
+      fetchImpl: fetch,
+      timeoutMs: EVIDENCE_SEARCH_TIMEOUT_MS,
+      ncbiApiKey: settings.ncbiApiKey,
+      ncbiEmail: settings.ncbiEmail,
+      crossrefEmail: settings.crossrefEmail,
+      openAlexEmail: settings.openAlexEmail,
+    });
     response.statusCode = 200;
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     response.setHeader("Cache-Control", "private, no-store, no-transform");
     response.setHeader("X-Content-Type-Options", "nosniff");
-    response.end(JSON.stringify({
-      engine: "europepmc",
-      query,
-      retrievedAt: new Date().toISOString(),
-      hitCount: numberValue(resultList.hitCount) || results.length,
-      results,
-    }));
-  } catch {
-    sendJson(response, 502, { error: "Sumber ilmiah sementara tidak tersedia. Coba lagi atau buka pencarian Europe PMC secara manual.", code: "evidence_search_unavailable" });
+    response.end(JSON.stringify(result));
+  } catch (error) {
+    const message = error instanceof EvidenceSearchUnavailableError
+      ? error.message
+      : "Sumber ilmiah sementara tidak tersedia. Coba lagi atau buka sumber asli secara manual.";
+    sendJson(response, 502, { error: message, code: "evidence_search_unavailable" });
   }
 }
 
@@ -1770,6 +1776,10 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
     modelElective: env.JAMED_AI_MODEL_ELECTIVE || "cx/gpt-5.6-terra",
     modelExecutive: env.JAMED_AI_MODEL_EXECUTIVE || "cx/gpt-5.6-sol",
     firebaseProjectId: env.VITE_FIREBASE_PROJECT_ID || env.FIREBASE_PROJECT_ID || "",
+    ncbiApiKey: env.NCBI_API_KEY || "",
+    ncbiEmail: env.NCBI_CONTACT_EMAIL || "",
+    crossrefEmail: env.CROSSREF_MAILTO || "",
+    openAlexEmail: env.OPENALEX_MAILTO || "",
   };
   const middleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
     void handleExtraction(request, response, settings);

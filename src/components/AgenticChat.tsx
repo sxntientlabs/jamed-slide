@@ -708,8 +708,16 @@ function AgentContractBar({ preset, sourceMode }: { preset: AgentPreset; sourceM
 }
 
 function evidenceSourceReference(source: EvidenceSource): string {
-  const identifier = source.pmcid || source.pmid || source.doi || source.id;
-  return `EPMC:${source.source}:${identifier}`;
+  const identifier = source.doi ? `DOI:${source.doi}` : source.pmid ? `PMID:${source.pmid}` : source.pmcid ? `PMCID:${source.pmcid}` : source.id;
+  return `${source.source.toUpperCase()}:${identifier}`;
+}
+
+function evidenceProviderLabel(provider: string): string {
+  if (provider === "europepmc") return "Europe PMC";
+  if (provider === "pubmed") return "PubMed";
+  if (provider === "openalex") return "OpenAlex";
+  if (provider === "crossref") return "Crossref";
+  return provider;
 }
 
 function EvidenceSourceSearchPanel({
@@ -732,7 +740,7 @@ function EvidenceSourceSearchPanel({
   return <section className="koasis-evidence-search" aria-label="Cari sumber evidence">
     <div className="koasis-evidence-search-heading">
       <div className="koasis-evidence-search-title"><span className="koasis-evidence-source-mark"><BookOpen size={14} /></span><div><span className="koasis-overline">Evidence desk</span><strong>Cari sumber publik</strong></div></div>
-      <span className="koasis-evidence-provider">Europe PMC</span>
+      <span className="koasis-evidence-provider">Federated search</span>
     </div>
     <p className="koasis-evidence-search-copy">Cari guideline, systematic review, atau studi. Hasil hanya metadata/abstract dan tetap harus diverifikasi di sumber asli.</p>
     <form className="koasis-evidence-search-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
@@ -745,9 +753,9 @@ function EvidenceSourceSearchPanel({
       <div className="koasis-evidence-results-head"><span>Hasil teratas</span><small>{results.length} kandidat · buka sumber sebelum dipakai</small></div>
       {results.map((source) => <article className="koasis-evidence-result" key={evidenceSourceReference(source)}>
         <div className="koasis-evidence-result-top"><div><strong>{source.title}</strong><small>{[source.journal, source.year].filter(Boolean).join(" · ") || "Metadata jurnal belum tersedia"}</small></div><a href={source.url} target="_blank" rel="noreferrer" aria-label={`Buka sumber ${source.title}`} title="Buka sumber asli"><ExternalLink size={13} /></a></div>
-        <div className="koasis-evidence-result-meta">{source.authors || "Penulis belum tersedia"}{source.doi && <span>DOI {source.doi}</span>}</div>
+        <div className="koasis-evidence-result-meta"><span>{source.authors || "Penulis belum tersedia"}</span><span>{(source.sourceIds || [source.source]).map(evidenceProviderLabel).join(" + ")}</span>{source.doi && <span>DOI {source.doi}</span>}</div>
         {source.abstract && <p>{source.abstract}</p>}
-        <div className="koasis-evidence-result-footer"><span className="koasis-evidence-result-id">{evidenceSourceReference(source)}</span>{source.isOpenAccess && <span className="koasis-evidence-open">Open access</span>}{typeof source.citedByCount === "number" && <span>{source.citedByCount.toLocaleString("id-ID")} sitasi</span>}<button type="button" onClick={() => onUseSource(source)}><Link2 size={12} />Tambahkan ke konteks</button></div>
+        <div className="koasis-evidence-result-footer"><span className="koasis-evidence-result-id">{evidenceSourceReference(source)}</span>{source.isOpenAccess && <span className="koasis-evidence-open">Open access</span>}{source.retractionStatus === "retracted" && <span className="koasis-evidence-warning">Retraction terdeteksi</span>}{source.retractionStatus === "corrected" && <span className="koasis-evidence-warning">Correction terdeteksi</span>}{typeof source.citedByCount === "number" && <span>{source.citedByCount.toLocaleString("id-ID")} sitasi</span>}<button type="button" onClick={() => onUseSource(source)}><Link2 size={12} />Tambahkan ke konteks</button></div>
       </article>)}
     </div>}
   </section>;
@@ -1030,7 +1038,12 @@ export function AgenticChat() {
       const authToken = await user.getIdToken();
       const response = await searchEvidenceSources(query, { authToken, limit: 5 });
       setEvidenceResults(response.results);
-      if (!response.results.length) setEvidenceSearchError("Belum ada hasil yang cukup relevan. Coba ubah istilah atau tambahkan populasi/intervensi.");
+      const failedProviders = response.providers?.filter((provider) => provider.status === "error") || [];
+      if (failedProviders.length) {
+        setEvidenceSearchError(`Hasil parsial: ${failedProviders.map((provider) => evidenceProviderLabel(provider.provider)).join(", ")} tidak merespons. Sumber yang tampil tetap perlu diverifikasi manual.`);
+      } else if (!response.results.length) {
+        setEvidenceSearchError("Belum ada hasil yang cukup relevan. Coba ubah istilah atau tambahkan populasi/intervensi.");
+      }
     } catch (error) {
       setEvidenceSearchError(error instanceof Error ? error.message : "Pencarian sumber gagal. Coba lagi.");
     } finally {
@@ -1041,15 +1054,19 @@ export function AgenticChat() {
   const addEvidenceSourceToContext = (source: EvidenceSource) => {
     const reference = evidenceSourceReference(source);
     const contextBlock = [
-      `[${reference}] Kandidat sumber dari Europe PMC — verifikasi manual sebelum dipakai untuk keputusan klinis.`,
+      `[${reference}] Kandidat sumber dari federated evidence search — verifikasi manual sebelum dipakai untuk keputusan klinis.`,
       `Judul: ${source.title}`,
       `Jurnal/tahun: ${[source.journal, source.year].filter(Boolean).join(" · ") || "Tidak tercantum"}`,
       source.authors ? `Penulis: ${source.authors}` : "",
+      source.sourceIds?.length ? `Provider metadata: ${source.sourceIds.map(evidenceProviderLabel).join(", ")}` : `Provider metadata: ${evidenceProviderLabel(source.source)}`,
       source.doi ? `DOI: ${source.doi}` : "",
       source.pmid ? `PMID: ${source.pmid}` : "",
       source.pmcid ? `PMCID: ${source.pmcid}` : "",
+      source.publicationTypes?.length ? `Tipe publikasi: ${source.publicationTypes.join(", ")}` : "",
+      source.retractionStatus === "retracted" ? "Integrity warning: provider metadata menandai kemungkinan retraction; jangan gunakan sebagai evidence valid tanpa pemeriksaan sumber asli." : "",
       source.abstract ? `Abstract (potongan): ${source.abstract.slice(0, 900)}` : "Metadata tersedia; abstract tidak tersedia pada hasil ini.",
       `Sumber asli: ${source.url}`,
+      source.fullTextUrl ? `Tautan full text/provider: ${source.fullTextUrl}` : "",
     ].filter(Boolean).join("\n");
     setDraft((current) => `${current}${current.trim() ? "\n\n" : ""}${contextBlock}`);
     setSourceMode("sources");

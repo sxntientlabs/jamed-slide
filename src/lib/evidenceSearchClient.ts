@@ -1,8 +1,33 @@
 import { koasisApiUrl } from "./koasisApi";
 
+export type EvidenceProviderId = "pubmed" | "europepmc" | "openalex" | "crossref";
+
+export type EvidenceProviderState = {
+  provider: EvidenceProviderId;
+  status: "ok" | "error" | "empty";
+  returned: number;
+  hitCount?: number;
+  error?: string;
+};
+
+export type EvidenceQueryPlan = {
+  originalQuery: string;
+  normalizedQuery: string;
+  language: "id" | "en" | "mixed" | "unknown";
+  expandedTerms: string[];
+  pico: {
+    population?: string;
+    intervention?: string;
+    comparison?: string;
+    outcome?: string;
+  };
+  warnings: string[];
+};
+
 export type EvidenceSource = {
   id: string;
-  source: string;
+  source: EvidenceProviderId;
+  sourceIds?: EvidenceProviderId[];
   title: string;
   authors: string;
   journal: string;
@@ -12,16 +37,25 @@ export type EvidenceSource = {
   pmcid?: string;
   abstract?: string;
   isOpenAccess: boolean;
+  fullTextUrl?: string;
   citedByCount?: number;
+  publicationTypes?: string[];
+  retractionStatus?: "retracted" | "corrected" | "unknown";
+  score?: number;
+  matchReasons?: string[];
   url: string;
 };
 
 export type EvidenceSearchResult = {
-  engine: "europepmc";
+  engine: "federated";
   query: string;
+  normalizedQuery?: string;
+  queryPlan?: EvidenceQueryPlan;
   retrievedAt: string;
   hitCount: number;
   results: EvidenceSource[];
+  providers?: EvidenceProviderState[];
+  warnings?: string[];
 };
 
 export class EvidenceSearchError extends Error {

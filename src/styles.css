@@ -3028,6 +3028,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .koasis-evidence-result-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 7px; color: var(--ko-subtle); font-size: 7px; }
 .koasis-evidence-result-id, .koasis-evidence-open { border-radius: 999px; padding: 3px 5px; color: var(--ko-accent-strong); background: var(--ko-accent-soft); font-weight: 800; }
 .koasis-evidence-open { color: var(--ko-success); background: var(--ko-success-soft); }
+.koasis-evidence-warning { border-radius: 999px; padding: 3px 5px; color: var(--ko-warning); background: var(--ko-warning-soft); font-weight: 800; }
 .koasis-evidence-result-footer button { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border: 0; padding: 3px 0 3px 4px; color: var(--ko-accent-strong); background: transparent; font-size: 8px; font-weight: 800; }
 .koasis-evidence-result-footer button:hover { text-decoration: underline; }
 @keyframes koasis-spinner { to { transform: rotate(360deg); } }
