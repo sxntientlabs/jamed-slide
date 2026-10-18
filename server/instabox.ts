@@ -5,6 +5,7 @@ export type InstaboxSettings = {
   apiUrl: string;
   template: string;
   allowProvisioning: boolean;
+  allowAgentControl: boolean;
   defaultMachineName: string;
   defaultOwnerUid: string;
   machineTimeoutMs: number;
@@ -91,6 +92,7 @@ export function createInstaboxSettings(env: Record<string, string>): InstaboxSet
     apiUrl: (env.INSTABOX_API_URL || "https://api.instabox.sh").trim().replace(/\/+$/, ""),
     template: (env.INSTABOX_TEMPLATE || "agent-browser").trim() || "agent-browser",
     allowProvisioning: /^(1|true|yes|on)$/i.test((env.INSTABOX_ALLOW_PROVISIONING || "").trim()),
+    allowAgentControl: /^(1|true|yes|on)$/i.test((env.INSTABOX_ALLOW_AGENT_CONTROL || "").trim()),
     defaultMachineName: (env.INSTABOX_DEFAULT_MACHINE_NAME || "").trim(),
     defaultOwnerUid: (env.INSTABOX_DEFAULT_OWNER_UID || "").trim(),
     machineTimeoutMs: toPositiveInteger(env.INSTABOX_MACHINE_TIMEOUT_MS, 4 * 60 * 60_000, 60_000, 24 * 60 * 60_000),

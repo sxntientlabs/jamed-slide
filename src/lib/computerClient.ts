@@ -83,8 +83,8 @@ export function openComputerSession(viewOnly = true, options: ComputerClientOpti
   return request<ComputerSession>("/api/computer/session", { method: "POST", body: JSON.stringify({ viewOnly }) }, options);
 }
 
-export function revokeComputerSession(options: ComputerClientOptions = {}): Promise<{ ok: true }> {
-  return request<{ ok: true }>("/api/computer/revoke", { method: "POST", body: "{}" }, options);
+export function revokeComputerSession(options: ComputerClientOptions = {}, sessionId?: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/api/computer/revoke", { method: "POST", body: JSON.stringify(sessionId ? { sessionId } : {}) }, options);
 }
 
 export function pauseComputer(options: ComputerClientOptions = {}): Promise<{ machine: ComputerMachine }> {

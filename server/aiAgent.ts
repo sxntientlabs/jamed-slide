@@ -17,7 +17,16 @@ import type {
 import { getAgentDefinition, type AgentDefinition } from "../src/lib/agentCatalog";
 import type { KoasisModelId, KoasisReasoningLevel } from "../src/lib/koasisModels";
 import { detectSensitiveIdentifiers } from "../src/lib/privacyGuard";
+import {
+  COMPUTER_AGENT_INTERNAL_TOKEN,
+  COMPUTER_AGENT_MAX_ACTIONS,
+  COMPUTER_AGENT_MAX_ROUNDS,
+  COMPUTER_AGENT_TOOLS,
+  computerIntentDetected,
+  parseComputerToolArguments,
+} from "./computerAgent";
 import { EvidenceSearchUnavailableError, searchFederatedEvidence } from "./evidenceSearch";
+import type { InstaboxAction } from "./instabox";
 
 const MAX_REQUEST_BYTES = 12_000_000;
 const MAX_MEDIA_ITEMS = 6;
@@ -25,6 +34,7 @@ const MAX_MEDIA_BYTES = 8_000_000;
 const MAX_MEDIA_DATA_URL_CHARS = Math.ceil(MAX_MEDIA_BYTES * 4 / 3) + 1_024;
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 const CHAT_TIMEOUT_MS = 90_000;
+const COMPUTER_INTERNAL_TIMEOUT_MS = 20_000;
 const EVIDENCE_SEARCH_TIMEOUT_MS = 12_000;
 const EVIDENCE_SEARCH_MAX_QUERY_CHARS = 240;
 const EVIDENCE_SEARCH_MAX_RESULTS = 8;
@@ -1213,6 +1223,247 @@ type AgentWorkspaceContext = {
   reasoningEffort?: KoasisReasoningLevel;
 };
 
+type ComputerAgentState = {
+  sessionId?: string;
+};
+
+type ComputerAgentExecution = {
+  content: string;
+  screenshotBase64?: string;
+};
+
+type ProviderToolCall = {
+  id: string;
+  name: string;
+  arguments: unknown;
+  raw: JsonObject;
+};
+
+function computerInternalBaseUrl(): string {
+  const configured = (process.env.KOASIS_INTERNAL_URL || "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  return `http://127.0.0.1:${process.env.PORT || "4173"}`;
+}
+
+function requestAuthorization(request: IncomingMessage): string {
+  const value = request.headers.authorization;
+  const authorization = Array.isArray(value) ? value[0] : value;
+  if (!authorization) throw new Error("Sesi login tidak tersedia untuk tool Computer.");
+  return authorization;
+}
+
+function providerContentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => typeof item === "string" ? item : stringValue(asRecord(item).text) || "").join("");
+  }
+  return "";
+}
+
+function providerToolCalls(payload: unknown): { message: JsonObject; toolCalls: ProviderToolCall[] } {
+  const root = asRecord(payload);
+  const choices = Array.isArray(root.choices) ? root.choices : [];
+  const message = asRecord(asRecord(choices[0]).message);
+  const rawToolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const toolCalls = rawToolCalls.map((value, index) => {
+    const raw = asRecord(value);
+    const fn = asRecord(raw.function);
+    return {
+      id: stringValue(raw.id) || `computer-tool-${index + 1}-${randomUUID()}`,
+      name: stringValue(fn.name) || "unknown_computer_tool",
+      arguments: fn.arguments,
+      raw,
+    };
+  });
+  return { message, toolCalls };
+}
+
+async function callComputerInternal(
+  path: string,
+  authorization: string,
+  body: JsonObject,
+  signal: AbortSignal,
+): Promise<JsonObject> {
+  const response = await fetch(`${computerInternalBaseUrl()}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authorization,
+      "X-Koasis-Agent-Tool": COMPUTER_AGENT_INTERNAL_TOKEN,
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const responseText = await response.text();
+  let payload: unknown = {};
+  try {
+    payload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    payload = {};
+  }
+  const record = asRecord(payload);
+  if (!response.ok) {
+    const error = stringValue(record.error) || `Computer backend gagal (HTTP ${response.status}).`;
+    throw Object.assign(new Error(error), { code: stringValue(record.code) || "computer_backend_error" });
+  }
+  return record;
+}
+
+function computerActionForTool(name: string, args: JsonObject): InstaboxAction {
+  if (name === "computer_screenshot") return { type: "screenshot" };
+  if (name === "computer_open" && typeof args.url === "string") return { type: "open", url: args.url };
+  if (name === "computer_click" && typeof args.x === "number" && typeof args.y === "number") {
+    return {
+      type: "click",
+      x: args.x,
+      y: args.y,
+      button: args.button === "right" || args.button === "middle" ? args.button : "left",
+      double: args.double === true,
+    };
+  }
+  if (name === "computer_type" && typeof args.text === "string") {
+    return { type: "type", text: args.text, delayMs: typeof args.delayMs === "number" ? args.delayMs : undefined };
+  }
+  if (name === "computer_press" && (typeof args.keys === "string" || Array.isArray(args.keys) && args.keys.every((key) => typeof key === "string"))) {
+    return { type: "press", keys: args.keys as string | string[] };
+  }
+  if (name === "computer_scroll" && (args.direction === "up" || args.direction === "down" || args.direction === "left" || args.direction === "right")) {
+    return { type: "scroll", direction: args.direction, amount: typeof args.amount === "number" ? args.amount : undefined };
+  }
+  throw new Error(`Argumen ${name} tidak valid.`);
+}
+
+async function executeComputerTool(
+  name: string,
+  rawArguments: unknown,
+  state: ComputerAgentState,
+  authorization: string,
+  signal: AbortSignal,
+): Promise<ComputerAgentExecution> {
+  const args = parseComputerToolArguments(rawArguments);
+  if (name === "computer_start") {
+    if (state.sessionId) return { content: JSON.stringify({ ok: true, alreadyStarted: true, sessionId: state.sessionId }) };
+    const session = await callComputerInternal("/api/computer/session", authorization, { viewOnly: false, includeStream: false, agent: true }, signal);
+    const sessionId = stringValue(session.sessionId);
+    if (!sessionId) throw new Error("Backend Computer tidak mengembalikan sessionId.");
+    state.sessionId = sessionId;
+    return {
+      content: JSON.stringify({ ok: true, started: true, machine: session.machine, expiresAt: session.expiresAt }),
+    };
+  }
+
+  if (!state.sessionId) {
+    const started = await executeComputerTool("computer_start", {}, state, authorization, signal);
+    if (name === "computer_start") return started;
+  }
+  const action = computerActionForTool(name, args);
+  const result = await callComputerInternal("/api/computer/action", authorization, { sessionId: state.sessionId, action }, signal);
+  const screenshotBase64 = stringValue(result.screenshotBase64);
+  return {
+    content: JSON.stringify({ ok: true, action: name, result: screenshotBase64 ? { type: result.type, screenshot: "attached" } : result }),
+    ...(screenshotBase64 ? { screenshotBase64 } : {}),
+  };
+}
+
+async function revokeComputerAgentSession(state: ComputerAgentState, authorization: string): Promise<void> {
+  if (!state.sessionId) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COMPUTER_INTERNAL_TIMEOUT_MS);
+  try {
+    await callComputerInternal("/api/computer/revoke", authorization, { sessionId: state.sessionId }, controller.signal);
+  } catch {
+    // The session has a short TTL and the main agent response must not be
+    // replaced by a cleanup failure.
+  } finally {
+    clearTimeout(timeout);
+    state.sessionId = undefined;
+  }
+}
+
+async function openAgentComputerResponse(
+  settings: AgentSettings,
+  messages: AgentChatInputMessage[],
+  agent: AgentDefinition,
+  workspaceContext: AgentWorkspaceContext | undefined,
+  authorization: string,
+  signal: AbortSignal,
+  onProgress: (message: string) => void,
+): Promise<{ content: string; model: string }> {
+  const prepared = await prepareAgentChatRequest(settings, messages, agent, workspaceContext);
+  const conversation = [...(prepared.payload.messages as JsonObject[])];
+  const state: ComputerAgentState = {};
+  let actionCount = 0;
+
+  try {
+    for (let round = 0; round < COMPUTER_AGENT_MAX_ROUNDS; round += 1) {
+      onProgress(round === 0 ? "Menghubungkan agent ke Computer" : "Agent memeriksa hasil aksi Computer");
+      const providerResponse = await fetch(prepared.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+        body: JSON.stringify({
+          ...prepared.payload,
+          messages: conversation,
+          stream: false,
+          tools: COMPUTER_AGENT_TOOLS,
+          tool_choice: "auto",
+        }),
+        signal,
+      });
+      const responseText = await providerResponse.text();
+      let payload: unknown;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        payload = parseJsonContent(responseText);
+      }
+      if (!providerResponse.ok) {
+        const message = safeErrorMessage(responseText, providerResponse.status);
+        throw Object.assign(new Error(message), { code: "computer_tools_unsupported" });
+      }
+
+      const parsed = providerToolCalls(payload);
+      if (!parsed.toolCalls.length) {
+        const content = providerContentText(parsed.message.content);
+        if (!content) throw new Error("AI agent tidak mengembalikan isi jawaban setelah aksi Computer.");
+        return { content, model: prepared.model };
+      }
+
+      conversation.push({
+        role: "assistant",
+        content: parsed.message.content ?? null,
+        tool_calls: parsed.toolCalls.map((call) => call.raw),
+      });
+      const screenshots: string[] = [];
+      for (const call of parsed.toolCalls) {
+        actionCount += 1;
+        if (actionCount > COMPUTER_AGENT_MAX_ACTIONS) throw new Error("Agent mencapai batas aman aksi Computer untuk satu permintaan.");
+        onProgress(`Menjalankan ${call.name.replace(/^computer_/, "")} di Computer`);
+        let execution: ComputerAgentExecution;
+        try {
+          execution = await executeComputerTool(call.name, call.arguments, state, authorization, signal);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Aksi Computer gagal.";
+          execution = { content: JSON.stringify({ ok: false, error: message }) };
+        }
+        conversation.push({ role: "tool", tool_call_id: call.id, name: call.name, content: execution.content });
+        if (execution.screenshotBase64) screenshots.push(execution.screenshotBase64);
+      }
+      for (const screenshotBase64 of screenshots) {
+        conversation.push({
+          role: "user",
+          content: [
+            { type: "text", text: "Screenshot terbaru Computer terlampir. Gunakan hanya untuk menentukan aksi berikutnya." },
+            { type: "image_url", image_url: { url: `data:image/png;base64,${screenshotBase64}`, detail: "high" } },
+          ],
+        });
+      }
+    }
+    throw new Error("Agent mencapai batas aman langkah Computer untuk satu permintaan.");
+  } finally {
+    await revokeComputerAgentSession(state, authorization);
+  }
+}
+
 async function prepareAgentChatRequest(
   settings: AgentSettings,
   messages: AgentChatInputMessage[],
@@ -1697,6 +1948,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       return;
     }
     const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+    const computerRequested = computerIntentDetected(latestUserMessage?.content || "");
     const identifierFindings = detectSensitiveIdentifiers(latestUserMessage?.content || "");
     if (identifierFindings.length) {
       sendJson(response, 422, {
@@ -1740,12 +1992,27 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     });
     writeAgentStreamEvent(response, { type: "status", phase: "accepted", message: "Permintaan diterima", requestId });
     writeAgentStreamEvent(response, { type: "status", phase: "preparing", message: "Memeriksa konteks dan batas sumber", requestId });
-    const provider = await openAgentChatResponse(settings, messages, agent, workspaceContext, streamController.signal);
-    writeAgentStreamEvent(response, { type: "meta", engine: "agent", model: provider.model, requestId, agentId: agent.id });
-    writeAgentStreamEvent(response, { type: "status", phase: "generating", message: `${agent.label} sedang menyusun draft`, requestId });
-    await forwardAgentChatContent(provider.response, provider.streamed, (content) => {
-      writeAgentStreamEvent(response, { type: "delta", content });
-    });
+    if (computerRequested) {
+      writeAgentStreamEvent(response, { type: "status", phase: "generating", message: "Agent menyiapkan Computer", requestId });
+      const provider = await openAgentComputerResponse(
+        settings,
+        messages,
+        agent,
+        workspaceContext,
+        requestAuthorization(request),
+        streamController.signal,
+        (message) => writeAgentStreamEvent(response, { type: "status", phase: "generating", message, requestId }),
+      );
+      writeAgentStreamEvent(response, { type: "meta", engine: "agent", model: provider.model, requestId, agentId: agent.id });
+      writeAgentStreamEvent(response, { type: "delta", content: provider.content });
+    } else {
+      const provider = await openAgentChatResponse(settings, messages, agent, workspaceContext, streamController.signal);
+      writeAgentStreamEvent(response, { type: "meta", engine: "agent", model: provider.model, requestId, agentId: agent.id });
+      writeAgentStreamEvent(response, { type: "status", phase: "generating", message: `${agent.label} sedang menyusun draft`, requestId });
+      await forwardAgentChatContent(provider.response, provider.streamed, (content) => {
+        writeAgentStreamEvent(response, { type: "delta", content });
+      });
+    }
     writeAgentStreamEvent(response, { type: "status", phase: "finalizing", message: "Menandai batas review", requestId });
     writeAgentStreamEvent(response, { type: "done", requestId, durationMs: Date.now() - startedAt });
     response.end();
@@ -1754,8 +2021,11 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     const message = streamController.signal.aborted
       ? "Permintaan melewati batas waktu. Coba lagi dengan konteks yang lebih ringkas."
       : error instanceof Error ? error.message : "Agent chat gagal memproses pesan.";
+    const errorCode = error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : streamController.signal.aborted ? "timeout" : "upstream_error";
     if (streamStarted) {
-      writeAgentStreamEvent(response, { type: "error", error: message, requestId, code: streamController.signal.aborted ? "timeout" : "upstream_error" });
+      writeAgentStreamEvent(response, { type: "error", error: message, requestId, code: errorCode });
       response.end();
     } else {
       sendJson(response, 502, { error: message });

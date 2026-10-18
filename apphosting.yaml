@@ -41,6 +41,11 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Set to true only after agent Computer control has been explicitly approved.
+  - variable: INSTABOX_ALLOW_AGENT_CONTROL
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: INSTABOX_MACHINE_TIMEOUT_MS
     value: "14400000"
     availability:

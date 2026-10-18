@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import type { Plugin } from "vite";
 import { authenticateAgentRequest } from "./aiAgent";
+import { COMPUTER_AGENT_INTERNAL_TOKEN } from "./computerAgent";
 import { createInstaboxSettings, InstaboxService, type InstaboxAction, type InstaboxMachineSummary } from "./instabox";
 
 type Next = (error?: unknown) => void;
@@ -100,11 +101,14 @@ async function installSchema(pool: Pool): Promise<void> {
       user_id text NOT NULL REFERENCES koasis_computer_machines(user_id) ON DELETE CASCADE,
       instabox_machine_id text NOT NULL,
       view_only boolean NOT NULL DEFAULT true,
+      source text NOT NULL DEFAULT 'user',
       expires_at timestamptz NOT NULL,
       status text NOT NULL CHECK (status IN ('active', 'revoked')),
       created_at timestamptz NOT NULL DEFAULT now(),
       revoked_at timestamptz
     );
+    ALTER TABLE koasis_computer_sessions
+      ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'user';
     CREATE INDEX IF NOT EXISTS koasis_computer_sessions_user_idx
       ON koasis_computer_sessions (user_id, created_at DESC);
   `);
@@ -159,6 +163,8 @@ function computerError(error: unknown): { status: number; code: string; message:
   if (code === "not_found") return { status: 404, code: "computer_machine_not_found", message: "Machine Computer tidak ditemukan." };
   if (code === "computer_machine_not_found") return { status: 404, code, message: "Machine Computer belum tersedia." };
   if (code === "computer_session_expired") return { status: 409, code, message: "Session Computer sudah berakhir." };
+  if (code === "computer_control_not_allowed") return { status: 409, code, message: "Session Computer ini view-only. Buka session kontrol untuk menjalankan aksi." };
+  if (code === "computer_agent_control_disabled") return { status: 409, code, message: "Kontrol Computer oleh agent belum diaktifkan di server." };
   if (code === "computer_provisioning_disabled") return { status: 409, code, message: "Provisioning machine belum diaktifkan." };
   if (code === "operation_conflict" || code === "machine_not_running") return { status: 409, code, message: "Machine sedang menjalankan operasi lain. Coba lagi sebentar." };
   if (status === 400) return { status: 400, code: "instabox_bad_request", message: "Permintaan ke Instabox tidak valid." };
@@ -194,6 +200,15 @@ async function requireUser(request: IncomingMessage, response: ServerResponse, p
     sendJson(response, 503, { error: "Verifikasi sesi sementara tidak tersedia.", code: "auth_unavailable" });
     return null;
   }
+}
+
+function hasInternalAgentCapability(request: IncomingMessage): boolean {
+  const header = request.headers["x-koasis-agent-tool"];
+  return typeof header === "string" && header === COMPUTER_AGENT_INTERNAL_TOKEN;
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function toComputerAction(value: unknown): InstaboxAction | null {
@@ -333,7 +348,7 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       }
       const machine = await instabox.getMachine(row.instabox_machine_id);
       const session = await activePool.query<ComputerSessionRow>(
-        "SELECT id, view_only, expires_at, status FROM koasis_computer_sessions WHERE user_id = $1 AND status = 'active' AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
+        "SELECT id, view_only, expires_at, status FROM koasis_computer_sessions WHERE user_id = $1 AND source = 'user' AND status = 'active' AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
         [userId],
       );
       const activeSession = session.rows[0] ? {
@@ -373,7 +388,13 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
     }
     try {
       const body = await readJsonBody(request);
-      const viewOnly = body.viewOnly !== false;
+      const agentSession = hasInternalAgentCapability(request) && body.agent === true;
+      if (agentSession && !settings.instabox.allowAgentControl) {
+        sendJson(response, 409, { error: "Kontrol Computer oleh agent belum diaktifkan di server.", code: "computer_agent_control_disabled" });
+        return;
+      }
+      const viewOnly = agentSession ? false : body.viewOnly !== false;
+      const includeStream = agentSession ? false : body.includeStream !== false;
       const activePool = await ensureSchema();
       const result = await withComputerUserLock(activePool, userId, async (client) => {
         let mapping = (await client.query<ComputerMachineRow>(
@@ -403,25 +424,28 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
 
         const machine = await instabox.ensureRunning(mapping.instabox_machine_id);
         await instabox.startDesktop(mapping.instabox_machine_id);
-        await instabox.revokeStreams(mapping.instabox_machine_id);
-        const stream = await instabox.createStream(mapping.instabox_machine_id, viewOnly, 600);
+        if (includeStream) await instabox.revokeStreams(mapping.instabox_machine_id);
+        const stream = includeStream ? await instabox.createStream(mapping.instabox_machine_id, viewOnly, 600) : null;
+        const expiresAt = stream?.expiresAt || new Date(Date.now() + 10 * 60_000).toISOString();
         const sessionId = randomUUID();
+        if (!agentSession) {
+          await client.query(
+            "UPDATE koasis_computer_sessions SET status = 'revoked', revoked_at = now() WHERE user_id = $1 AND status = 'active'",
+            [userId],
+          );
+        }
         await client.query(
-          "UPDATE koasis_computer_sessions SET status = 'revoked', revoked_at = now() WHERE user_id = $1 AND status = 'active'",
-          [userId],
-        );
-        await client.query(
-          "INSERT INTO koasis_computer_sessions (id, user_id, instabox_machine_id, view_only, expires_at, status) VALUES ($1, $2, $3, $4, $5::timestamptz, 'active')",
-          [sessionId, userId, mapping.instabox_machine_id, viewOnly, stream.expiresAt],
+          "INSERT INTO koasis_computer_sessions (id, user_id, instabox_machine_id, view_only, source, expires_at, status) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, 'active')",
+          [sessionId, userId, mapping.instabox_machine_id, viewOnly, agentSession ? "agent" : "user", expiresAt],
         );
         await client.query("UPDATE koasis_computer_machines SET last_seen_at = now(), updated_at = now() WHERE user_id = $1", [userId]);
-        return { sessionId, machine, stream };
+        return { sessionId, machine, stream, expiresAt };
       });
       sendJson(response, 200, {
         sessionId: result.sessionId,
         machine: result.machine,
-        streamUrl: result.stream.url,
-        expiresAt: result.stream.expiresAt,
+        ...(result.stream ? { streamUrl: result.stream.url } : {}),
+        expiresAt: result.expiresAt,
         viewOnly,
       });
     } catch (error) {
@@ -446,11 +470,26 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       return;
     }
     try {
+      const body = await readJsonBody(request);
+      const sessionId = body.sessionId === undefined ? undefined : isUuid(body.sessionId) ? body.sessionId : null;
+      if (sessionId === null) {
+        sendJson(response, 400, { error: "sessionId tidak valid.", code: "invalid_computer_session" });
+        return;
+      }
       const activePool = await ensureSchema();
       await withComputerUserLock(activePool, userId, async (client) => {
         const mapping = (await client.query<ComputerMachineRow>("SELECT user_id, instabox_machine_id, machine_name FROM koasis_computer_machines WHERE user_id = $1", [userId])).rows[0];
+        if (sessionId) {
+          const target = await client.query<{ instabox_machine_id: string; source: string }>(
+            "SELECT instabox_machine_id, source FROM koasis_computer_sessions WHERE id = $1 AND user_id = $2 AND status = 'active'",
+            [sessionId, userId],
+          );
+          if (target.rows[0]?.source === "user") await instabox.revokeStreams(target.rows[0].instabox_machine_id);
+          await client.query("UPDATE koasis_computer_sessions SET status = 'revoked', revoked_at = now() WHERE id = $1 AND user_id = $2 AND status = 'active'", [sessionId, userId]);
+          return;
+        }
         if (mapping) await instabox.revokeStreams(mapping.instabox_machine_id);
-        await client.query("UPDATE koasis_computer_sessions SET status = 'revoked', revoked_at = now() WHERE user_id = $1 AND status = 'active'", [userId]);
+        await client.query("UPDATE koasis_computer_sessions SET status = 'revoked', revoked_at = now() WHERE user_id = $1 AND source = 'user' AND status = 'active'", [userId]);
       });
       sendJson(response, 200, { ok: true });
     } catch (error) {
@@ -511,12 +550,21 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
         sendJson(response, 400, { error: "Aksi Computer tidak valid.", code: "invalid_computer_action" });
         return;
       }
+      const sessionId = body.sessionId === undefined ? undefined : isUuid(body.sessionId) ? body.sessionId : null;
+      if (sessionId === null) {
+        sendJson(response, 400, { error: "sessionId tidak valid.", code: "invalid_computer_session" });
+        return;
+      }
       const activePool = await ensureSchema();
       const result = await withComputerUserLock(activePool, userId, async (client) => {
         const mapping = (await client.query<ComputerMachineRow>("SELECT user_id, instabox_machine_id, machine_name FROM koasis_computer_machines WHERE user_id = $1", [userId])).rows[0];
         if (!mapping) throw Object.assign(new Error("Machine belum tersedia."), { code: "computer_machine_not_found", status: 404 });
-        const activeSession = await client.query("SELECT id FROM koasis_computer_sessions WHERE user_id = $1 AND status = 'active' AND expires_at > now() LIMIT 1", [userId]);
+        const activeSession = await client.query<{ id: string; view_only: boolean }>(
+          "SELECT id, view_only FROM koasis_computer_sessions WHERE user_id = $1 AND status = 'active' AND expires_at > now() AND ($2::uuid IS NOT NULL AND id = $2::uuid OR $2::uuid IS NULL AND source = 'user') ORDER BY created_at DESC LIMIT 1",
+          [userId, sessionId ?? null],
+        );
         if (!activeSession.rows.length) throw Object.assign(new Error("Session Computer sudah berakhir."), { code: "computer_session_expired", status: 409 });
+        if (activeSession.rows[0].view_only) throw Object.assign(new Error("Session Computer ini view-only."), { code: "computer_control_not_allowed", status: 409 });
         return instabox.action(mapping.instabox_machine_id, action);
       });
       sendJson(response, 200, result);

@@ -297,7 +297,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
     setBusyAction("revoke");
     try {
       const token = await getAuthToken();
-      await revokeComputerSession({ authToken: token });
+      await revokeComputerSession({ authToken: token }, session?.sessionId);
       setSession(null);
       await loadStatus();
     } catch (caught) {

@@ -29,6 +29,7 @@ Pengaturan lain:
 ```text
 INSTABOX_TEMPLATE=agent-browser
 INSTABOX_ALLOW_PROVISIONING=false
+INSTABOX_ALLOW_AGENT_CONTROL=false
 INSTABOX_MACHINE_TIMEOUT_MS=14400000
 INSTABOX_AUTO_SUSPEND_MS=1800000
 ```
@@ -51,8 +52,8 @@ Semua endpoint memerlukan `Authorization: Bearer <Firebase ID token>`.
 | Endpoint | Kegunaan |
 | --- | --- |
 | `GET /api/computer/status` | Membaca status mapping dan machine tanpa membangunkannya |
-| `POST /api/computer/session` | Resume/provision machine, start desktop, dan membuat stream URL TTL 10 menit |
-| `POST /api/computer/action` | Aksi desktop tervalidasi: screenshot, open, click, type, press, scroll |
+| `POST /api/computer/session` | Resume/provision machine, start desktop, dan membuat stream URL TTL 10 menit; session biasa default view-only |
+| `POST /api/computer/action` | Aksi desktop tervalidasi: screenshot, open, click, type, press, scroll; hanya session kontrol yang bisa memanggilnya |
 | `POST /api/computer/revoke` | Mencabut seluruh stream URL machine user |
 | `POST /api/computer/pause` | Menjeda machine dan mencabut session aktif |
 
@@ -65,6 +66,8 @@ Provisioning dan lifecycle memakai advisory lock PostgreSQL per user supaya requ
 - URL desktop dibuat ulang setiap session dan stream sebelumnya dicabut.
 - Screenshot, password, isi ketikan, dan command tidak disimpan ke database.
 - Command shell arbitrary belum diekspos ke browser; aksi yang tersedia dibatasi pada desktop control.
+- Agent hanya mendapat tool Computer ketika pesan user secara eksplisit meminta browser/desktop/computer. Tool memakai session kontrol server-side terpisah, maksimal 12 aksi per permintaan, lalu session dicabut otomatis.
+- `INSTABOX_ALLOW_AGENT_CONTROL` adalah sakelar terpisah dari provisioning. Biarkan `false` bila agent hanya boleh menjawab teks; ubah ke `true` setelah kebijakan kontrol, quota, dan review disetujui.
 - Machine tidak dihapus otomatis dari flow user. Penghapusan perlu workflow admin terpisah karena bersifat irreversibel.
 
 ## Urutan aktivasi
@@ -75,3 +78,4 @@ Provisioning dan lifecycle memakai advisory lock PostgreSQL per user supaya requ
 3. Uji `GET /api/computer/status` dengan user login.
 4. Untuk machine existing, set `INSTABOX_DEFAULT_MACHINE_NAME` dan `INSTABOX_DEFAULT_OWNER_UID`.
 5. Untuk machine per user, ubah `INSTABOX_ALLOW_PROVISIONING=true` setelah quota akun dan kebijakan biaya disetujui.
+6. Untuk mengaktifkan agent menggunakan Computer, set `INSTABOX_ALLOW_AGENT_CONTROL=true`. Ini tidak diperlukan untuk tombol manual `Buka desktop` atau `Ambil kontrol`.
