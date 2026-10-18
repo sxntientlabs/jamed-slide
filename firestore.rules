@@ -41,14 +41,55 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // The app intentionally stores only non-clinical workspace metadata here.
-    // Patient notes, extracted records, evidence, and generated files remain local.
+    // Legacy template workspace metadata. Keep it separate from the Koasis app
+    // state so existing /lapjag users remain compatible during migration.
     match /users/{userId}/workspaces/{workspaceId} {
       allow read: if signedInAs(userId);
       allow create, update: if signedInAs(userId)
         && workspaceId == 'default'
         && validWorkspaceMetadata();
       allow delete: if signedInAs(userId) && workspaceId == 'default';
+    }
+
+    // Browser state is owner-scoped. The client stores only the compact,
+    // reviewable state needed to restore a workspace; binary files belong in
+    // Firebase Storage and are never embedded in Firestore documents.
+    match /users/{userId}/koasis/state {
+      allow read: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.tasks is list
+        && request.resource.data.tasks.size() <= 100;
+      allow delete: if signedInAs(userId);
+    }
+
+    match /users/{userId}/koasis/sessions/items/{sessionId} {
+      allow read: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.messages is list
+        && request.resource.data.messages.size() <= 40;
+      allow delete: if signedInAs(userId);
+    }
+
+    match /users/{userId}/koasis/clinical {
+      allow read: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.encounters is list
+        && request.resource.data.encounters.size() <= 40
+        && request.resource.data.attempts is list
+        && request.resource.data.attempts.size() <= 50;
+      allow delete: if signedInAs(userId);
+    }
+
+    match /users/{userId}/koasis/portfolio {
+      allow read: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.evidence is list
+        && request.resource.data.evidence.size() <= 200;
+      allow delete: if signedInAs(userId);
     }
 
     // Export records are server-authoritative. A signed-in user can inspect only

@@ -260,12 +260,13 @@ export async function reviewPresentationWithAgent(
   patients: PatientRecord[],
   renderedSlides: string[],
   focusPatientId?: string,
+  authToken?: string,
 ): Promise<PresentationReview> {
   const candidateIndexes = Array.from(new Set([0, 1, Math.floor((renderedSlides.length - 1) / 2), renderedSlides.length - 1].filter((index) => index >= 0 && index < renderedSlides.length))).slice(0, 6);
   const visuals = await Promise.all(candidateIndexes.map(async (slideIndex) => ({ slideIndex, dataUrl: await thumbnail(renderedSlides[slideIndex]) })));
   const response = await fetch("/api/presentation/review", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
     body: JSON.stringify({ snapshot, patients: compactPatientContext(patients, focusPatientId), focusPatientId, visuals }),
   });
   let payload: unknown = {};

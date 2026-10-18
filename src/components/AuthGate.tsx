@@ -71,8 +71,21 @@ function FirebaseSetupScreen() {
   );
 }
 
+function GoogleMark() {
+  return (
+    <svg className="google-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="#4285F4" d="M21.35 12.27c0-.79-.07-1.55-.2-2.27H12v4.3h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.69 2.91-4.18 2.91-7.42z" />
+      <path fill="#34A853" d="M12 21.5c2.63 0 4.84-.87 6.45-2.36l-3.14-2.45c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.29v2.53A9.74 9.74 0 0 0 12 21.5z" />
+      <path fill="#FBBC05" d="M6.54 12.61a5.86 5.86 0 0 1 0-3.72V6.36H3.29a9.5 9.5 0 0 0 0 8.78l3.25-2.53z" />
+      <path fill="#EA4335" d="M12 4.86c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.83 1.95 14.62 1 12 1a9.74 9.74 0 0 0-8.71 5.36l3.25 2.53C7.31 6.58 9.46 4.86 12 4.86z" />
+    </svg>
+  );
+}
+
 function LoginScreen() {
-  const headline = "Assistant Koasmu";
+  const isLegacyRoute = (window.location.pathname.replace(/\/+$/, "") || "/") === "/lapjag";
+  const headline = "Assitant Koas-mu";
+  const loginDescription = isLegacyRoute ? "Masuk untuk melanjutkan laporan jaga kamu." : "Masuk untuk memulai workspace agentic kamu.";
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -176,18 +189,18 @@ function LoginScreen() {
         </div>
         <div className="auth-trust-list">
           <div><Check size={14} /><span>Workspace privat per akun</span></div>
-          <div><Check size={14} /><span>Hanya metadata workspace yang disinkronkan</span></div>
-          <div><Check size={14} /><span>Catatan pasien dan attachment tetap lokal</span></div>
+          <div><Check size={14} /><span>Referensi relevan dan evidence-based</span></div>
+          <div><Check size={14} /><span>Agent spesialis siap konsul</span></div>
         </div>
       </section>
 
       <section className="auth-panel">
         <span className="eyebrow">Workspace privat</span>
         <h2>{mode === "signin" ? "Selamat datang kembali." : "Mulai workspace Koasis."}</h2>
-        <p className="auth-panel-description">Masuk untuk melanjutkan laporan jaga kamu.</p>
+        <p className="auth-panel-description">{loginDescription}</p>
 
         <button className="auth-google-button" type="button" onClick={handleGoogle} disabled={busy || googleBusy}>
-          <span className="google-mark" aria-hidden="true">G</span>
+          <GoogleMark />
           {googleBusy ? "Membuka login Google…" : "Lanjutkan dengan Google"}
         </button>
         <div className="auth-divider"><span>atau dengan email</span></div>
@@ -204,7 +217,6 @@ function LoginScreen() {
         </form>
 
         <div className="auth-mode-switch"><span>{mode === "signin" ? "Belum punya akun?" : "Sudah punya akun?"}</span><button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setNotice(""); }}>{mode === "signin" ? "Buat akun" : "Masuk"}</button></div>
-        <p className="auth-privacy-note"><ShieldCheck size={13} /> Data medis mentah tidak dikirim ke Firestore oleh aplikasi ini.</p>
       </section>
     </main>
   );

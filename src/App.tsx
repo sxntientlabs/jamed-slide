@@ -32,6 +32,7 @@ import type { BuiltInTemplateEntry } from "./lib/builtInTemplates";
 import { loadBuiltInTemplate, loadBuiltInTemplateCatalog } from "./lib/builtInTemplates";
 import { KoasisIcon, type KoasisIconName } from "./components/KoasisIcon";
 import { AuthGate, useAuth, userInitial } from "./components/AuthGate";
+import { AgenticChat } from "./components/AgenticChat";
 import { extractPatientsWithAi } from "./lib/aiClinicalClient";
 import { extractPatients, formatFieldValue, splitPatientSections } from "./lib/clinicalParser";
 import { extractDocxText } from "./lib/docxParser";
@@ -1165,7 +1166,7 @@ function AuthenticatedApp() {
       // template agent has inspected its actual slides.
       const parsed = await parsePptx(file, file.name, "generic");
       const customTemplate: ParsedTemplate = { ...parsed, profileId: "generic", analysisStatus: "analyzing" };
-      const analyzed = await analyzeTemplateWithAi(customTemplate);
+      const analyzed = await analyzeTemplateWithAi(customTemplate, await user.getIdToken());
       setTemplate(analyzed.template);
       setAllowUnvalidatedTemplate(false);
       markAnalysisInputChanged("context");
@@ -1189,7 +1190,7 @@ function AuthenticatedApp() {
       const parsed = await parsePptx(raw, entry.fileName);
       const prepared = { ...parsed, name: entry.label };
       const analyzed = prepared.profileId === "generic"
-        ? await analyzeTemplateWithAi({ ...prepared, analysisStatus: "analyzing" })
+        ? await analyzeTemplateWithAi({ ...prepared, analysisStatus: "analyzing" }, await user.getIdToken())
         : { template: applyTemplateAnalysis(prepared, buildLocalTemplateAnalysis(prepared), "local"), analysis: undefined, error: undefined };
       setTemplate(analyzed.template);
       setAllowUnvalidatedTemplate(false);
@@ -1274,6 +1275,7 @@ function AuthenticatedApp() {
     const bulkRevision = analysisReasonRevisionsRef.current.bulk;
     setAnalysisBusy(true);
     try {
+      const authToken = await user.getIdToken();
       let extractedPatients: PatientRecord[];
       let usedLocalFallback = false;
       try {
@@ -1288,7 +1290,7 @@ function AuthenticatedApp() {
           warnings: template?.templateAnalysis?.warnings || [],
           confidence: template?.templateAnalysis?.confidence,
           validation: template?.templateValidation,
-        }, attachments);
+        }, attachments, authToken);
         extractedPatients = aiPatients.map((patient) => ({ ...patient, sourceId, attachments: [] }));
       } catch (aiError) {
         const localPatients = extractPatients(trimmed, sourceId).patients;
@@ -1367,6 +1369,7 @@ function AuthenticatedApp() {
     setFocusDraftId(requestedFocusDraftId);
     setAnalysisBusy(true);
     try {
+      const authToken = await user.getIdToken();
       const extractedPatients: PatientRecord[] = [];
       const fallbackMessages: string[] = [];
       for (const draft of populatedDrafts) {
@@ -1384,7 +1387,7 @@ function AuthenticatedApp() {
             warnings: template?.templateAnalysis?.warnings || [],
             confidence: template?.templateAnalysis?.confidence,
             validation: template?.templateValidation,
-          }, draft.attachments ?? []);
+          }, draft.attachments ?? [], authToken);
           extractedPatients.push(...aiPatients.map((patient) => ({ ...patient, attachments: draft.bulkSource ? [] : draft.attachments ?? [] })));
         } catch (aiError) {
           const localPatients = extractPatients(sourceText, sourceId).patients;
@@ -1442,7 +1445,7 @@ function AuthenticatedApp() {
         const localInspection = await inspectGeneratedPresentation(result.blob, template, patients, selectedFocusPatient.id);
         let finalReview = localInspection.review;
         try {
-          const agentReview = await reviewPresentationWithAgent(localInspection.snapshot, patients, rendered.slides, selectedFocusPatient.id);
+          const agentReview = await reviewPresentationWithAgent(localInspection.snapshot, patients, rendered.slides, selectedFocusPatient.id, await user.getIdToken());
           const mergedIssues = [...localInspection.review.issues, ...agentReview.issues]
             .filter((issue, index, all) => all.findIndex((candidate) => candidate.slideIndex === issue.slideIndex && candidate.title === issue.title && candidate.detail === issue.detail) === index)
             .slice(0, 24);
@@ -1546,7 +1549,7 @@ function AuthenticatedApp() {
     <div className="app-shell">
       <aside className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}>
         <div className="brand"><img className="brand-lockup" src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div>
-        <nav className="main-nav"><span className="nav-label">Ruang kerja</span>{NAV_ITEMS.map(({ id, label, icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><KoasisIcon name={icon} size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
+        <nav className="main-nav"><span className="nav-label">Ruang kerja</span><button className="nav-item legacy-agent-link" onClick={() => window.location.assign("/")}><KoasisIcon name="spark" size={17} /><span>Agent Chat</span><small>NEW</small></button>{NAV_ITEMS.map(({ id, label, icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><KoasisIcon name={icon} size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-utilities"><button className="nav-item" onClick={() => setUtilityPanel("settings")}><KoasisIcon name="settings" size={17} /><span>Pengaturan</span></button><button className="nav-item" onClick={() => setUtilityPanel("help")}><KoasisIcon name="help" size={17} /><span>Bantuan</span></button></div><div className="sidebar-user"><div className="user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div><button className="icon-button" aria-label="Keluar dari akun" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
       </aside>
       {mobileNavOpen && <button className="sidebar-scrim" aria-label="Tutup menu navigasi" onClick={() => setMobileNavOpen(false)} />}
@@ -1566,5 +1569,6 @@ function AuthenticatedApp() {
 }
 
 export default function App() {
-  return <AuthGate><AuthenticatedApp /></AuthGate>;
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  return <AuthGate>{path === "/lapjag" ? <AuthenticatedApp /> : <AgenticChat />}</AuthGate>;
 }

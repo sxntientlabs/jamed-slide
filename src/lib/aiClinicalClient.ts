@@ -16,10 +16,11 @@ export async function extractPatientsWithAi(
   templateInstructions?: string,
   templateContract?: unknown,
   media: PatientAttachment[] = [],
+  authToken?: string,
 ): Promise<PatientRecord[]> {
   const response = await fetch("/api/clinical/extract", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
     body: JSON.stringify({ sourceText, sourceId, patientLabel, shiftContext, templateProfile, templateInstructions, templateContract, media }),
   });
   let payload: ExtractionResponse = {};

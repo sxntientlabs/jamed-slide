@@ -1,7 +1,7 @@
 {
-  "name": "Koasis · Laporan Jaga",
+  "name": "Koasis · Agent Workspace",
   "short_name": "Koasis",
-  "description": "Your Clinical Oasis — workspace laporan jaga klinis.",
+  "description": "Your Clinical Oasis — workspace agentic untuk laporan klinis.",
   "lang": "id",
   "start_url": "/",
   "display": "standalone",

@@ -403,12 +403,12 @@ export function applyTemplateAnalysis(template: ParsedTemplate, raw: unknown, so
   };
 }
 
-export async function analyzeTemplateWithAi(template: ParsedTemplate): Promise<{ template: ParsedTemplate; analysis: TemplateAnalysis; error?: string }> {
+export async function analyzeTemplateWithAi(template: ParsedTemplate, authToken?: string): Promise<{ template: ParsedTemplate; analysis: TemplateAnalysis; error?: string }> {
   const local = buildLocalTemplateAnalysis(template);
   try {
     const response = await fetch("/api/template/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
       body: JSON.stringify({
         name: template.name,
         fileName: template.fileName,

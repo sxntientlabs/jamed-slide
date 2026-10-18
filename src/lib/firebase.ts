@@ -12,6 +12,10 @@ import {
   type User,
 } from "firebase/auth";
 import {
+  getStorage,
+  type FirebaseStorage,
+} from "firebase/storage";
+import {
   doc,
   getDoc,
   getFirestore,
@@ -64,6 +68,7 @@ if (!missingFirebaseConfig.length) {
 
 export const firebaseAuth: Auth | null = firebaseApp ? getAuth(firebaseApp) : null;
 export const firestore: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
+export const firebaseStorage: FirebaseStorage | null = firebaseApp ? getStorage(firebaseApp) : null;
 export const firebaseReady = Boolean(firebaseApp && firebaseAuth && firestore);
 
 export function getFirebaseSetupError(): string {
