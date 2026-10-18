@@ -39,8 +39,18 @@ interface AgentChatResponse {
   code?: string;
 }
 
+export type AgentComputerActivityKind = "starting" | "action" | "screenshot" | "finished" | "error";
+
+export type AgentComputerActivity = {
+  kind: AgentComputerActivityKind;
+  message: string;
+  action?: string;
+  screenshotDataUrl?: string;
+  requestId?: string;
+};
+
 type AgentChatStreamEvent = {
-  type?: "meta" | "status" | "delta" | "done" | "error";
+  type?: "meta" | "status" | "computer_activity" | "delta" | "done" | "error";
   content?: string;
   model?: string;
   error?: string;
@@ -49,6 +59,9 @@ type AgentChatStreamEvent = {
   agentId?: AgentId;
   phase?: AgentRunPhase;
   message?: string;
+  activity?: AgentComputerActivityKind;
+  action?: string;
+  screenshotDataUrl?: string;
   durationMs?: number;
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired?: boolean;
@@ -88,6 +101,7 @@ type AgentChatOptions = {
   context?: AgentWorkspaceContext;
   onDelta?: (content: string, delta: string) => void;
   onStatus?: (status: AgentRunStatus) => void;
+  onComputerActivity?: (activity: AgentComputerActivity) => void;
 };
 
 async function readError(response: Response): Promise<AgentChatError> {
@@ -161,6 +175,18 @@ export async function sendAgentChat(
     }
     if (event.type === "status" && event.phase) {
       options.onStatus?.({ phase: event.phase, message: event.message || "Agent sedang bekerja", requestId: resolvedRequestId });
+    }
+    if (event.type === "computer_activity" && event.activity && event.message) {
+      const screenshotDataUrl = typeof event.screenshotDataUrl === "string" && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(event.screenshotDataUrl)
+        ? event.screenshotDataUrl
+        : undefined;
+      options.onComputerActivity?.({
+        kind: event.activity,
+        message: event.message,
+        ...(event.action ? { action: event.action } : {}),
+        ...(screenshotDataUrl ? { screenshotDataUrl } : {}),
+        requestId: resolvedRequestId,
+      });
     }
     if (event.type === "delta" && typeof event.content === "string") {
       content += event.content;

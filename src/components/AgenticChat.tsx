@@ -8,7 +8,7 @@ import { KoasisWorkflowDialog, type KoasisWorkflowKind } from "./KoasisWorkflowD
 import { MkarRotationCockpit, type MkarCockpitAction } from "./MkarRotationCockpit";
 import { KoasisClinicalWorkspace } from "./KoasisClinicalWorkspace";
 import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
-import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentRunStatus } from "../lib/agentChatClient";
+import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentComputerActivity, type AgentRunStatus } from "../lib/agentChatClient";
 import { searchEvidenceSources, type EvidenceSource } from "../lib/evidenceSearchClient";
 import { ComputerClientError, getComputerStatus, openComputerSession, pauseComputer, revokeComputerSession, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
@@ -714,6 +714,19 @@ function AgentThinking({ label, status, events }: { label: string; status: Agent
   return <div className="koasis-agent-thinking-stack"><AicssThinkingSurface label={label} detail={status?.message || "Memulai workflow yang aman dan bisa direview…"} /><AicssThinkingReasoning sentences={reasoningSentences} /><KoasisRunTrace events={events} activePhase={status?.phase} /></div>;
 }
 
+function ComputerActivityPreview({ activity, busy }: { activity: AgentComputerActivity; busy: boolean }) {
+  const active = busy && activity.kind !== "error" && activity.kind !== "finished";
+  const stateLabel = activity.kind === "error" ? "Perlu perhatian" : active ? "Sedang berjalan" : "Selesai";
+  const stateIcon = activity.kind === "error" ? <X size={12} /> : active ? <LoaderCircle size={12} className="koasis-spinner" /> : <Check size={12} />;
+  return <section className={`koasis-computer-activity ${active ? "active" : "complete"} ${activity.kind === "error" ? "error" : ""}`} aria-live="polite" aria-label="Aktivitas agent di Computer">
+    <div className="koasis-computer-activity-head">
+      <div className="koasis-computer-activity-title"><span className="koasis-computer-activity-mark"><Monitor size={14} /></span><span><strong>Agent menggunakan Computer</strong><small>{activity.message}</small></span></div>
+      <span className="koasis-computer-activity-state">{stateIcon}{stateLabel}</span>
+    </div>
+    {activity.screenshotDataUrl ? <div className="koasis-computer-activity-preview"><img src={activity.screenshotDataUrl} alt="Preview layar Computer saat agent bekerja" /><small>Preview sementara · tidak disimpan ke riwayat chat</small></div> : <div className="koasis-computer-activity-step"><span className="koasis-computer-activity-step-dot" /><span>{activity.message}</span></div>}
+  </section>;
+}
+
 function HomeSurface({ workspace, tasks, onAction, onOpenWorkspace }: { workspace: KoasisWorkspace; tasks: WorkspaceTask[]; onAction: (action: HomeAction) => void; onOpenWorkspace: () => void }) {
   const completed = tasks.filter((task) => task.done).length;
   return <div className="koasis-home-surface koasis-manus-home">
@@ -924,6 +937,7 @@ export function AgenticChat() {
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null);
   const [runTrail, setRunTrail] = useState<KoasisRunEvent[]>([]);
+  const [computerActivity, setComputerActivity] = useState<AgentComputerActivity | null>(null);
   const [privacyReview, setPrivacyReview] = useState<PendingPrivacyReview | null>(null);
   const [evidenceQuery, setEvidenceQuery] = useState("");
   const [evidenceResults, setEvidenceResults] = useState<EvidenceSource[]>([]);
@@ -1224,6 +1238,7 @@ export function AgenticChat() {
     setStreamingMessageId(null);
     setRunStatus(null);
     setRunTrail([]);
+    setComputerActivity(null);
     setPrivacyReview(null);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
@@ -1264,6 +1279,7 @@ export function AgenticChat() {
     setBusy(false);
     setRunStatus(null);
     setRunTrail([]);
+    setComputerActivity(null);
     setPrivacyReview(null);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
@@ -1288,6 +1304,7 @@ export function AgenticChat() {
     setComposerPalette(null);
     setRunStatus(null);
     setRunTrail([]);
+    setComputerActivity(null);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
   };
@@ -1391,6 +1408,7 @@ export function AgenticChat() {
     setEngineMenuOpen(false);
     setComposerPalette(null);
     setBusy(true);
+    setComputerActivity(null);
     trackRunStatus({ phase: "accepted", message: "Menyiapkan permintaan" });
     const preset = activePreset;
     const assistantId = `assistant-${Date.now()}`;
@@ -1443,6 +1461,10 @@ export function AgenticChat() {
               updateAssistant(assistantId, content, true, { agentId: preset.id, action });
             },
             onStatus: trackRunStatus,
+            onComputerActivity: (activity) => setComputerActivity((current) => ({
+              ...activity,
+              ...(activity.screenshotDataUrl || !current?.screenshotDataUrl ? {} : { screenshotDataUrl: current.screenshotDataUrl }),
+            })),
           },
         );
         updateAssistant(assistantId, response.content, false, { agentId: preset.id, action, requestId: response.requestId, durationMs: response.durationMs, sourceMode, reviewRequired: response.reviewRequired });
@@ -1706,7 +1728,7 @@ export function AgenticChat() {
         <section className="koasis-conversation">
           <div className="koasis-conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
         {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}
-            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onAction={handleAction} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
+            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onAction={handleAction} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
           </div>
           {showJumpToLatest && <button type="button" className="koasis-jump-latest" onClick={jumpToLatest}><ArrowDown size={14} /> Terbaru</button>}
           {manusPage === "home" && <div className="koasis-composer-area">

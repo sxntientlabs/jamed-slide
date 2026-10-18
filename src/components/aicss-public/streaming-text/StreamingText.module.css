@@ -17,7 +17,7 @@
   }
 }
 
-.prose { max-width: 100%; font-size: 14px; line-height: 19px; color: var(--st-fg, #1a1a1a); overflow-wrap: anywhere; }
+.prose { max-width: 100%; margin: 0; color: inherit; font: inherit; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .caret { display: inline-block; width: 8px; height: 1.05em; margin-left: 2px; background: var(--st-caret, #0b0d12); vertical-align: text-bottom; animation: caret-blink 1s step-end infinite; }
 /* solid while streaming, blink only once idle (matches the live component) */
 .caretSteady { animation: none; opacity: 1; }

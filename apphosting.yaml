@@ -20,37 +20,22 @@ env:
     value: "*"
     availability:
       - RUNTIME
-  # The browser uses App Hosting's same-origin /api routes. The renderer is
-  # the only heavy service that App Hosting calls on the Dokploy VPS.
+  # The browser uses App Hosting's same-origin /api routes for lightweight
+  # operations. Heavy renderer work stays on the Dokploy VPS.
   - variable: JAMED_RENDERER_URL
     value: "https://server.eltexlabs.com/koasis-renderer"
     availability:
       - RUNTIME
-  # Add INSTABOX_API_KEY yourself in the Firebase App Hosting Environment
-  # settings. It must never be a VITE_* variable or appear in the browser
-  # bundle.
-  - variable: INSTABOX_API_URL
-    value: "https://api.instabox.sh"
+  # Computer state and Instabox calls run in the Dokploy backend, which can
+  # reach the private PostgreSQL service without exposing the database.
+  - variable: VITE_KOASIS_COMPUTER_API_BASE_URL
+    value: "https://server.eltexlabs.com/koasis-app"
+    availability:
+      - BUILD
+  # Agent Computer calls from App Hosting use the same protected Dokploy API.
+  - variable: KOASIS_INTERNAL_URL
+    value: "https://server.eltexlabs.com/koasis-app"
     availability:
       - RUNTIME
-  - variable: INSTABOX_TEMPLATE
-    value: "agent-browser"
-    availability:
-      - RUNTIME
-  - variable: INSTABOX_ALLOW_PROVISIONING
-    value: "false"
-    availability:
-      - RUNTIME
-  # Set to true only after agent Computer control has been explicitly approved.
-  - variable: INSTABOX_ALLOW_AGENT_CONTROL
-    value: "false"
-    availability:
-      - RUNTIME
-  - variable: INSTABOX_MACHINE_TIMEOUT_MS
-    value: "14400000"
-    availability:
-      - RUNTIME
-  - variable: INSTABOX_AUTO_SUSPEND_MS
-    value: "1800000"
-    availability:
-      - RUNTIME
+  # InstaBox credentials and lifecycle flags belong only to the Dokploy
+  # Koasis App runtime; they must never be sent to the browser bundle.

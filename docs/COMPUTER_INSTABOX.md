@@ -5,9 +5,10 @@ Computer sekarang memakai InstaBox sebagai workspace Linux per user. Browser tid
 ## Arsitektur
 
 ```text
-Browser -> Firebase App Hosting /api/computer/*
+Browser -> Firebase App Hosting (chat and lightweight API)
+       -> Dokploy Koasis App /koasis-app/api/computer/*
              | Firebase bearer auth
-             | PostgreSQL user -> machine mapping
+             | private PostgreSQL user -> machine mapping
              ` InstaBox API (INSTABOX_API_KEY, server-only)
 ```
 
@@ -15,12 +16,17 @@ Browser -> Firebase App Hosting /api/computer/*
 
 ## Konfigurasi runtime
 
-Wajib di Firebase App Hosting Environment (runtime server-side):
+Wajib di environment runtime service `Koasis App` pada Dokploy:
 
 ```text
 INSTABOX_API_KEY=<restricted key, never VITE_*>
 INSTABOX_API_URL=https://api.instabox.sh
 ```
+
+App Hosting hanya menyimpan URL publik API Dokploy sebagai build/runtime
+configuration. API key tidak boleh dimasukkan ke `VITE_*` atau browser bundle.
+PostgreSQL tetap memakai hostname internal Dokploy dan tidak perlu membuka port
+database ke internet.
 
 Rekomendasi key: scope `machines:write`; tidak perlu `machines:delete` atau `images:*` untuk flow ini.
 
@@ -61,7 +67,7 @@ Provisioning dan lifecycle memakai advisory lock PostgreSQL per user supaya requ
 
 ## Batas keamanan
 
-- API key hanya berada di App Hosting runtime.
+- API key hanya berada di runtime service Koasis App pada Dokploy.
 - `vault: false` dipakai saat machine baru dibuat agar secret account InstaBox tidak masuk ke workspace user.
 - URL desktop dibuat ulang setiap session dan stream sebelumnya dicabut.
 - Screenshot, password, isi ketikan, dan command tidak disimpan ke database.
@@ -73,9 +79,13 @@ Provisioning dan lifecycle memakai advisory lock PostgreSQL per user supaya requ
 ## Urutan aktivasi
 
 1. Buat restricted API key di dashboard InstaBox.
-2. Tambahkan `INSTABOX_API_KEY` melalui Environment settings pada backend App Hosting
+2. Tambahkan `INSTABOX_API_KEY` melalui Environment settings service `Koasis App` di Dokploy
    (jangan menaruhnya di `VITE_*`, repo, atau browser bundle).
-3. Uji `GET /api/computer/status` dengan user login.
-4. Untuk machine existing, set `INSTABOX_DEFAULT_MACHINE_NAME` dan `INSTABOX_DEFAULT_OWNER_UID`.
-5. Untuk machine per user, ubah `INSTABOX_ALLOW_PROVISIONING=true` setelah quota akun dan kebijakan biaya disetujui.
-6. Untuk mengaktifkan agent menggunakan Computer, set `INSTABOX_ALLOW_AGENT_CONTROL=true`. Ini tidak diperlukan untuk tombol manual `Buka desktop` atau `Ambil kontrol`.
+3. Pastikan domain service `https://server.eltexlabs.com/koasis-app` aktif dan
+   `KOASIS_CORS_ORIGINS` mencakup `https://koasis.my.id`.
+4. Uji `GET /api/backend/health` pada domain Dokploy; respons harus menunjukkan
+   database configured dan reachable.
+5. Uji `GET /api/computer/status` dengan user login dari App Hosting.
+6. Untuk machine existing, set `INSTABOX_DEFAULT_MACHINE_NAME` dan `INSTABOX_DEFAULT_OWNER_UID`.
+7. Untuk machine per user, ubah `INSTABOX_ALLOW_PROVISIONING=true` setelah quota akun dan kebijakan biaya disetujui.
+8. Untuk mengaktifkan agent menggunakan Computer, set `INSTABOX_ALLOW_AGENT_CONTROL=true`. Ini tidak diperlukan untuk tombol manual `Buka desktop` atau `Ambil kontrol`.

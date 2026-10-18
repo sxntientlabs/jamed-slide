@@ -1,4 +1,4 @@
-import { koasisApiUrl } from "./koasisApi";
+import { koasisComputerApiUrl } from "./koasisApi";
 
 export type ComputerMachineState = "creating" | "starting" | "running" | "stopping" | "stopped" | "suspending" | "suspended" | "resuming" | "deleting" | "deleted" | "error";
 
@@ -54,7 +54,7 @@ type ComputerClientOptions = {
 };
 
 async function request<T>(path: string, init: RequestInit, options: ComputerClientOptions): Promise<T> {
-  const response = await fetch(koasisApiUrl(path), {
+  const response = await fetch(koasisComputerApiUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",

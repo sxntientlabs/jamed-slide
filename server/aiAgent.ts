@@ -1232,6 +1232,15 @@ type ComputerAgentExecution = {
   screenshotBase64?: string;
 };
 
+type ComputerAgentActivityKind = "starting" | "action" | "screenshot" | "finished" | "error";
+
+type ComputerAgentActivity = {
+  kind: ComputerAgentActivityKind;
+  message: string;
+  action?: string;
+  screenshotBase64?: string;
+};
+
 type ProviderToolCall = {
   id: string;
   name: string;
@@ -1347,8 +1356,18 @@ async function executeComputerTool(
     const sessionId = stringValue(session.sessionId);
     if (!sessionId) throw new Error("Backend Computer tidak mengembalikan sessionId.");
     state.sessionId = sessionId;
+    let screenshotBase64: string | undefined;
+    try {
+      const preview = await callComputerInternal("/api/computer/action", authorization, { sessionId, action: { type: "screenshot" } }, signal);
+      screenshotBase64 = stringValue(preview.screenshotBase64) || undefined;
+    } catch (error) {
+      if (signal.aborted) throw error;
+      // Starting the session is still successful when the first preview is
+      // temporarily unavailable; the agent can request a screenshot next.
+    }
     return {
       content: JSON.stringify({ ok: true, started: true, machine: session.machine, expiresAt: session.expiresAt }),
+      ...(screenshotBase64 ? { screenshotBase64 } : {}),
     };
   }
 
@@ -1358,7 +1377,17 @@ async function executeComputerTool(
   }
   const action = computerActionForTool(name, args);
   const result = await callComputerInternal("/api/computer/action", authorization, { sessionId: state.sessionId, action }, signal);
-  const screenshotBase64 = stringValue(result.screenshotBase64);
+  let screenshotBase64 = stringValue(result.screenshotBase64);
+  if (!screenshotBase64 && name !== "computer_screenshot") {
+    try {
+      const preview = await callComputerInternal("/api/computer/action", authorization, { sessionId: state.sessionId, action: { type: "screenshot" } }, signal);
+      screenshotBase64 = stringValue(preview.screenshotBase64);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      // The underlying action completed; a missing preview must not turn it
+      // into a failed Computer operation.
+    }
+  }
   return {
     content: JSON.stringify({ ok: true, action: name, result: screenshotBase64 ? { type: result.type, screenshot: "attached" } : result }),
     ...(screenshotBase64 ? { screenshotBase64 } : {}),
@@ -1388,6 +1417,7 @@ async function openAgentComputerResponse(
   authorization: string,
   signal: AbortSignal,
   onProgress: (message: string) => void,
+  onActivity: (activity: ComputerAgentActivity) => void,
 ): Promise<{ content: string; model: string }> {
   const prepared = await prepareAgentChatRequest(settings, messages, agent, workspaceContext);
   const conversation = [...(prepared.payload.messages as JsonObject[])];
@@ -1395,8 +1425,10 @@ async function openAgentComputerResponse(
   let actionCount = 0;
 
   try {
+    onActivity({ kind: "starting", message: "Menghubungkan agent ke Computer" });
     for (let round = 0; round < COMPUTER_AGENT_MAX_ROUNDS; round += 1) {
       onProgress(round === 0 ? "Menghubungkan agent ke Computer" : "Agent memeriksa hasil aksi Computer");
+      if (round > 0) onActivity({ kind: "action", message: "Agent memeriksa hasil aksi Computer" });
       const providerResponse = await fetch(prepared.url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
@@ -1425,6 +1457,7 @@ async function openAgentComputerResponse(
       if (!parsed.toolCalls.length) {
         const content = providerContentText(parsed.message.content);
         if (!content) throw new Error("AI agent tidak mengembalikan isi jawaban setelah aksi Computer.");
+        if (state.sessionId) onActivity({ kind: "finished", message: "Agent selesai menggunakan Computer" });
         return { content, model: prepared.model };
       }
 
@@ -1437,16 +1470,24 @@ async function openAgentComputerResponse(
       for (const call of parsed.toolCalls) {
         actionCount += 1;
         if (actionCount > COMPUTER_AGENT_MAX_ACTIONS) throw new Error("Agent mencapai batas aman aksi Computer untuk satu permintaan.");
-        onProgress(`Menjalankan ${call.name.replace(/^computer_/, "")} di Computer`);
+        const actionLabel = computerActionLabel(call.name);
+        onProgress(`${actionLabel} di Computer`);
+        onActivity({ kind: "action", action: call.name, message: `${actionLabel} di Computer` });
         let execution: ComputerAgentExecution;
         try {
           execution = await executeComputerTool(call.name, call.arguments, state, authorization, signal);
         } catch (error) {
           const message = error instanceof Error ? error.message : "Aksi Computer gagal.";
+          onActivity({ kind: "error", action: call.name, message });
           execution = { content: JSON.stringify({ ok: false, error: message }) };
         }
         conversation.push({ role: "tool", tool_call_id: call.id, name: call.name, content: execution.content });
-        if (execution.screenshotBase64) screenshots.push(execution.screenshotBase64);
+        if (execution.screenshotBase64) {
+          screenshots.push(execution.screenshotBase64);
+          onActivity({ kind: "screenshot", action: call.name, message: "Preview layar Computer diperbarui", screenshotBase64: execution.screenshotBase64 });
+        } else if (!execution.content.includes('"ok":false')) {
+          onActivity({ kind: "action", action: call.name, message: `${actionLabel} selesai` });
+        }
       }
       for (const screenshotBase64 of screenshots) {
         conversation.push({
@@ -1459,8 +1500,24 @@ async function openAgentComputerResponse(
       }
     }
     throw new Error("Agent mencapai batas aman langkah Computer untuk satu permintaan.");
+  } catch (error) {
+    onActivity({ kind: "error", message: error instanceof Error ? error.message : "Aksi Computer gagal." });
+    throw error;
   } finally {
     await revokeComputerAgentSession(state, authorization);
+  }
+}
+
+function computerActionLabel(name: string): string {
+  switch (name) {
+    case "computer_start": return "Menyiapkan Computer";
+    case "computer_screenshot": return "Membaca layar";
+    case "computer_open": return "Membuka halaman";
+    case "computer_click": return "Mengklik layar";
+    case "computer_type": return "Mengetik di Computer";
+    case "computer_press": return "Menekan tombol";
+    case "computer_scroll": return "Menggulir layar";
+    default: return "Menjalankan aksi";
   }
 }
 
@@ -2002,6 +2059,14 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
         requestAuthorization(request),
         streamController.signal,
         (message) => writeAgentStreamEvent(response, { type: "status", phase: "generating", message, requestId }),
+        (activity) => writeAgentStreamEvent(response, {
+          type: "computer_activity",
+          activity: activity.kind,
+          message: activity.message,
+          ...(activity.action ? { action: activity.action } : {}),
+          ...(activity.screenshotBase64 ? { screenshotDataUrl: `data:image/png;base64,${activity.screenshotBase64}` } : {}),
+          requestId,
+        }),
       );
       writeAgentStreamEvent(response, { type: "meta", engine: "agent", model: provider.model, requestId, agentId: agent.id });
       writeAgentStreamEvent(response, { type: "delta", content: provider.content });

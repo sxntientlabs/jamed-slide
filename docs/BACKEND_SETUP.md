@@ -5,7 +5,7 @@ Arsitektur production Koasis dibagi berdasarkan beban kerja:
 - Firebase App Hosting: frontend React dan API ringan same-origin (`/api/*`).
 - Firebase Auth + Firestore: state workspace, preferensi, riwayat chat, dan metadata milik user yang sedang login.
 - Firebase Storage: attachment dan file yang memang perlu dipersistenkan. Firestore hanya menyimpan metadata dan `storagePath`, bukan data URL atau binary.
-- Dokploy/VPS: pekerjaan berat yang lebih murah dijalankan sendiri, terutama PPTX renderer dan AI gateway/service bila dipakai.
+- Dokploy/VPS: Computer API yang membutuhkan PostgreSQL privat, pekerjaan berat yang lebih murah dijalankan sendiri, terutama PPTX renderer dan AI gateway/service bila dipakai.
 - PostgreSQL VPS: data relasional server-side. Browser tidak pernah menerima URL atau kredensial PostgreSQL.
 
 Alur production yang diharapkan:
@@ -13,8 +13,9 @@ Alur production yang diharapkan:
 ```text
 Browser -> Firebase App Hosting (frontend + API ringan)
                     |-> Firebase Auth / Firestore / Storage
+                    |-> Dokploy Koasis App /koasis-app/api/computer/*
                     |-> Dokploy renderer atau AI service melalui HTTPS
-Dokploy renderer/AI -> PostgreSQL internal bila benar-benar diperlukan
+Dokploy Koasis App -> PostgreSQL internal + InstaBox API
 ```
 
 ## Firebase
@@ -41,7 +42,9 @@ KOASIS_POSTGRES_MAX_CONNECTIONS=5
 
 ### Firebase App Hosting (production)
 
-App Hosting menjalankan frontend dan API ringan dari repository yang sama. Biarkan `VITE_KOASIS_API_BASE_URL` kosong agar browser memanggil `/api/*` pada origin `koasis.my.id`; jangan arahkan browser langsung ke service Dokploy.
+App Hosting menjalankan frontend dan API ringan dari repository yang sama. Biarkan `VITE_KOASIS_API_BASE_URL` kosong agar browser memanggil `/api/*` pada origin `koasis.my.id`.
+
+Endpoint Computer adalah pengecualian: set `VITE_KOASIS_COMPUTER_API_BASE_URL=https://server.eltexlabs.com/koasis-app` pada build App Hosting agar status, session, dan aksi desktop diproses oleh Koasis App yang dapat mengakses PostgreSQL privat. Agent Computer dari App Hosting memakai target runtime `KOASIS_INTERNAL_URL=https://server.eltexlabs.com/koasis-app`.
 
 Atur variabel runtime melalui App Hosting/Firebase Secret Manager:
 
@@ -50,7 +53,7 @@ Atur variabel runtime melalui App Hosting/Firebase Secret Manager:
 - `JAMED_RENDERER_URL=https://server.eltexlabs.com/koasis-renderer`.
 - `JAMED_RENDERER_TOKEN` sebagai secret.
 
-App Hosting tidak perlu diberi `KOASIS_POSTGRES_URL` dalam arsitektur ini. Endpoint health akan melaporkan `database.configured: false`; itu normal selama endpoint yang membutuhkan PostgreSQL belum dipindahkan ke service VPS khusus.
+App Hosting tidak perlu diberi `KOASIS_POSTGRES_URL` atau `INSTABOX_API_KEY`. Endpoint health ringan App Hosting dapat melaporkan `database.configured: false`; itu tidak lagi menjadi indikator kesehatan fitur Computer. Periksa `https://server.eltexlabs.com/koasis-app/api/backend/health`, yang harus menunjukkan database configured dan reachable.
 
 ### Direct Dokploy staging
 
@@ -60,17 +63,18 @@ Jika ingin menguji build aplikasi langsung di Dokploy, barulah isi `VITE_KOASIS_
 
 Service production yang perlu tetap hidup di Dokploy:
 
-1. PPTX renderer dengan domain `https://server.eltexlabs.com/koasis-renderer`.
-2. AI gateway/service apabila inference memang dijalankan di VPS.
-3. PostgreSQL internal tanpa port publik.
+1. Koasis App dengan domain `https://server.eltexlabs.com/koasis-app`, untuk Computer API, mapping machine/session, dan akses PostgreSQL privat.
+2. PPTX renderer dengan domain `https://server.eltexlabs.com/koasis-renderer`.
+3. AI gateway/service apabila inference memang dijalankan di VPS.
+4. PostgreSQL internal tanpa port publik.
 
-Service aplikasi Koasis lengkap yang melayani frontend/API dapat dipertahankan sementara sebagai fallback/staging, tetapi tidak perlu menjadi jalur production setelah App Hosting same-origin sudah terverifikasi.
+Koasis App tidak perlu melayani frontend publik. App Hosting tetap menjadi origin utama aplikasi; service Dokploy hanya menerima request backend yang memang membutuhkan database atau pekerjaan berat.
 
-Jika service aplikasi Dokploy tetap digunakan untuk staging:
+Konfigurasi Koasis App production:
 
 1. Set source repository dan build command `npm run build`.
 2. Set start command `npm run start` dan expose port `8080` (atau port yang diberikan lewat `PORT`).
-3. Tambahkan `JAMED_AI_*`, `JAMED_RENDERER_*`, `KOASIS_POSTGRES_URL`, `KOASIS_POSTGRES_SSL`, dan `KOASIS_POSTGRES_MAX_CONNECTIONS` sebagai environment variables/secret di Dokploy bila service tersebut memang membutuhkannya.
+3. Tambahkan `KOASIS_POSTGRES_URL`, `KOASIS_POSTGRES_SSL`, `KOASIS_POSTGRES_MAX_CONNECTIONS`, `INSTABOX_API_KEY`, `INSTABOX_API_URL`, dan flag InstaBox sebagai environment variables/secret di Dokploy.
 4. Jika PostgreSQL berada di service Docker/VPS yang sama, gunakan hostname internal service, bukan `localhost` dari browser. Pastikan network Dokploy mengizinkan koneksi ke port PostgreSQL.
 5. Setelah deploy, cek `GET /api/backend/health`. Respons sehat mengandung `database.configured: true` dan `database.reachable: true`.
 
