@@ -2539,8 +2539,11 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .koasis-shell.sidebar-collapsed .koasis-new-chat { justify-content: flex-start; padding: 0 12px; }
   .koasis-shell.sidebar-collapsed .koasis-search { justify-content: initial; padding: 0 10px; background: var(--ko-panel); }
   .koasis-shell.sidebar-collapsed .koasis-sidebar-link { justify-content: initial; padding-left: 9px; padding-right: 9px; }
-  .koasis-mobile-menu { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--ko-line); border-radius: 8px; color: var(--ko-muted); background: var(--ko-panel); }
+  .koasis-mobile-menu { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; align-items: center; justify-content: center; border: 1px solid var(--ko-line); border-radius: 8px; padding: 0; color: var(--ko-muted); background: var(--ko-panel); line-height: 0; }
+  .koasis-mobile-menu svg { display: block; margin: 0; }
   .koasis-topbar { padding: 0 14px; }
+  .koasis-topbar-left { gap: 8px; }
+  .koasis-model-selector-wrap, .koasis-model-trigger { min-width: 0; max-width: 100%; }
   .koasis-topbar-actions { gap: 5px; }
   .koasis-context-toggle span, .koasis-theme-toggle span { display: none; }
   .koasis-context-toggle, .koasis-theme-toggle { width: 32px; justify-content: center; padding: 0; }
@@ -2575,6 +2578,14 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .koasis-dialog-backdrop { align-items: end; padding: 0; }
   .koasis-workflow-dialog { max-height: 93svh; border-radius: 17px 17px 0 0; padding: 17px; }
   .koasis-dialog-heading h2 { font-size: 21px; }
+}
+
+@media (max-width: 360px) {
+  body { min-width: 0; }
+  .koasis-topbar { gap: 8px; padding-inline: 10px; }
+  .koasis-topbar-actions { gap: 4px; }
+  .koasis-model-selector-wrap { max-width: calc(100vw - 132px); }
+  .koasis-model-trigger-copy strong { font-size: 10px; }
 }
 
 /* Manus parity pass: keep the structure monochrome and reserve color for a few meaningful signals. */
