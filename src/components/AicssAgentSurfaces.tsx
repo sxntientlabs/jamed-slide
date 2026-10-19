@@ -181,10 +181,10 @@ export function KoasisRunTrace({ events, activePhase }: { events: KoasisRunEvent
   </div>;
 }
 
-export function KoasisCitation({ number, label, onClick }: { number: string; label?: string; onClick?: () => void }) {
+export function KoasisCitation({ number, label, displayLabel, extraCount, onClick }: { number: string; label?: string; displayLabel?: string; extraCount?: number; onClick?: () => void }) {
   return (
     <button type="button" className="koasis-citation-chip" title={label || `Buka referensi ${number}`} aria-label={label || `Referensi ${number}`} onClick={onClick}>
-      {number}
+      {displayLabel ? <><span className="koasis-citation-source">{displayLabel}</span><span className="koasis-citation-index">[{number}]</span>{extraCount && extraCount > 0 ? <span className="koasis-citation-more">+{extraCount}</span> : null}</> : `[${number}]`}
     </button>
   );
 }

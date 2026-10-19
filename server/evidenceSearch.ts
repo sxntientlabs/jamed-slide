@@ -10,6 +10,14 @@ export type EvidenceProviderState = {
   error?: string;
 };
 
+export type EvidenceFigure = {
+  id: string;
+  label?: string;
+  caption: string;
+  imageUrl: string;
+  sourceUrl?: string;
+};
+
 export type EvidenceQueryPlan = {
   originalQuery: string;
   normalizedQuery: string;
@@ -38,6 +46,7 @@ export type FederatedEvidenceRecord = {
   abstract?: string;
   isOpenAccess: boolean;
   fullTextUrl?: string;
+  figures?: EvidenceFigure[];
   citedByCount?: number;
   publicationTypes: string[];
   retractionStatus: EvidenceRetractedStatus;
@@ -91,23 +100,92 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_PROVIDER_PAGE_SIZE = 8;
 
 const TERM_EXPANSIONS: Record<string, string[]> = {
-  asma: ["asthma"],
-  asthma: ["asma"],
-  hipertensi: ["hypertension"],
-  hypertension: ["hipertensi"],
-  diabetes: ["diabetes mellitus"],
-  pneumonia: ["pneumonia"],
-  sepsis: ["sepsis"],
-  "gagal jantung": ["heart failure"],
-  "heart failure": ["gagal jantung"],
-  stroke: ["cerebrovascular accident"],
-  "infark miokard": ["myocardial infarction"],
-  "myocardial infarction": ["infark miokard"],
-  antibiotik: ["antibiotic"],
-  antibiotic: ["antibiotik"],
-  vaksin: ["vaccine", "vaccination"],
-  vaccine: ["vaksin", "vaccination"],
+  asma: ["asthma", "asthma exacerbation", "reactive airway disease"],
+  asthma: ["asma", "asthma exacerbation", "reactive airway disease"],
+  hipertensi: ["hypertension", "high blood pressure"],
+  hypertension: ["hipertensi", "high blood pressure"],
+  diabetes: ["diabetes mellitus", "type 1 diabetes", "type 2 diabetes"],
+  pneumonia: ["pneumonia", "lower respiratory tract infection"],
+  aspirasi: ["aspiration", "aspiration pneumonia", "aspiration pneumonitis"],
+  aspiration: ["aspirasi", "aspiration pneumonia", "aspiration pneumonitis"],
+  tuberkulosis: ["tuberculosis", "TB", "mycobacterium tuberculosis"],
+  tuberculosis: ["tuberkulosis", "TB", "mycobacterium tuberculosis"],
+  tb: ["tuberculosis", "tuberkulosis", "mycobacterium tuberculosis"],
+  sepsis: ["sepsis", "septic shock"],
+  "gagal jantung": ["heart failure", "congestive heart failure"],
+  "heart failure": ["gagal jantung", "congestive heart failure"],
+  stroke: ["cerebrovascular accident", "ischemic stroke", "hemorrhagic stroke"],
+  "infark miokard": ["myocardial infarction", "acute coronary syndrome"],
+  "myocardial infarction": ["infark miokard", "acute coronary syndrome"],
+  "gagal ginjal": ["kidney failure", "renal failure"],
+  "kidney failure": ["gagal ginjal", "renal failure"],
+  aki: ["acute kidney injury", "acute renal injury"],
+  "acute kidney injury": ["aki", "acute renal injury"],
+  "infeksi saluran kemih": ["urinary tract infection", "UTI"],
+  "urinary tract infection": ["infeksi saluran kemih", "UTI"],
+  meningitis: ["meningitis"],
+  diare: ["diarrhea"],
+  diarrhea: ["diare"],
+  dehidrasi: ["dehydration"],
+  dehydration: ["dehidrasi"],
+  malaria: ["malaria"],
+  dengue: ["dengue", "dengue hemorrhagic fever"],
+  anemia: ["anemia"],
+  kehamilan: ["pregnancy", "pregnant"],
+  pregnancy: ["kehamilan", "pregnant"],
+  anak: ["child", "pediatric", "paediatric"],
+  child: ["anak", "pediatric", "paediatric"],
+  dewasa: ["adult"],
+  adult: ["dewasa"],
+  lansia: ["older adult", "elderly"],
+  neonatus: ["neonate", "newborn"],
+  antibiotik: ["antibiotic", "antimicrobial"],
+  antibiotic: ["antibiotik", "antimicrobial"],
+  "resistensi antimikroba": ["antimicrobial resistance", "antibiotic resistance"],
+  "antimicrobial resistance": ["resistensi antimikroba", "antibiotic resistance"],
+  vaksin: ["vaccine", "vaccination", "immunization"],
+  vaccine: ["vaksin", "vaccination", "immunization"],
+  imunisasi: ["immunization", "vaccination"],
+  immunization: ["imunisasi", "vaccination"],
+  diagnosis: ["diagnostic", "diagnosis"],
+  diagnostik: ["diagnostic", "diagnosis"],
+  diagnostic: ["diagnostik", "diagnosis"],
+  tatalaksana: ["management", "treatment", "therapy"],
+  pengobatan: ["treatment", "therapy", "management"],
+  terapi: ["therapy", "treatment"],
+  treatment: ["terapi", "pengobatan", "management"],
+  pencegahan: ["prevention", "prophylaxis"],
+  prevention: ["pencegahan", "prophylaxis"],
+  skrining: ["screening"],
+  screening: ["skrining"],
+  prognosis: ["prognosis", "outcome"],
+  "faktor risiko": ["risk factor", "risk factors"],
+  "risk factor": ["faktor risiko", "risk factors"],
+  "efek samping": ["adverse effect", "side effect"],
+  "adverse effect": ["efek samping", "side effect"],
+  prevalensi: ["prevalence"],
+  prevalence: ["prevalensi"],
+  insidensi: ["incidence"],
+  incidence: ["insidensi"],
+  mortalitas: ["mortality"],
+  mortality: ["mortalitas"],
+  sensitivitas: ["sensitivity"],
+  spesifisitas: ["specificity"],
+  pedoman: ["guideline", "clinical practice guideline"],
+  guideline: ["pedoman", "clinical practice guideline"],
+  "systematic review": ["systematic review", "meta-analysis"],
+  "meta-analisis": ["meta-analysis", "systematic review"],
+  "meta analysis": ["meta-analysis", "systematic review"],
 };
+
+const SHORT_MEDICAL_TOKENS = new Set(["tb", "hiv", "aki", "uti", "copd", "ekg", "ecg", "icu", "igd", "pcr", "mrsa", "osce"]);
+const GENERIC_CLINICAL_TOKENS = new Set([
+  "based", "berdasarkan", "clinical", "diagnosis", "diagnostic", "disease", "explain", "guideline", "guidelines", "jelaskan", "management", "medical", "medis", "obat", "penyakit", "therapy", "tatalaksana", "terapi", "treatment", "valid", "validated",
+]);
+
+const SEARCH_STOPWORDS = new Set([
+  "a", "aku", "an", "and", "artikel", "atau", "bantu", "berikan", "carikan", "cari", "citation", "citations", "cite", "database", "databases", "dan", "dengan", "evidence", "find", "fitur", "for", "from", "guideline", "guidelines", "gunakan", "ingin", "jurnal", "journal", "kamu", "latest", "literatur", "literature", "mencari", "mengenai", "of", "on", "pada", "pakai", "pake", "paper", "papers", "please", "referensi", "reference", "research", "saya", "search", "sendiri", "source", "sources", "terbaru", "tentang", "the", "to", "tolong", "untuk", "yang", "trustworthy", "medical", "clarify", "question", "identify", "best", "compare", "check", "flag", "uncertainty", "topic", "desired", "date", "range", "output", "brief", "current", "supplied", "records", "address", "help", "this", "with",
+]);
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -151,7 +229,8 @@ export function normalizeDoi(value: unknown): string | undefined {
 
 function normalizeIdentifier(value: unknown): string | undefined {
   const identifier = stringValue(value)?.replace(/^https?:\/\/[^/]+\//i, "").trim().toLowerCase();
-  return identifier || undefined;
+  if (!identifier) return undefined;
+  return identifier.startsWith("pmc") ? identifier.toUpperCase() : identifier;
 }
 
 function normalizeTitle(value: string): string {
@@ -159,7 +238,44 @@ function normalizeTitle(value: string): string {
 }
 
 function tokenize(value: string): string[] {
-  return normalizeTitle(value).split(" ").filter((token) => token.length > 2);
+  return normalizeTitle(value).split(" ").filter((token) => token.length > 2 || SHORT_MEDICAL_TOKENS.has(token));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function queryHasTerm(query: string, term: string): boolean {
+  const normalizedQuery = normalizeTitle(query);
+  const normalizedTerm = normalizeTitle(term);
+  if (!normalizedQuery || !normalizedTerm) return false;
+  const pattern = normalizedTerm.split(" ").map(escapeRegExp).join("\\s+");
+  return new RegExp(`(?:^|\\s)${pattern}(?:$|\\s)`, "i").test(normalizedQuery);
+}
+
+function semanticTermsForQuery(query: string): string[] {
+  return uniqueStrings(matchedExpansionEntries(query).flatMap(([term, terms]) => [term, ...terms]));
+}
+
+function matchedExpansionEntries(query: string): Array<[string, string[]]> {
+  return Object.entries(TERM_EXPANSIONS).filter(([term]) => queryHasTerm(query, term));
+}
+
+function searchSignalTokens(query: string, expandedTerms: string[]): string[] {
+  return uniqueStrings([query, ...expandedTerms])
+    .flatMap(tokenize)
+    .filter((token) => !SEARCH_STOPWORDS.has(token));
+}
+
+function searchSignalGroups(query: string): string[][] {
+  const matchedEntries = matchedExpansionEntries(query);
+  const coveredTokens = new Set(matchedEntries.flatMap(([term]) => tokenize(term)));
+  const semanticGroups = matchedEntries.map(([term, terms]) => uniqueStrings([term, ...terms]).flatMap(tokenize));
+  const tokenGroups = tokenize(query)
+    .filter((token) => !SEARCH_STOPWORDS.has(token))
+    .filter((token) => !coveredTokens.has(token))
+    .map((token) => uniqueStrings([token, ...(TERM_EXPANSIONS[token] || [])]).flatMap(tokenize));
+  return [...semanticGroups, ...tokenGroups];
 }
 
 function uniqueStrings(values: Array<string | undefined>): string[] {
@@ -224,17 +340,19 @@ function parsePico(query: string): EvidenceQueryPlan["pico"] {
 
 export function buildEvidenceQueryPlan(query: string): EvidenceQueryPlan {
   const originalQuery = query.trim().replace(/\s+/g, " ");
-  const lowerQuery = originalQuery.toLowerCase();
-  const expandedTerms = uniqueStrings(Object.entries(TERM_EXPANSIONS)
-    .filter(([term]) => lowerQuery.includes(term))
-    .flatMap(([, terms]) => terms));
+  const semanticTerms = semanticTermsForQuery(originalQuery);
+  const expandedTerms = uniqueStrings(semanticTerms.filter((term) => !queryHasTerm(originalQuery, term)));
+  const signalTerms = uniqueStrings([...searchSignalTokens(originalQuery, []), ...semanticTerms]);
+  const normalizedQuery = signalTerms.length
+    ? signalTerms.slice(0, 24).map((term) => term.includes(" ") ? `"${term}"` : term).join(" OR ")
+    : originalQuery;
   const pico = parsePico(originalQuery);
   const warnings: string[] = [];
   if (!Object.keys(pico).length) warnings.push("PICO belum ditulis secara eksplisit; hasil diperingkat dari kecocokan istilah dan provenance sumber.");
-  if (!expandedTerms.length) warnings.push("Tidak ada ekspansi istilah bilingual yang pasti; gunakan istilah MeSH atau sinonim klinis bila hasil terlalu luas.");
+  if (!expandedTerms.length) warnings.push("Tidak ada sinonim bilingual yang pasti; provider tetap mencari istilah inti dan memeringkat hasil berdasarkan kecocokan topik.");
   return {
     originalQuery,
-    normalizedQuery: originalQuery,
+    normalizedQuery,
     language: inferLanguage(originalQuery),
     expandedTerms,
     pico,
@@ -281,6 +399,7 @@ function createProviderRecord(providerId: EvidenceProviderId, providerRecordId: 
     abstract: values.abstract?.trim() || undefined,
     isOpenAccess: values.isOpenAccess === true,
     fullTextUrl: safeUrl(values.fullTextUrl),
+    figures: values.figures?.slice(0, 3),
     citedByCount: values.citedByCount,
     publicationTypes: uniqueStrings(values.publicationTypes || []),
     retractionStatus: values.retractionStatus || "unknown",
@@ -368,6 +487,47 @@ function europePmcFullTextUrl(record: JsonRecord): string | undefined {
   return safeUrl(first?.url);
 }
 
+function parseEuropePmcFigures(xml: string, pmcid: string): EvidenceFigure[] {
+  const fragments = Array.from(xml.matchAll(/<fig\b[\s\S]*?<\/fig>/gi)).map((match) => match[0]).slice(0, 3);
+  const figures: Array<EvidenceFigure | null> = fragments.map((fragment, index) => {
+    const href = fragment.match(/<graphic\b[^>]*(?:xlink:href|href)=["']([^"']+)["'][^>]*\/?\s*>/i)?.[1];
+    const fileName = href?.split("/").pop()?.split("?")[0];
+    if (!fileName || !/\.(?:png|jpe?g|gif|webp)$/i.test(fileName)) return null;
+    const label = xmlTag(fragment, "label") || `Figure ${index + 1}`;
+    const caption = xmlTag(fragment, "caption") || "Temuan visual dari artikel open full text.";
+    return {
+      id: `${pmcid}-figure-${index + 1}`,
+      label,
+      caption: caption.slice(0, 900),
+      imageUrl: `https://www.ncbi.nlm.nih.gov/pmc/articles/${encodeURIComponent(pmcid)}/bin/${encodeURIComponent(fileName)}`,
+      sourceUrl: `https://europepmc.org/articles/${encodeURIComponent(pmcid)}`,
+    };
+  });
+  return figures.filter((figure): figure is EvidenceFigure => Boolean(figure));
+}
+
+async function enrichEuropePmcFigures(records: ProviderRecord[], options: FederatedEvidenceSearchOptions): Promise<ProviderRecord[]> {
+  const fetchImpl = options.fetchImpl || fetch;
+  const candidates = records.filter((record) => record.pmcid).slice(0, 3);
+  if (!candidates.length) return records;
+  const enriched = await Promise.all(candidates.map(async (record) => {
+    try {
+      const xml = await requestText(
+        fetchImpl,
+        `https://www.ebi.ac.uk/europepmc/webservices/rest/${encodeURIComponent(record.pmcid as string)}/fullTextXML`,
+        { headers: { Accept: "application/xml" } },
+        Math.min(options.timeoutMs || DEFAULT_TIMEOUT_MS, 4_000),
+      );
+      const figures = parseEuropePmcFigures(xml, record.pmcid as string);
+      return figures.length ? { ...record, figures } : record;
+    } catch {
+      return record;
+    }
+  }));
+  const byId = new Map(enriched.map((record) => [record.providerRecordId, record]));
+  return records.map((record) => byId.get(record.providerRecordId) || record);
+}
+
 async function searchEuropePmc(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const url = new URL("https://www.ebi.ac.uk/europepmc/webservices/rest/search");
@@ -402,7 +562,8 @@ async function searchEuropePmc(options: FederatedEvidenceSearchOptions, plan: Ev
       url: `https://europepmc.org/article/${encodeURIComponent(source)}/${encodeURIComponent(providerRecordId)}`,
     });
   }).filter((record) => Boolean(record.title));
-  return { provider: "europepmc", hitCount: numberValue(resultList.hitCount) || records.length, records };
+  const enrichedRecords = await enrichEuropePmcFigures(records, options);
+  return { provider: "europepmc", hitCount: numberValue(resultList.hitCount) || enrichedRecords.length, records: enrichedRecords };
 }
 
 async function searchOpenAlex(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
@@ -517,6 +678,7 @@ function mergeProviderRecords(records: ProviderRecord[]): ProviderRecord {
     abstract: firstNonEmpty(...sorted.map((record) => record.abstract)),
     isOpenAccess: sorted.some((record) => record.isOpenAccess),
     fullTextUrl: firstNonEmpty(...sorted.map((record) => record.fullTextUrl)),
+    figures: sorted.flatMap((record) => record.figures || []).slice(0, 3),
     citedByCount: sorted.map((record) => record.citedByCount).filter((value): value is number => typeof value === "number").sort((a, b) => b - a)[0],
     publicationTypes: uniqueStrings(sorted.flatMap((record) => record.publicationTypes)),
     retractionStatus,
@@ -554,7 +716,7 @@ function evidenceRecordId(record: ProviderRecord): string {
 }
 
 function relevanceScore(record: ProviderRecord, query: string, expandedTerms: string[], allProviderCount: number): { score: number; reasons: string[] } {
-  const queryTokens = uniqueStrings([query, ...expandedTerms]).flatMap(tokenize);
+  const queryTokens = searchSignalTokens(query, expandedTerms);
   const titleTokens = new Set(tokenize(record.title));
   const bodyTokens = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
   const titleMatches = queryTokens.filter((token) => titleTokens.has(token)).length;
@@ -574,6 +736,23 @@ function relevanceScore(record: ProviderRecord, query: string, expandedTerms: st
   if (record.retractionStatus === "retracted") reasons.push("perlu perhatian: status retraction terdeteksi");
   const score = rrf + titleCoverage * 0.72 + bodyCoverage * 0.24 + providerCoverage * 0.08 + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus;
   return { score: Number(score.toFixed(6)), reasons: reasons.length ? reasons : ["hasil federated search"] };
+}
+
+function hasSearchSignal(record: FederatedEvidenceRecord, query: string): boolean {
+  const queryGroups = searchSignalGroups(query);
+  if (!queryGroups.length) return false;
+  const searchableText = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
+  const directTopicTokens = tokenize(query).filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token));
+  const topicTerms = uniqueStrings([
+    ...directTopicTokens,
+    ...matchedExpansionEntries(query)
+      .filter(([term]) => !GENERIC_CLINICAL_TOKENS.has(normalizeTitle(term)))
+      .flatMap(([term, terms]) => [term, ...terms]),
+  ]).flatMap(tokenize);
+  if (topicTerms.length && !topicTerms.some((token) => searchableText.has(token))) return false;
+  const matchedGroups = queryGroups.filter((group) => group.some((token) => searchableText.has(token))).length;
+  const requiredMatches = queryGroups.length === 1 ? 1 : Math.min(2, queryGroups.length);
+  return matchedGroups >= requiredMatches;
 }
 
 async function callProvider(provider: EvidenceProviderId, options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
@@ -613,7 +792,7 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
   const successfulProviders = providerStates.filter((state) => state.status !== "error");
   if (!successfulProviders.length) throw new EvidenceSearchUnavailableError("Semua sumber evidence gagal dihubungi. Coba lagi beberapa saat.");
   const deduplicated = deduplicateProviderRecords(providerRecords);
-  const results: FederatedEvidenceRecord[] = deduplicated
+  const rankedResults: FederatedEvidenceRecord[] = deduplicated
     .map((record) => {
       const score = relevanceScore(record, plan.originalQuery, plan.expandedTerms, new Set(providerRecords.filter((item) => evidenceRecordId(item) === evidenceRecordId(record)).map((item) => item.providerId)).size || 1);
       const sourceIds = uniqueStrings(providerRecords.filter((item) => identifierKeys(item).some((key) => identifierKeys(record).includes(key))).map((item) => item.providerId)) as EvidenceProviderId[];
@@ -631,6 +810,7 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
         abstract: record.abstract,
         isOpenAccess: record.isOpenAccess,
         fullTextUrl: record.fullTextUrl,
+        figures: record.figures,
         citedByCount: record.citedByCount,
         publicationTypes: record.publicationTypes,
         retractionStatus: record.retractionStatus,
@@ -639,8 +819,11 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
         url: record.url,
       };
     })
-    .sort((left, right) => right.score - left.score || (right.citedByCount || 0) - (left.citedByCount || 0))
+    .sort((left, right) => right.score - left.score || (right.citedByCount || 0) - (left.citedByCount || 0));
+  const results = rankedResults
+    .filter((record) => hasSearchSignal(record, plan.originalQuery))
     .slice(0, Math.max(1, Math.min(MAX_PROVIDER_PAGE_SIZE, Math.round(options.limit))));
+  if (!results.length && rankedResults.length) warnings.push("Provider mengembalikan kandidat tanpa kecocokan istilah topik; hasil tersebut disembunyikan agar tidak dianggap sebagai evidence yang relevan.");
   return {
     engine: "federated",
     query: plan.originalQuery,

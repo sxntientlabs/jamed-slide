@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type UIEvent as ReactUIEvent } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Bell, BookOpen, Check, ChevronDown, Cloud, DoorOpen, ExternalLink, FileText, FolderPlus, GitBranch, GraduationCap, Grid2X2, Link2, LoaderCircle, LogOut, Menu, Monitor, Moon, MoreHorizontal, Network, Paperclip, PanelLeft, Plus, Puzzle, RotateCcw, Search, Shapes, ShieldCheck, SlidersHorizontal, Square, SquarePen, Star, Sun, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Bell, BookOpen, Check, ChevronDown, ChevronUp, DoorOpen, ExternalLink, FileText, FolderPlus, GitBranch, GraduationCap, Grid2X2, Link2, LoaderCircle, LogOut, Menu, Monitor, Moon, MoreHorizontal, Network, Paperclip, PanelLeft, Plus, Puzzle, RotateCcw, Search, Shapes, ShieldCheck, SlidersHorizontal, Square, SquarePen, Star, Sun, X } from "lucide-react";
 import { useAuth, userInitial } from "./AuthGate";
 import { KoasisGlyph, type KoasisGlyphName } from "./KoasisGlyph";
 import { KoasisCaseBrief } from "./KoasisCaseBrief";
@@ -9,9 +9,11 @@ import { MkarRotationCockpit, type MkarCockpitAction } from "./MkarRotationCockp
 import { KoasisClinicalWorkspace } from "./KoasisClinicalWorkspace";
 import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
 import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentComputerActivity, type AgentRunStatus } from "../lib/agentChatClient";
-import { searchEvidenceSources, type EvidenceSource } from "../lib/evidenceSearchClient";
+import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "../lib/evidenceCitations";
+import { searchEvidenceSources, type EvidenceQueryPlan, type EvidenceSource } from "../lib/evidenceSearchClient";
 import { ComputerClientError, getComputerStatus, openComputerSession, pauseComputer, revokeComputerSession, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
+import { promptNeedsEvidence } from "../lib/evidencePolicy";
 import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisModelId, type KoasisReasoningLevel } from "../lib/koasisModels";
 import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
 import { detectSensitiveIdentifiers, redactSensitiveIdentifiers, type SensitiveIdentifierFinding } from "../lib/privacyGuard";
@@ -42,11 +44,14 @@ type ChatMessage = AgentChatMessage & {
   streaming?: boolean;
   fallback?: boolean;
   error?: boolean;
+  errorKind?: "request" | "evidence-search";
   retryPrompt?: string;
   action?: "lapjag";
   requestId?: string;
   durationMs?: number;
   sourceMode?: SourceMode;
+  citationSources?: EvidenceSource[];
+  followUpQuestions?: string[];
   reviewRequired?: boolean;
 };
 
@@ -490,6 +495,8 @@ function toRemoteMessage(message: ChatMessage): RemoteChatMessage {
   if (message.requestId !== undefined) remote.requestId = message.requestId;
   if (message.durationMs !== undefined) remote.durationMs = message.durationMs;
   if (message.sourceMode !== undefined) remote.sourceMode = message.sourceMode;
+  if (message.citationSources?.length) remote.citationSources = message.citationSources.slice(0, 8);
+  if (message.followUpQuestions?.length) remote.followUpQuestions = message.followUpQuestions.slice(0, 3);
   if (message.reviewRequired !== undefined) remote.reviewRequired = message.reviewRequired;
   const attachments = message.attachments?.map(({ name, mimeType, kind, storagePath }) => ({
     name,
@@ -590,12 +597,39 @@ function fallbackReply(prompt: string): string {
   return "Agent sedang tidak tersambung. Draft ini belum diproses dan belum boleh dianggap sebagai output klinis. Coba lagi sebentar.";
 }
 
-function renderInlineText(value: string, keyPrefix: string): ReactNode {
-  const chunks = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[\d+\])/g).filter((chunk) => chunk !== "");
+function openEvidenceSource(source: EvidenceSource): void {
+  if (typeof window === "undefined") return;
+  const url = source.url || source.fullTextUrl;
+  if (!url) return;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function renderInlineText(value: string, keyPrefix: string, citationSources: EvidenceSource[] = []): ReactNode {
+  const chunks = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[(?:\d+(?:\s*[-–]\s*\d+)?|(?:[A-Za-z][A-Za-z0-9_-]*:){0,2}(?:DOI|PMID|PMCID):[^\]\s]+)\])/gi).filter((chunk) => chunk !== "");
   return chunks.map((chunk, index) => {
     if (chunk.startsWith("**") && chunk.endsWith("**")) return <strong key={`${keyPrefix}-strong-${index}`}>{chunk.slice(2, -2)}</strong>;
     if (chunk.startsWith("`") && chunk.endsWith("`")) return <code key={`${keyPrefix}-code-${index}`}>{chunk.slice(1, -1)}</code>;
-    if (/^\[\d+\]$/.test(chunk)) return <KoasisCitation key={`${keyPrefix}-citation-${index}`} number={chunk.slice(1, -1)} />;
+    if (/^\[(?:\d+(?:\s*[-–]\s*\d+)?|(?:[A-Za-z][A-Za-z0-9_-]*:){0,2}(?:DOI|PMID|PMCID):[^\]\s]+)\]$/i.test(chunk)) {
+      const range = /^\[(\d+)\s*[-–]\s*(\d+)\]$/.exec(chunk);
+      if (range) {
+        const start = Number(range[1]);
+        const end = Number(range[2]);
+        const first = start > 0 && start <= citationSources.length ? citationSources[start - 1] : undefined;
+        const last = end > 0 && end <= citationSources.length ? citationSources[end - 1] : undefined;
+        if (!first || !last || end < start) return <span key={`${keyPrefix}-unresolved-citation-${index}`} className="koasis-unresolved-citation" title="Rentang referensi belum terhubung ke sumber yang dipilih">{chunk}</span>;
+        const label = `Buka referensi [${start}–${end}] ${first.title}`;
+        const sourceLabel = evidenceSourceLabel(first).replace(/\s+/g, " ").trim();
+        const displayLabel = sourceLabel.length > 22 ? `${sourceLabel.slice(0, 21)}…` : sourceLabel;
+        return <KoasisCitation key={`${keyPrefix}-citation-range-${index}`} number={`${start}–${end}`} displayLabel={displayLabel} extraCount={end - start} label={label} onClick={() => openEvidenceSource(first)} />;
+      }
+      const matched = matchEvidenceCitation(chunk, citationSources);
+      if (!matched) return <span key={`${keyPrefix}-unresolved-citation-${index}`} className="koasis-unresolved-citation" title="Referensi belum terhubung ke sumber yang dipilih">{chunk}</span>;
+      const label = `Buka referensi [${matched.index + 1}] ${matched.source.title}`;
+      const sourceLabel = evidenceSourceLabel(matched.source).replace(/\s+/g, " ").trim();
+      const displayLabel = sourceLabel.length > 22 ? `${sourceLabel.slice(0, 21)}…` : sourceLabel;
+      const extraCount = Math.max(0, (matched.source.sourceIds?.length || 1) - 1);
+      return <KoasisCitation key={`${keyPrefix}-citation-${index}`} number={String(matched.index + 1)} displayLabel={displayLabel} extraCount={extraCount} label={label} onClick={() => openEvidenceSource(matched.source)} />;
+    }
     return <span key={`${keyPrefix}-text-${index}`}>{chunk}</span>;
   });
 }
@@ -610,7 +644,7 @@ function isPipeDivider(cells: string[]): boolean {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
 
-function RichAgentText({ content, enhanced = false }: { content: string; enhanced?: boolean }) {
+function RichAgentText({ content, enhanced = false, citationSources = [] }: { content: string; enhanced?: boolean; citationSources?: EvidenceSource[] }) {
   const lines = content.split("\n");
   const blocks: ReactNode[] = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -655,7 +689,7 @@ function RichAgentText({ content, enhanced = false }: { content: string; enhance
       continue;
     }
     if (/^#{1,3}\s/.test(trimmed)) {
-      blocks.push(<h3 key={index}>{renderInlineText(trimmed.replace(/^#{1,3}\s/, ""), `heading-${index}`)}</h3>);
+      blocks.push(<h3 key={index}>{renderInlineText(trimmed.replace(/^#{1,3}\s/, ""), `heading-${index}`, citationSources)}</h3>);
       continue;
     }
     if (/^[-*]\s+\[[ xX]\]\s+/.test(trimmed)) {
@@ -673,30 +707,98 @@ function RichAgentText({ content, enhanced = false }: { content: string; enhance
       continue;
     }
     if (/^[-*]\s/.test(trimmed)) {
-      blocks.push(<div className="koasis-rich-bullet" key={index}><i />{renderInlineText(trimmed.replace(/^[-*]\s/, ""), `bullet-${index}`)}</div>);
+      blocks.push(<div className="koasis-rich-bullet" key={index}><i />{renderInlineText(trimmed.replace(/^[-*]\s/, ""), `bullet-${index}`, citationSources)}</div>);
       continue;
     }
     if (/^\d+\.\s/.test(trimmed)) {
-      blocks.push(<div className="koasis-rich-number" key={index}><strong>{trimmed.match(/^\d+/)?.[0]}</strong><span>{renderInlineText(trimmed.replace(/^\d+\.\s/, ""), `number-${index}`)}</span></div>);
+      blocks.push(<div className="koasis-rich-number" key={index}><strong>{trimmed.match(/^\d+/)?.[0]}</strong><span>{renderInlineText(trimmed.replace(/^\d+\.\s/, ""), `number-${index}`, citationSources)}</span></div>);
       continue;
     }
-    blocks.push(<p key={index}>{renderInlineText(line, `paragraph-${index}`)}</p>);
+    blocks.push(<p key={index}>{renderInlineText(line, `paragraph-${index}`, citationSources)}</p>);
   }
   const body = <div className="koasis-rich-text">{blocks}</div>;
   return enhanced ? <AicssTextResponse>{body}</AicssTextResponse> : body;
 }
 
-function MessageBubble({ message, userLabel, onRetry, onAction }: { message: ChatMessage; userLabel: string; onRetry: (message: ChatMessage) => void; onAction: (action: "lapjag") => void }) {
+function EvidenceReferenceList({ sources }: { sources: EvidenceSource[] }) {
+  const [expanded, setExpanded] = useState(true);
+  if (!sources.length) return null;
+  return <section className="koasis-evidence-references" aria-label="Referensi evidence">
+    <button type="button" className="koasis-evidence-references-heading" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+      <span className="koasis-evidence-references-heading-label"><BookOpen size={13} /><strong>Referensi</strong><span>{sources.length} sumber terhubung</span></span>
+      {expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+    </button>
+    {expanded && <div className="koasis-evidence-reference-list">{sources.map((source, index) => {
+      const badges = evidenceSourceBadges(source);
+      const sourceUrl = source.url || source.fullTextUrl;
+      return <article className="koasis-evidence-reference" key={`${source.id}-${index}`}>
+        <span className="koasis-evidence-reference-number">{index + 1}</span>
+        <div className="koasis-evidence-reference-copy">
+          {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer" className="koasis-evidence-reference-title">{source.title}</a> : <strong className="koasis-evidence-reference-title">{source.title}</strong>}
+          <small>{[evidenceSourceLabel(source), source.year, source.authors].filter(Boolean).join(" · ") || evidenceSourceReference(source)}</small>
+          <span className="koasis-evidence-reference-badges">{badges.map((badge) => <em className={badge === "Recent" ? "recent" : badge === "SR" ? "systematic" : badge === "Clinical reference" ? "clinical" : "review"} key={badge}>{badge}</em>)}</span>
+        </div>
+        {sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer" className="koasis-evidence-reference-open" aria-label={`Buka sumber ${index + 1}`}><ExternalLink size={12} aria-hidden="true" /></a>}
+      </article>;
+    })}</div>}
+  </section>;
+}
+
+function EvidenceFigureGallery({ sources }: { sources: EvidenceSource[] }) {
+  const figures = sources.flatMap((source) => (source.figures || []).map((figure) => ({
+    ...figure,
+    sourceTitle: source.title,
+    sourceUrl: figure.sourceUrl || source.url || source.fullTextUrl,
+  }))).slice(0, 3);
+  if (!figures.length) return null;
+  return <section className="koasis-evidence-figures" aria-label="Temuan visual dari sumber evidence">
+    <div className="koasis-evidence-figures-heading"><span><Shapes size={14} /><strong>Temuan visual</strong></span><small>Gambar dari artikel open full text</small></div>
+    <div className="koasis-evidence-figure-grid">{figures.map((figure) => <figure className="koasis-evidence-figure" key={figure.id}>
+      <img src={figure.imageUrl} alt={figure.caption || `${figure.label || "Figure"} dari ${figure.sourceTitle}`} loading="lazy" />
+      <figcaption><strong>{figure.label || "Figure"}</strong><span>{figure.caption}</span>{figure.sourceUrl && <a href={figure.sourceUrl} target="_blank" rel="noreferrer">Buka sumber asli <ExternalLink size={11} /></a>}</figcaption>
+    </figure>)}</div>
+  </section>;
+}
+
+function FollowUpQuestions({ questions, busy, onSelect }: { questions: string[]; busy: boolean; onSelect: (question: string) => void }) {
+  if (!questions.length) return null;
+  return <section className="koasis-follow-up-questions" aria-label="Pertanyaan lanjutan">
+    <div className="koasis-follow-up-heading"><span><Link2 size={14} /><strong>Follow-up questions</strong></span><small>Lanjutkan dari evidence yang sudah ditemukan</small></div>
+    <div className="koasis-follow-up-list">{questions.map((question) => <button type="button" key={question} disabled={busy} onClick={() => onSelect(question)}><span>{question}</span><ArrowRight size={14} aria-hidden="true" /></button>)}</div>
+  </section>;
+}
+
+function safeEvidenceMessageContent(message: ChatMessage): string {
+  const isLegacyEvidenceFailure = /Evidence Desk belum menemukan sumber yang cukup relevan|Pencarian sumber belum menghasilkan kandidat yang cukup relevan/i.test(message.content);
+  if (!isLegacyEvidenceFailure) return message.content;
+  return "Pencarian evidence awal belum menemukan kecocokan langsung. Koasis tidak akan membuat kesimpulan faktual atau klinis tanpa sumber; tambahkan fokus, populasi, intervensi, atau luaran agar pencarian bisa dilanjutkan.";
+}
+
+function buildEvidenceFollowUpQuestions(agentId: AgentId, sources: EvidenceSource[]): string[] {
+  void agentId;
+  if (!sources.length) return [];
+  return [
+    "Bandingkan kualitas dan keterbatasan sumber-sumber ini.",
+    "Tunjukkan perbedaan temuan atau rekomendasi antar sumber.",
+    "Cari guideline resmi terbaru dan jelaskan apakah hasilnya konsisten.",
+  ];
+}
+
+function MessageBubble({ message, userLabel, onRetry, onAction, onFollowUp }: { message: ChatMessage; userLabel: string; onRetry: (message: ChatMessage) => void; onAction: (action: "lapjag") => void; onFollowUp: (prompt: string) => void }) {
   const assistant = message.role === "assistant";
   const messageAgent = AGENT_PRESETS.find((preset) => preset.id === message.agentId)?.label || "Koasis Agent";
+  const visibleContent = safeEvidenceMessageContent(message);
   return <article className={`koasis-message ${assistant ? "assistant" : "user"}`}>
     <div className={`koasis-message-avatar ${assistant ? "assistant" : "user"}`} aria-hidden="true">{assistant ? <KoasisMark className="koasis-message-mark" /> : <span>U</span>}</div>
     <div className="koasis-message-body">
-      <div className="koasis-message-meta"><strong>{assistant ? messageAgent : userLabel}</strong><span>{message.timestamp}</span>{message.fallback && <span className="koasis-message-badge warning">Mode offline</span>}{assistant && message.reviewRequired && <span className="koasis-message-badge review">Review wajib</span>}{assistant && message.sourceMode && <span className="koasis-message-badge neutral">{message.sourceMode === "attachments" ? "Attachment context" : message.sourceMode === "sources" ? "Evidence context" : "Workspace context"}</span>}{assistant && message.durationMs && <span title={message.requestId ? `Request ${message.requestId}` : undefined}>{(message.durationMs / 1_000).toFixed(1)} dtk</span>}</div>
-      <div className={`koasis-message-text ${message.streaming ? "streaming" : ""}`}>{message.streaming ? <KoasisStreamingText active text={message.content} /> : <RichAgentText content={message.content} enhanced={assistant} />}</div>
+      <div className="koasis-message-meta"><strong>{assistant ? messageAgent : userLabel}</strong><span>{message.timestamp}</span>{message.fallback && <span className="koasis-message-badge warning">Mode offline</span>}{assistant && message.reviewRequired && <span className="koasis-message-badge review">Review wajib</span>}{assistant && message.durationMs && <span title={message.requestId ? `Request ${message.requestId}` : undefined}>{(message.durationMs / 1_000).toFixed(1)} dtk</span>}</div>
+      <div className={`koasis-message-text ${message.streaming ? "streaming" : ""}`}>{message.streaming ? <KoasisStreamingText active text={visibleContent} /> : <RichAgentText content={visibleContent} enhanced={assistant} citationSources={message.citationSources} />}</div>
+      {assistant && !message.streaming && <EvidenceFigureGallery sources={message.citationSources || []} />}
+      {assistant && !message.streaming && <EvidenceReferenceList sources={message.citationSources || []} />}
+      {assistant && !message.streaming && !message.error && <FollowUpQuestions questions={message.followUpQuestions || []} busy={false} onSelect={onFollowUp} />}
       {message.attachments?.map((attachment) => <div className="koasis-message-attachment" key={`${message.id}-${attachment.name}`}><Paperclip size={12} />{attachment.name}</div>)}
-      {message.error && <div className="koasis-message-error"><span>Belum terkirim ke agent. Periksa koneksi atau coba lagi.</span>{message.retryPrompt && <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> Coba lagi</button>}</div>}
-      {assistant && !message.streaming && !message.error && <KoasisMessageActions text={message.content} />}
+      {message.error && <div className="koasis-message-error"><span>{message.errorKind === "evidence-search" ? "Pencarian evidence belum menemukan kecocokan langsung. Tambahkan konteks atau buka sumber yang tersedia untuk melanjutkan review." : "Belum terkirim ke agent. Periksa koneksi atau coba lagi."}</span>{message.retryPrompt && <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> Coba lagi</button>}</div>}
+      {assistant && !message.streaming && !message.error && <KoasisMessageActions text={visibleContent} />}
       {assistant && message.action === "lapjag" && <button type="button" className="koasis-inline-action" onClick={() => onAction("lapjag")}>Buka Laporan Jaga <ArrowRight size={14} /></button>}
     </div>
   </article>;
@@ -832,17 +934,23 @@ function AgentContractBar({ preset, sourceMode }: { preset: AgentPreset; sourceM
   </div>;
 }
 
-function evidenceSourceReference(source: EvidenceSource): string {
-  const identifier = source.doi ? `DOI:${source.doi}` : source.pmid ? `PMID:${source.pmid}` : source.pmcid ? `PMCID:${source.pmcid}` : source.id;
-  return `${source.source.toUpperCase()}:${identifier}`;
-}
-
 function evidenceProviderLabel(provider: string): string {
   if (provider === "europepmc") return "Europe PMC";
   if (provider === "pubmed") return "PubMed";
   if (provider === "openalex") return "OpenAlex";
   if (provider === "crossref") return "Crossref";
   return provider;
+}
+
+function shouldAutoSearchEvidence(prompt: string, presetId: AgentId): boolean {
+  return promptNeedsEvidence(prompt, presetId);
+}
+
+function evidenceSearchQuery(prompt: string, conversation: ChatMessage[]): string {
+  const normalizedPrompt = prompt.replace(/\s+/g, " ").trim();
+  if (normalizedPrompt.length >= 24) return normalizedPrompt.slice(-1_800);
+  const recentContext = conversation.filter((message) => message.role === "user").slice(-2).map((message) => message.content.trim()).filter(Boolean).join(" ");
+  return `${recentContext} ${normalizedPrompt}`.replace(/\s+/g, " ").trim().slice(-1_800);
 }
 
 function EvidenceSourceSearchPanel({
@@ -852,6 +960,8 @@ function EvidenceSourceSearchPanel({
   busy,
   error,
   results,
+  queryPlan,
+  selectedSources,
   onUseSource,
 }: {
   query: string;
@@ -860,6 +970,8 @@ function EvidenceSourceSearchPanel({
   busy: boolean;
   error: string;
   results: EvidenceSource[];
+  queryPlan?: EvidenceQueryPlan;
+  selectedSources: EvidenceSource[];
   onUseSource: (source: EvidenceSource) => void;
 }) {
   return <section className="koasis-evidence-search" aria-label="Cari sumber evidence">
@@ -874,13 +986,15 @@ function EvidenceSourceSearchPanel({
       <button type="submit" aria-label="Cari sumber" disabled={busy || query.trim().length < 3}>{busy ? <LoaderCircle size={14} className="koasis-spinner" /> : <ArrowRight size={14} />}</button>
     </form>
     {error && <div className="koasis-evidence-search-error" role="alert">{error}</div>}
+    {queryPlan?.expandedTerms.length ? <div className="koasis-evidence-query-plan"><span>Semantic search</span><div>{queryPlan.expandedTerms.slice(0, 12).map((term) => <em key={term}>{term}</em>)}</div></div> : null}
     {results.length > 0 && <div className="koasis-evidence-results">
       <div className="koasis-evidence-results-head"><span>Hasil teratas</span><small>{results.length} kandidat · buka sumber sebelum dipakai</small></div>
       {results.map((source) => <article className="koasis-evidence-result" key={evidenceSourceReference(source)}>
         <div className="koasis-evidence-result-top"><div><strong>{source.title}</strong><small>{[source.journal, source.year].filter(Boolean).join(" · ") || "Metadata jurnal belum tersedia"}</small></div><a href={source.url} target="_blank" rel="noreferrer" aria-label={`Buka sumber ${source.title}`} title="Buka sumber asli"><ExternalLink size={13} /></a></div>
         <div className="koasis-evidence-result-meta"><span>{source.authors || "Penulis belum tersedia"}</span><span>{(source.sourceIds || [source.source]).map(evidenceProviderLabel).join(" + ")}</span>{source.doi && <span>DOI {source.doi}</span>}</div>
+        {source.figures?.[0] && <img className="koasis-evidence-result-figure" src={source.figures[0].imageUrl} alt={source.figures[0].caption || `Figure dari ${source.title}`} loading="lazy" />}
         {source.abstract && <p>{source.abstract}</p>}
-        <div className="koasis-evidence-result-footer"><span className="koasis-evidence-result-id">{evidenceSourceReference(source)}</span>{source.isOpenAccess && <span className="koasis-evidence-open">Open access</span>}{source.retractionStatus === "retracted" && <span className="koasis-evidence-warning">Retraction terdeteksi</span>}{source.retractionStatus === "corrected" && <span className="koasis-evidence-warning">Correction terdeteksi</span>}{typeof source.citedByCount === "number" && <span>{source.citedByCount.toLocaleString("id-ID")} sitasi</span>}<button type="button" onClick={() => onUseSource(source)}><Link2 size={12} />Tambahkan ke konteks</button></div>
+        <div className="koasis-evidence-result-footer"><span className="koasis-evidence-result-id">{evidenceSourceReference(source)}</span>{source.isOpenAccess && <span className="koasis-evidence-open">Open access</span>}{source.retractionStatus === "retracted" && <span className="koasis-evidence-warning">Retraction terdeteksi</span>}{source.retractionStatus === "corrected" && <span className="koasis-evidence-warning">Correction terdeteksi</span>}{typeof source.citedByCount === "number" && <span>{source.citedByCount.toLocaleString("id-ID")} sitasi</span>}<button type="button" className={selectedSources.some((item) => evidenceSourceKey(item) === evidenceSourceKey(source)) ? "selected" : ""} onClick={() => onUseSource(source)}>{selectedSources.some((item) => evidenceSourceKey(item) === evidenceSourceKey(source)) ? <><Check size={12} />Dipilih untuk citation</> : <><Link2 size={12} />Tambahkan sumber</>}</button></div>
       </article>)}
     </div>}
   </section>;
@@ -915,7 +1029,6 @@ export function AgenticChat() {
   const [selectedPresetId, setSelectedPresetId] = useState<AgentId>("koasis");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [engineMenuOpen, setEngineMenuOpen] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [composerPalette, setComposerPalette] = useState<ComposerPalette>(null);
   const [composerPaletteIndex, setComposerPaletteIndex] = useState(0);
   const [manusPage, setManusPage] = useState<ManusPage>("home");
@@ -941,6 +1054,8 @@ export function AgenticChat() {
   const [privacyReview, setPrivacyReview] = useState<PendingPrivacyReview | null>(null);
   const [evidenceQuery, setEvidenceQuery] = useState("");
   const [evidenceResults, setEvidenceResults] = useState<EvidenceSource[]>([]);
+  const [evidenceQueryPlan, setEvidenceQueryPlan] = useState<EvidenceQueryPlan | undefined>();
+  const [selectedEvidenceSources, setSelectedEvidenceSources] = useState<EvidenceSource[]>([]);
   const [evidenceSearchBusy, setEvidenceSearchBusy] = useState(false);
   const [evidenceSearchError, setEvidenceSearchError] = useState("");
   const [remoteHydrated, setRemoteHydrated] = useState(false);
@@ -1077,18 +1192,17 @@ export function AgenticChat() {
   }, [draft]);
 
   useEffect(() => {
-    if (!toolsOpen && !modelMenuOpen && !engineMenuOpen && !composerPalette) return;
+    if (!modelMenuOpen && !engineMenuOpen && !composerPalette) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && (composerWrapRef.current?.contains(target) || modelSelectorRef.current?.contains(target))) return;
-      setToolsOpen(false);
       setModelMenuOpen(false);
       setEngineMenuOpen(false);
       setComposerPalette(null);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [composerPalette, engineMenuOpen, modelMenuOpen, toolsOpen]);
+  }, [composerPalette, engineMenuOpen, modelMenuOpen]);
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
@@ -1104,7 +1218,6 @@ export function AgenticChat() {
       if (event.key === "Escape") {
         setModelMenuOpen(false);
         setEngineMenuOpen(false);
-        setToolsOpen(false);
         setComposerPalette(null);
         setMobileSidebarOpen(false);
         setWorkflowKind(null);
@@ -1126,7 +1239,6 @@ export function AgenticChat() {
     setAgentLibraryOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
-    setToolsOpen(false);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
     setWorkspacePanelOpen(false);
@@ -1145,7 +1257,6 @@ export function AgenticChat() {
     setAgentLibraryOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
-    setToolsOpen(false);
     setMoreMenuOpen(false);
     setMobileSidebarOpen(false);
   };
@@ -1164,11 +1275,12 @@ export function AgenticChat() {
       const authToken = await user.getIdToken();
       const response = await searchEvidenceSources(query, { authToken, limit: 5 });
       setEvidenceResults(response.results);
+      setEvidenceQueryPlan(response.queryPlan);
       const failedProviders = response.providers?.filter((provider) => provider.status === "error") || [];
       if (failedProviders.length) {
         setEvidenceSearchError(`Hasil parsial: ${failedProviders.map((provider) => evidenceProviderLabel(provider.provider)).join(", ")} tidak merespons. Sumber yang tampil tetap perlu diverifikasi manual.`);
       } else if (!response.results.length) {
-        setEvidenceSearchError("Belum ada hasil yang cukup relevan. Coba ubah istilah atau tambahkan populasi/intervensi.");
+        setEvidenceSearchError("Belum ada kecocokan langsung. Istilah Indonesia/Inggris sudah diperluas; tambahkan populasi, intervensi, atau luaran bila ingin mempersempit.");
       }
     } catch (error) {
       setEvidenceSearchError(error instanceof Error ? error.message : "Pencarian sumber gagal. Coba lagi.");
@@ -1178,9 +1290,17 @@ export function AgenticChat() {
   };
 
   const addEvidenceSourceToContext = (source: EvidenceSource) => {
+    const selectedIndex = selectedEvidenceSources.findIndex((item) => evidenceSourceKey(item) === evidenceSourceKey(source));
+    const referenceNumber = selectedIndex >= 0 ? selectedIndex + 1 : selectedEvidenceSources.length + 1;
+    if (selectedIndex >= 0) {
+      setSourceMode("sources");
+      setEvidenceSearchError("");
+      window.requestAnimationFrame(() => composerRef.current?.focus());
+      return;
+    }
     const reference = evidenceSourceReference(source);
     const contextBlock = [
-      `[${reference}] Kandidat sumber dari federated evidence search — verifikasi manual sebelum dipakai untuk keputusan klinis.`,
+      `[${referenceNumber}] ${reference} — kandidat sumber dari federated evidence search; verifikasi manual sebelum dipakai untuk keputusan klinis.`,
       `Judul: ${source.title}`,
       `Jurnal/tahun: ${[source.journal, source.year].filter(Boolean).join(" · ") || "Tidak tercantum"}`,
       source.authors ? `Penulis: ${source.authors}` : "",
@@ -1194,9 +1314,9 @@ export function AgenticChat() {
       `Sumber asli: ${source.url}`,
       source.fullTextUrl ? `Tautan full text/provider: ${source.fullTextUrl}` : "",
     ].filter(Boolean).join("\n");
+    setSelectedEvidenceSources((current) => [...current, source].slice(0, 8));
     setDraft((current) => `${current}${current.trim() ? "\n\n" : ""}${contextBlock}`);
     setSourceMode("sources");
-    setToolsOpen(false);
     setEvidenceSearchError("");
     window.requestAnimationFrame(() => composerRef.current?.focus());
   };
@@ -1244,6 +1364,8 @@ export function AgenticChat() {
     setCaseBriefOpen(false);
     setEvidenceQuery("");
     setEvidenceResults([]);
+    setEvidenceQueryPlan(undefined);
+    setSelectedEvidenceSources([]);
     setEvidenceSearchError("");
     setShowHome(true);
     setManusPage("home");
@@ -1251,7 +1373,6 @@ export function AgenticChat() {
     setAgentLibraryOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
-    setToolsOpen(false);
     setComposerPalette(null);
     setMoreMenuOpen(false);
     setMobileSidebarOpen(false);
@@ -1274,7 +1395,6 @@ export function AgenticChat() {
     setMobileSidebarOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
-    setToolsOpen(false);
     setComposerPalette(null);
     setBusy(false);
     setRunStatus(null);
@@ -1285,6 +1405,8 @@ export function AgenticChat() {
     setCaseBriefOpen(false);
     setEvidenceQuery("");
     setEvidenceResults([]);
+    setEvidenceQueryPlan(undefined);
+    setSelectedEvidenceSources([]);
     setEvidenceSearchError("");
   };
 
@@ -1300,7 +1422,6 @@ export function AgenticChat() {
     setMobileSidebarOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
-    setToolsOpen(false);
     setComposerPalette(null);
     setRunStatus(null);
     setRunTrail([]);
@@ -1342,7 +1463,6 @@ export function AgenticChat() {
     setManusPage("home");
     setCaseBriefOpen(false);
     setWorkflowKind(kind);
-    setToolsOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
     setMobileSidebarOpen(false);
@@ -1351,15 +1471,13 @@ export function AgenticChat() {
   const selectModel = (modelId: KoasisModelId) => {
     setSelectedModelId(modelId);
     setEngineMenuOpen(false);
-    setToolsOpen(false);
   };
   const toggleModelMenu = () => {
     setEngineMenuOpen((current) => !current);
     setModelMenuOpen(false);
-    setToolsOpen(false);
   };
 
-  const updateAssistant = (assistantId: string, content: string, streaming: boolean, options?: { agentId?: AgentId; fallback?: boolean; error?: boolean; retryPrompt?: string; action?: "lapjag"; requestId?: string; durationMs?: number; sourceMode?: SourceMode; reviewRequired?: boolean }) => {
+  const updateAssistant = (assistantId: string, content: string, streaming: boolean, options?: { agentId?: AgentId; fallback?: boolean; error?: boolean; errorKind?: "request" | "evidence-search"; retryPrompt?: string; action?: "lapjag"; requestId?: string; durationMs?: number; sourceMode?: SourceMode; citationSources?: EvidenceSource[]; followUpQuestions?: string[]; reviewRequired?: boolean }) => {
     setMessages((current) => {
       const nextMessage: ChatMessage = { id: assistantId, agentId: options?.agentId || activePreset.id, role: "assistant", content, timestamp: current.find((message) => message.id === assistantId)?.timestamp || currentTime(), streaming, ...options };
       const existingIndex = current.findIndex((message) => message.id === assistantId);
@@ -1370,9 +1488,11 @@ export function AgenticChat() {
     });
   };
 
-  const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false) => {
+  const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode) => {
+    const initialSourceMode = contextSourceMode ?? sourceMode;
+    const initialEvidenceSources = contextSources ?? selectedEvidenceSources;
     const workspaceFile = workspace.contextFile;
-    const workspaceAttachment: AgentChatAttachment | null = sourceMode === "workspace" && workspaceFile && workspaceFile.kind === "pdf" && (workspaceFile.dataUrl || workspaceFile.storagePath)
+    const workspaceAttachment: AgentChatAttachment | null = initialSourceMode === "workspace" && workspaceFile && workspaceFile.kind === "pdf" && (workspaceFile.dataUrl || workspaceFile.storagePath)
       ? { name: workspaceFile.name, mimeType: workspaceFile.mimeType, kind: "pdf", dataUrl: workspaceFile.dataUrl, ...(workspaceFile.storagePath ? { storagePath: workspaceFile.storagePath } : {}) }
       : null;
     const messageAttachments = [...attached, workspaceAttachment].filter((item, index, items): item is AgentChatAttachment => Boolean(item) && items.findIndex((candidate) => candidate?.name === item?.name && candidate?.dataUrl === item?.dataUrl) === index);
@@ -1389,7 +1509,6 @@ export function AgenticChat() {
         setPrivacyReview({ prompt, attachments: messageAttachments, findings });
         setModelMenuOpen(false);
         setEngineMenuOpen(false);
-        setToolsOpen(false);
         setComposerPalette(null);
         return;
       }
@@ -1403,8 +1522,9 @@ export function AgenticChat() {
     setManusPage("home");
     setDraft("");
     setAttachments([]);
+    setSelectedEvidenceSources([]);
+    setSourceMode("workspace");
     setAttachmentError("");
-    setToolsOpen(false);
     setEngineMenuOpen(false);
     setComposerPalette(null);
     setBusy(true);
@@ -1420,10 +1540,41 @@ export function AgenticChat() {
     const requestUserMessage = requestPrompt === prompt ? userMessage : { ...userMessage, content: requestPrompt };
 
     void (async () => {
+      let requestSourceMode = initialSourceMode;
+      let requestEvidenceSources = initialEvidenceSources;
+      let evidenceLookupNote = "";
       try {
         const authToken = await user.getIdToken();
-        const hydratedRequestAttachments = requestUserMessage.attachments?.length
-          ? await Promise.all(requestUserMessage.attachments.map(async (attachment) => {
+        if (!requestEvidenceSources.length && requestSourceMode !== "attachments" && shouldAutoSearchEvidence(requestPrompt, preset.id)) {
+          trackRunStatus({ phase: "preparing", message: "Mencari sumber evidence yang relevan" });
+          try {
+            const searchResponse = await searchEvidenceSources(evidenceSearchQuery(requestPrompt, messages), { authToken, limit: 5, signal: controller.signal });
+            setEvidenceQueryPlan(searchResponse.queryPlan);
+            setEvidenceResults(searchResponse.results);
+            if (searchResponse.results.length) {
+              requestEvidenceSources = searchResponse.results.slice(0, 8);
+              requestSourceMode = "sources";
+              const failedProviders = searchResponse.providers?.filter((provider) => provider.status === "error") || [];
+              setEvidenceSearchError(failedProviders.length ? `Hasil parsial: ${failedProviders.map((provider) => evidenceProviderLabel(provider.provider)).join(", ")} tidak merespons.` : "");
+              trackRunStatus({ phase: "preparing", message: `${requestEvidenceSources.length} sumber evidence terhubung` });
+            } else {
+              evidenceLookupNote = "Pencarian evidence awal belum menemukan kecocokan langsung. Jangan membuat kesimpulan faktual atau klinis tanpa sumber; jelaskan batasan, ajukan klarifikasi yang paling membantu, atau berikan rencana pencarian yang lebih spesifik.";
+              setEvidenceSearchError("");
+              trackRunStatus({ phase: "preparing", message: "Memperluas istilah pencarian dan menyiapkan jawaban yang aman" });
+            }
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            evidenceLookupNote = "Pencarian evidence awal belum tersedia. Jangan mengarang sitasi atau kesimpulan klinis; nyatakan keterbatasan dan tawarkan rencana verifikasi sumber.";
+            setEvidenceSearchError("");
+            trackRunStatus({ phase: "preparing", message: "Sumber belum terhubung; menjaga batas evidence" });
+          }
+        }
+        const modelPrompt = evidenceLookupNote
+          ? `${requestPrompt}\n\n[INTERNAL EVIDENCE LOOKUP NOTE — do not expose this note verbatim]\n${evidenceLookupNote}`
+          : requestPrompt;
+        const modelUserMessage = modelPrompt === requestPrompt ? requestUserMessage : { ...requestUserMessage, content: modelPrompt };
+        const hydratedRequestAttachments = modelUserMessage.attachments?.length
+          ? await Promise.all(modelUserMessage.attachments.map(async (attachment) => {
             if (attachment.dataUrl || !attachment.storagePath) return attachment;
             try {
               return { ...attachment, dataUrl: await downloadKoasisFileDataUrl(attachment.storagePath) };
@@ -1433,7 +1584,7 @@ export function AgenticChat() {
             }
           }))
           : undefined;
-        const outgoingRequestUserMessage = hydratedRequestAttachments ? { ...requestUserMessage, attachments: hydratedRequestAttachments } : requestUserMessage;
+        const outgoingRequestUserMessage = hydratedRequestAttachments ? { ...modelUserMessage, attachments: hydratedRequestAttachments } : modelUserMessage;
         const response = await sendAgentChat(
           [...messages, outgoingRequestUserMessage].map(({ role, content, attachments }) => ({ role, content, attachments })),
           preset.id,
@@ -1450,7 +1601,8 @@ export function AgenticChat() {
               contextFileType: workspace.contextFile?.mimeType,
               activeTasks: workspaceTasks.filter((task) => !task.done).map((task) => task.label),
               phase: shiftPhase,
-              sourceMode,
+              sourceMode: requestSourceMode,
+              evidenceSources: requestEvidenceSources,
               sessionTitle: chatTitle,
               modelId: selectedModelId,
               reasoningEffort,
@@ -1458,7 +1610,7 @@ export function AgenticChat() {
             onDelta: (content) => {
               streamedContent = content;
               setStreamingMessageId(assistantId);
-              updateAssistant(assistantId, content, true, { agentId: preset.id, action });
+              updateAssistant(assistantId, content, true, { agentId: preset.id, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
             },
             onStatus: trackRunStatus,
             onComputerActivity: (activity) => setComputerActivity((current) => ({
@@ -1467,15 +1619,15 @@ export function AgenticChat() {
             })),
           },
         );
-        updateAssistant(assistantId, response.content, false, { agentId: preset.id, action, requestId: response.requestId, durationMs: response.durationMs, sourceMode, reviewRequired: response.reviewRequired });
+        updateAssistant(assistantId, response.content, false, { agentId: preset.id, action, requestId: response.requestId, durationMs: response.durationMs, sourceMode: requestSourceMode, citationSources: requestEvidenceSources, followUpQuestions: buildEvidenceFollowUpQuestions(preset.id, requestEvidenceSources), reviewRequired: response.reviewRequired });
       } catch (error) {
         if (controller.signal.aborted) return;
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
         if (privacyBlocked) {
           setPrivacyReview({ prompt, attachments: messageAttachments, findings: detectSensitiveIdentifiers(prompt) });
-          updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, action });
-        } else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, action });
-        else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, action });
+          updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        } else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
       } finally {
         if (requestControllerRef.current === controller) {
           requestControllerRef.current = null;
@@ -1489,7 +1641,7 @@ export function AgenticChat() {
   };
 
   const handleRetry = (message: ChatMessage) => {
-    if (message.retryPrompt) submitPrompt(message.retryPrompt, message.attachments || []);
+    if (message.retryPrompt) submitPrompt(message.retryPrompt, message.attachments || [], false, message.citationSources || [], message.sourceMode || "workspace");
   };
 
   const handleAction = (action: "lapjag") => {
@@ -1510,7 +1662,6 @@ export function AgenticChat() {
       setAgentLibraryOpen(false);
       setModelMenuOpen(false);
       setEngineMenuOpen(false);
-      setToolsOpen(false);
       const nextDraft = `${draft.slice(0, trigger.start)}@${preset.label} ${draft.slice(draft.length)}`;
       setDraft(nextDraft);
       setComposerPalette(null);
@@ -1727,15 +1878,15 @@ export function AgenticChat() {
       <div className={`koasis-content ${workspacePanelOpen ? "with-board" : "without-board"}`}>
         <section className="koasis-conversation">
           <div className="koasis-conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
-        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}
-            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onAction={handleAction} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
+        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} queryPlan={evidenceQueryPlan} selectedSources={selectedEvidenceSources} onUseSource={addEvidenceSourceToContext} />}<AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} /></>}</>}
+            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onAction={handleAction} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
           </div>
           {showJumpToLatest && <button type="button" className="koasis-jump-latest" onClick={jumpToLatest}><ArrowDown size={14} /> Terbaru</button>}
           {manusPage === "home" && <div className="koasis-composer-area">
             <div className="koasis-composer-wrap" ref={composerWrapRef}>
               {privacyReview && <KoasisApprovalCard findings={privacyReview.findings.map((finding) => finding.label)} attachmentName={privacyReview.attachments.map((item) => item.name).join(", ") || undefined} onDismiss={() => setPrivacyReview(null)} onSanitize={movePrivacyReviewToComposer} />}
               {attachmentError && <div className="koasis-attachment-error" role="alert">{attachmentError}</div>}
-              <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><button type="button" className="koasis-toolbar-tool" onClick={() => { setToolsOpen((current) => !current); setModelMenuOpen(false); setEngineMenuOpen(false); }} aria-expanded={toolsOpen} aria-haspopup="dialog"><SlidersHorizontal size={13} /> {sourceMode === "attachments" ? "Attachment context" : sourceMode === "sources" ? "Evidence context" : <><Cloud size={13} /> Cloud</>}<ChevronDown size={12} /></button><button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); setToolsOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
+              <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
               <form className={`koasis-composer ${attachments.length ? "has-attachments" : ""}`} onSubmit={handleSubmit}>
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf,audio/*,.txt,.csv,.tsv" multiple hidden onChange={(event) => { void handleFile(event); }} />
                 {composerPalette && (composerPalette === "mention" ? mentionOptions : commandOptions).length > 0 && <div className={`koasis-composer-palette ${composerPalette}`} role="listbox" aria-label={composerPalette === "mention" ? "Pilih specialist agent" : "Pilih plugin command"}>
@@ -1751,10 +1902,9 @@ export function AgenticChat() {
                 <button type="submit" className="koasis-send-button" aria-label="Kirim pesan" disabled={busy || (!draft.trim() && !attachments.length)}>{busy ? <LoaderCircle size={15} className="koasis-spinner" /> : <ArrowUp size={16} />}</button>
               </form>
               {attachments.length > 0 && <div className="koasis-attachment-privacy"><ShieldCheck size={12} />Pastikan file sudah dianonimkan; Koasis tidak dapat menjamin mendeteksi identitas di dalam file.</div>}
-              {toolsOpen && <div className="koasis-tools-popover" role="dialog" aria-label="Tools dan sumber"><div className="koasis-tools-heading"><div><span className="koasis-overline">Context pesan</span><strong>Pilih cara Koasis membaca input.</strong></div><button type="button" aria-label="Tutup tools" onClick={() => setToolsOpen(false)}><X size={14} /></button></div><button type="button" aria-label="Gunakan workspace context" className={sourceMode === "workspace" ? "active" : ""} onClick={() => { setSourceMode("workspace"); setToolsOpen(false); }}><span className="koasis-tool-radio" /><span><strong>Workspace context</strong><small>Gunakan stase, fokus, task, dan percakapan aktif.</small></span></button><button type="button" aria-label="Gunakan evidence source context" className={sourceMode === "sources" ? "active" : ""} onClick={() => { if (evidenceResults.length) setSourceMode("sources"); else setEvidenceSearchError("Cari atau tambahkan minimal satu sumber dulu."); }}><span className="koasis-tool-radio" /><span><strong>Evidence source context</strong><small>{evidenceResults.length ? `${evidenceResults.length} kandidat hasil pencarian tersedia.` : "Cari sumber publik dari Evidence Desk."}</small></span></button><button type="button" aria-label="Gunakan attachment atau catatan" className={sourceMode === "attachments" ? "active" : ""} onClick={() => { setSourceMode("attachments"); setToolsOpen(false); }}><span className="koasis-tool-radio" /><span><strong>Attachment / catatan</strong><small>{attachments.length ? `${attachments.length} attachment siap dipakai sebagai evidence.` : "Lampirkan file atau tempel catatan sebelum mengirim."}</small></span></button>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} onUseSource={addEvidenceSourceToContext} />}<div className="koasis-tools-disclaimer">Sumber hasil pencarian adalah kandidat metadata/abstract. Koasis tidak menganggapnya sebagai rekomendasi klinis final sebelum sumber asli direview.</div></div>}
               {modelMenuOpen && <div className="koasis-mode-popover" role="menu" aria-label="Pilih specialist agent">{AGENT_GROUPS.map((group) => <div className="koasis-mode-group" key={group.id}><div className="koasis-mode-group-label">{group.label}</div>{presetsForGroup(group.id).map((preset) => <button type="button" className={selectedPresetId === preset.id ? "active" : ""} key={preset.id} onClick={() => selectAgent(preset)}><span className="koasis-mode-popover-mark"><KoasisGlyph name={preset.glyph} size={15} /></span><span><strong>{preset.label}</strong><small>{preset.shortDescription}</small></span></button>)}</div>)}</div>}
             </div>
-            <div className="koasis-composer-note"><ShieldCheck size={11} /> Sesi privat · identitas langsung dicek sebelum kirim · keputusan klinis tetap di tanganmu.</div>
+            <div className="koasis-composer-note"><ShieldCheck size={11} /> Sesi privat · klaim faktual dicari dan ditautkan ke sumber · keputusan klinis tetap di tanganmu.</div>
           </div>}
         </section>
         {workspacePanelOpen && <KoasisWorkspacePanel workspace={workspace} tasks={workspaceTasks} activePhase={shiftPhase} onPhaseChange={setShiftPhase} onClose={() => setWorkspacePanelOpen(false)} onSaveWorkspace={saveWorkspace} onToggleTask={toggleWorkspaceTask} onAddTask={addWorkspaceTask} onPrompt={(prompt) => submitPrompt(prompt, [])} onOpenWorkflow={openWorkflow} onOpenCaseBrief={() => { setSelectedPresetId("case"); setSourceMode("workspace"); setCaseBriefOpen(true); }} />}

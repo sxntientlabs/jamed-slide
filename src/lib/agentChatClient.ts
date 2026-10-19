@@ -1,4 +1,5 @@
 import type { AgentId, AgentSourcePolicy } from "./agentCatalog";
+import type { EvidenceSource } from "./evidenceSearchClient";
 import type { KoasisModelId, KoasisReasoningLevel } from "./koasisModels";
 import { koasisApiUrl } from "./koasisApi";
 
@@ -27,6 +28,7 @@ export type AgentWorkspaceContext = {
   activeTasks?: string[];
   phase?: "before" | "during" | "after";
   sourceMode?: "workspace" | "attachments" | "sources";
+  evidenceSources?: EvidenceSource[];
   sessionTitle?: string;
   modelId?: KoasisModelId;
   reasoningEffort?: KoasisReasoningLevel;

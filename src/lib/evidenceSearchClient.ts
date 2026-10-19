@@ -24,6 +24,14 @@ export type EvidenceQueryPlan = {
   warnings: string[];
 };
 
+export type EvidenceFigure = {
+  id: string;
+  label?: string;
+  caption: string;
+  imageUrl: string;
+  sourceUrl?: string;
+};
+
 export type EvidenceSource = {
   id: string;
   source: EvidenceProviderId;
@@ -38,6 +46,7 @@ export type EvidenceSource = {
   abstract?: string;
   isOpenAccess: boolean;
   fullTextUrl?: string;
+  figures?: EvidenceFigure[];
   citedByCount?: number;
   publicationTypes?: string[];
   retractionStatus?: "retracted" | "corrected" | "unknown";

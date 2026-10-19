@@ -53,6 +53,19 @@ describe("evidence search query planning", () => {
     expect(plan.pico.outcome).toBe("eksaserbasi");
     expect(plan.expandedTerms).toContain("asthma");
   });
+
+  test("builds a broad bilingual clinical query instead of searching only the input language", () => {
+    const plan = buildEvidenceQueryPlan("tatalaksana pneumonia aspirasi pada anak");
+    expect(plan.normalizedQuery).toContain("aspiration pneumonia");
+    expect(plan.normalizedQuery).toContain("management");
+    expect(plan.expandedTerms).toEqual(expect.arrayContaining(["aspiration", "pediatric", "paediatric"]));
+  });
+
+  test("keeps short clinical abbreviations searchable", () => {
+    const plan = buildEvidenceQueryPlan("TB");
+    expect(plan.normalizedQuery).toContain("tuberculosis");
+    expect(plan.expandedTerms).toContain("mycobacterium tuberculosis");
+  });
 });
 
 describe("federated evidence search", () => {
@@ -64,6 +77,22 @@ describe("federated evidence search", () => {
     expect(result.results[0]?.sourceIds).toEqual(expect.arrayContaining(["pubmed", "europepmc", "openalex", "crossref"]));
     expect(result.results[0]?.retractionStatus).toBe("retracted");
     expect(result.providers.every((provider) => provider.status === "ok")).toBe(true);
+  });
+
+  test("extracts figure metadata from an open Europe PMC full text article", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/fullTextXML")) {
+        return new Response(`<article><fig id="F1"><label>Figure 1</label><caption><p>Diagnostic pathway for the study population.</p></caption><graphic xlink:href="example.g001.jpg" /></fig></article>`, { status: 200, headers: { "Content-Type": "application/xml" } });
+      }
+      if (url.includes("europepmc.org") || url.includes("ebi.ac.uk/europepmc")) {
+        return jsonResponse({ resultList: { hitCount: 1, result: [{ source: "MED", id: "2", pmcid: "PMC999", title: "Asthma diagnostic pathway", journalTitle: "Clinical Medicine", pubYear: "2024", isOpenAccess: "Y" }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "asthma diagnosis", limit: 5, providers: ["europepmc"], fetchImpl });
+    expect(result.results[0]?.figures?.[0]).toMatchObject({ label: "Figure 1", caption: "Diagnostic pathway for the study population." });
+    expect(result.results[0]?.figures?.[0]?.imageUrl).toContain("PMC999");
   });
 
   test("returns partial results when one provider is unavailable", async () => {
@@ -80,5 +109,42 @@ describe("federated evidence search", () => {
   test("fails clearly when every selected provider is unavailable", async () => {
     const fetchImpl = vi.fn(async () => { throw new Error("offline"); }) as typeof fetch;
     await expect(searchFederatedEvidence({ query: "sepsis", limit: 3, providers: ["pubmed", "crossref"], fetchImpl })).rejects.toBeInstanceOf(EvidenceSearchUnavailableError);
+  });
+
+  test("hides provider candidates without a topic match", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.crossref.org")) {
+        return jsonResponse({ message: { "total-results": 1, items: [{ DOI: "10.1000/unrelated", title: ["A literary study of poetry"], author: [{ given: "Jane", family: "Doe" }], "container-title": ["Arts Review"], published: { "date-parts": [[2024]] }, URL: "https://doi.org/10.1000/unrelated" }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "pneumonia aspirasi", limit: 5, providers: ["crossref"], fetchImpl });
+    expect(result.results).toEqual([]);
+    expect(result.warnings.some((warning) => warning.includes("tanpa kecocokan istilah topik"))).toBe(true);
+  });
+
+  test("does not turn a generic research request into unrelated evidence", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.crossref.org")) {
+        return jsonResponse({ message: { "total-results": 1, items: [{ DOI: "10.1000/trust", title: ["Trust and health information systems"], "container-title": ["Health Informatics"], published: { "date-parts": [[2024]] }, URL: "https://doi.org/10.1000/trust" }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "Help me research this topic with trustworthy medical sources. Clarify the question and compare the evidence.", limit: 5, providers: ["crossref"], fetchImpl });
+    expect(result.results).toEqual([]);
+  });
+
+  test("requires the concrete clinical topic when filtering broad provider results", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.crossref.org")) {
+        return jsonResponse({ message: { "total-results": 2, items: [
+          { DOI: "10.1000/tb", title: ["Tuberculosis diagnosis and treatment"], "container-title": ["Clinical Review"], published: { "date-parts": [[2024]] }, URL: "https://doi.org/10.1000/tb" },
+          { DOI: "10.1000/nf", title: ["Guidelines for the diagnosis and management of neurofibromatosis"], "container-title": ["Journal of Medical Genetics"], published: { "date-parts": [[2024]] }, URL: "https://doi.org/10.1000/nf" },
+        ] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "Jelaskan diagnosis dan tatalaksana tuberkulosis paru", limit: 5, providers: ["crossref"], fetchImpl });
+    expect(result.results.map((item) => item.doi)).toEqual(["10.1000/tb"]);
   });
 });

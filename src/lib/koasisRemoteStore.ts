@@ -12,6 +12,7 @@ import {
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
 import { firebaseStorage, firestore, getFirebaseSetupError } from "./firebase";
 import type { OpsAssessmentAttempt, OpsEncounter } from "./clinicalOps";
+import type { EvidenceSource } from "./evidenceSearchClient";
 
 export type RemoteAttachmentKind = "image" | "pdf" | "audio";
 
@@ -35,6 +36,8 @@ export type RemoteChatMessage = {
   requestId?: string;
   durationMs?: number;
   sourceMode?: "workspace" | "attachments" | "sources";
+  citationSources?: EvidenceSource[];
+  followUpQuestions?: string[];
   reviewRequired?: boolean;
   attachments?: RemoteChatAttachment[];
 };
@@ -162,6 +165,49 @@ function normalizeRemoteAttachment(value: unknown): RemoteChatAttachment | null 
   };
 }
 
+function normalizeRemoteEvidenceSource(value: unknown): EvidenceSource | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<EvidenceSource>;
+  const validProviders = ["pubmed", "europepmc", "openalex", "crossref"] as const;
+  if (!validProviders.includes(item.source as (typeof validProviders)[number])) return null;
+  if (typeof item.id !== "string" || typeof item.title !== "string" || typeof item.url !== "string") return null;
+  if (!/^https?:\/\//i.test(item.url)) return null;
+  const figures = Array.isArray(item.figures) ? item.figures.map((value, index) => {
+    if (!value || typeof value !== "object") return null;
+    const figure = value as Partial<NonNullable<EvidenceSource["figures"]>[number]>;
+    if (typeof figure.imageUrl !== "string" || !/^https?:\/\//i.test(figure.imageUrl) || typeof figure.caption !== "string") return null;
+    return {
+      id: typeof figure.id === "string" ? figure.id.slice(0, 200) : `${item.id}-figure-${index + 1}`,
+      label: typeof figure.label === "string" ? figure.label.slice(0, 120) : undefined,
+      caption: figure.caption.slice(0, 900),
+      imageUrl: figure.imageUrl.slice(0, 1_000),
+      sourceUrl: typeof figure.sourceUrl === "string" && /^https?:\/\//i.test(figure.sourceUrl) ? figure.sourceUrl.slice(0, 1_000) : undefined,
+    };
+  }).filter((figure): figure is NonNullable<typeof figure> => Boolean(figure)).slice(0, 3) : undefined;
+  return {
+    id: item.id.slice(0, 300),
+    source: item.source as EvidenceSource["source"],
+    sourceIds: Array.isArray(item.sourceIds) ? item.sourceIds.filter((source): source is EvidenceSource["source"] => validProviders.includes(source as (typeof validProviders)[number])).slice(0, 4) : undefined,
+    title: item.title.slice(0, 500),
+    authors: typeof item.authors === "string" ? item.authors.slice(0, 500) : "",
+    journal: typeof item.journal === "string" ? item.journal.slice(0, 300) : "",
+    year: typeof item.year === "string" ? item.year.slice(0, 20) : undefined,
+    doi: typeof item.doi === "string" ? item.doi.slice(0, 300) : undefined,
+    pmid: typeof item.pmid === "string" ? item.pmid.slice(0, 80) : undefined,
+    pmcid: typeof item.pmcid === "string" ? item.pmcid.slice(0, 80) : undefined,
+    abstract: typeof item.abstract === "string" ? item.abstract.slice(0, 1_800) : undefined,
+    isOpenAccess: item.isOpenAccess === true,
+    fullTextUrl: typeof item.fullTextUrl === "string" && /^https?:\/\//i.test(item.fullTextUrl) ? item.fullTextUrl.slice(0, 1_000) : undefined,
+    figures: figures?.length ? figures : undefined,
+    citedByCount: typeof item.citedByCount === "number" && Number.isFinite(item.citedByCount) ? item.citedByCount : undefined,
+    publicationTypes: Array.isArray(item.publicationTypes) ? item.publicationTypes.filter((type): type is string => typeof type === "string").map((type) => type.slice(0, 120)).slice(0, 12) : undefined,
+    retractionStatus: item.retractionStatus === "retracted" || item.retractionStatus === "corrected" || item.retractionStatus === "unknown" ? item.retractionStatus : undefined,
+    score: typeof item.score === "number" && Number.isFinite(item.score) ? item.score : undefined,
+    matchReasons: Array.isArray(item.matchReasons) ? item.matchReasons.filter((reason): reason is string => typeof reason === "string").map((reason) => reason.slice(0, 180)).slice(0, 8) : undefined,
+    url: item.url.slice(0, 1_000),
+  };
+}
+
 function normalizeRemoteMessage(value: unknown): RemoteChatMessage | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<RemoteChatMessage>;
@@ -179,10 +225,13 @@ function normalizeRemoteMessage(value: unknown): RemoteChatMessage | null {
     requestId: typeof item.requestId === "string" ? item.requestId : undefined,
     durationMs: typeof item.durationMs === "number" ? item.durationMs : undefined,
     sourceMode: item.sourceMode === "workspace" || item.sourceMode === "attachments" || item.sourceMode === "sources" ? item.sourceMode : undefined,
+    followUpQuestions: Array.isArray(item.followUpQuestions) ? item.followUpQuestions.filter((question): question is string => typeof question === "string" && question.trim().length > 0).map((question) => question.slice(0, 240)).slice(0, 3) : undefined,
     reviewRequired: typeof item.reviewRequired === "boolean" ? item.reviewRequired : undefined,
   };
   const attachments = Array.isArray(item.attachments) ? item.attachments.map(normalizeRemoteAttachment).filter((attachment): attachment is RemoteChatAttachment => Boolean(attachment)) : [];
   if (attachments.length) message.attachments = attachments;
+  const citationSources = Array.isArray(item.citationSources) ? item.citationSources.map(normalizeRemoteEvidenceSource).filter((source): source is EvidenceSource => Boolean(source)).slice(0, 8) : [];
+  if (citationSources.length) message.citationSources = citationSources;
   return message;
 }
 
