@@ -2635,7 +2635,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 @media (max-width: 560px) {
   .koasis-topbar { height: 60px; flex-basis: 60px; }
   .koasis-conversation-scroll { padding: 20px 14px 22px; }
-  .koasis-composer-area { padding: 11px 14px 13px; }
+  .koasis-composer-area { padding: 11px 14px max(13px, env(safe-area-inset-bottom)); }
+  .koasis-conversation-scroll { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
   .koasis-ai-status { display: none; }
   .koasis-thread-title-mark { width: 27px; height: 27px; flex-basis: 27px; }
   .koasis-thread-title strong { max-width: 190px; }
@@ -2978,8 +2979,10 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .manus-shell.sidebar-collapsed .koasis-user-card { display: flex; justify-content: center; }
 
 /* Scroll behavior: each surface owns its scroll, while the composer stays anchored. */
-.koasis-agent-body { overflow: hidden; }
-.koasis-shell { height: 100dvh; min-height: 100svh; }
+.koasis-agent-body { height: var(--koasis-visual-height, 100dvh); min-height: var(--koasis-visual-height, 100dvh); overflow: hidden; background: #171717; }
+.koasis-agent-body[data-koasis-theme="light"] { background: #f5f5f4; }
+.koasis-agent-body #root { height: 100%; min-height: 100%; }
+.koasis-shell { height: var(--koasis-visual-height, 100dvh); min-height: var(--koasis-visual-height, 100dvh); }
 .koasis-sidebar { height: 100%; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .koasis-main { height: 100%; min-height: 0; }
 .koasis-content { min-height: 0; }
@@ -3018,6 +3021,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 @keyframes koasis-jump-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 780px) {
+  .koasis-shell { height: var(--koasis-visual-height, 100dvh); min-height: var(--koasis-visual-height, 100dvh); }
   .koasis-jump-latest { right: 18px; bottom: 106px; }
   .koasis-panel-header { top: -16px; margin: -16px -13px 0; padding: 16px 16px 14px; }
 }
@@ -4237,6 +4241,32 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .manus-shell .manus-filter-tabs button { min-height: 36px; }
 }
 
+/* The chat header becomes icon-only on small screens. Keep its model menu
+   anchored to the viewport instead of inheriting the trigger's 36px width. */
+@media (max-width: 560px) {
+  .manus-shell .koasis-topbar .koasis-topbar-model-popover {
+    position: fixed;
+    z-index: 100;
+    top: 68px;
+    left: 12px;
+    right: auto;
+    width: min(340px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: min(70dvh, 420px);
+    overflow-y: auto;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 360px) {
+  .manus-shell .koasis-topbar .koasis-topbar-model-popover {
+    top: 68px;
+    left: 10px;
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+  }
+}
+
 /* Auth is intentionally quieter and darker than the clinical workspace. */
 .auth-shell {
   --auth-bg: #171717;
@@ -4495,3 +4525,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .koasis-composer-token { color: var(--ko-accent); }
 .koasis-composer-text-layer > textarea { position: relative; z-index: 1; width: 100%; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--ko-accent); }
 .koasis-composer-text-layer > textarea::selection { color: transparent; background: color-mix(in srgb, var(--ko-accent) 20%, transparent); }
+
+@media (max-width: 780px) {
+  .manus-shell .koasis-composer-area { padding-bottom: max(13px, env(safe-area-inset-bottom)); }
+}

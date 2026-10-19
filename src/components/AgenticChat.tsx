@@ -17,6 +17,7 @@ import { promptNeedsEvidence } from "../lib/evidencePolicy";
 import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisModelId, type KoasisReasoningLevel } from "../lib/koasisModels";
 import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
 import { detectSensitiveIdentifiers, redactSensitiveIdentifiers, type SensitiveIdentifierFinding } from "../lib/privacyGuard";
+import { buildConversationTitle, buildUniqueFollowUpQuestions } from "../lib/conversationMeta";
 
 type ThemeMode = "light" | "dark";
 type SourceMode = "workspace" | "attachments" | "sources";
@@ -543,12 +544,30 @@ function toRemoteSession(session: ChatSession): RemoteChatSession {
 }
 
 function fromRemoteSession(session: RemoteChatSession): ChatSession {
+  const sources = session.messages.flatMap((message) => message.citationSources || []).slice(-8);
+  const generatedTitle = buildConversationTitle(session.messages, {
+    agentLabel: AGENT_PRESETS.find((preset) => preset.id === normalizeAgentId(session.modeId))?.label,
+    sources,
+  });
+  const messages = session.messages.map((message, index, allMessages) => {
+    if (message.role !== "assistant" || message.error || !message.content.trim()) return { ...message };
+    const prompt = [...allMessages.slice(0, index)].reverse().find((candidate) => candidate.role === "user")?.content || "";
+    return {
+      ...message,
+      followUpQuestions: buildUniqueFollowUpQuestions({
+        prompt,
+        answer: message.content,
+        sources: message.citationSources || [],
+        agentLabel: AGENT_PRESETS.find((preset) => preset.id === normalizeAgentId(session.modeId))?.label,
+      }),
+    };
+  });
   return {
     id: session.id,
-    title: session.title,
+    title: generatedTitle === "Percakapan baru" ? session.title : generatedTitle,
     modeId: normalizeAgentId(session.modeId),
     updatedAt: session.updatedAt || Date.now(),
-    messages: session.messages.map((message) => ({ ...message })),
+    messages,
   };
 }
 
@@ -804,16 +823,6 @@ function safeEvidenceMessageContent(message: ChatMessage): string {
   const isLegacyEvidenceFailure = /Evidence Desk belum menemukan sumber yang cukup relevan|Pencarian sumber belum menghasilkan kandidat yang cukup relevan/i.test(message.content);
   if (!isLegacyEvidenceFailure) return message.content;
   return "Pencarian evidence awal belum menemukan kecocokan langsung. Koasis tidak akan membuat kesimpulan faktual atau klinis tanpa sumber; tambahkan fokus, populasi, intervensi, atau luaran agar pencarian bisa dilanjutkan.";
-}
-
-function buildEvidenceFollowUpQuestions(agentId: AgentId, sources: EvidenceSource[]): string[] {
-  void agentId;
-  if (!sources.length) return [];
-  return [
-    "Bandingkan kualitas dan keterbatasan sumber-sumber ini.",
-    "Tunjukkan perbedaan temuan atau rekomendasi antar sumber.",
-    "Cari guideline resmi terbaru dan jelaskan apakah hasilnya konsisten.",
-  ];
 }
 
 function MessageBubble({ message, userLabel, onRetry, onAction, onFollowUp }: { message: ChatMessage; userLabel: string; onRetry: (message: ChatMessage) => void; onAction: (action: "lapjag") => void; onFollowUp: (prompt: string) => void }) {
@@ -1125,8 +1134,28 @@ export function AgenticChat() {
 
   useEffect(() => {
     document.body.classList.add("koasis-agent-body");
-    return () => document.body.classList.remove("koasis-agent-body");
+    const visualViewport = window.visualViewport;
+    const syncVisualViewport = () => {
+      const height = visualViewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty("--koasis-visual-height", `${height}px`);
+    };
+    syncVisualViewport();
+    visualViewport?.addEventListener("resize", syncVisualViewport);
+    window.addEventListener("resize", syncVisualViewport);
+    return () => {
+      visualViewport?.removeEventListener("resize", syncVisualViewport);
+      window.removeEventListener("resize", syncVisualViewport);
+      document.documentElement.style.removeProperty("--koasis-visual-height");
+      document.body.classList.remove("koasis-agent-body");
+    };
   }, []);
+
+  useEffect(() => {
+    document.body.dataset.koasisTheme = themeMode;
+    return () => {
+      delete document.body.dataset.koasisTheme;
+    };
+  }, [themeMode]);
 
   useEffect(() => {
     let disposed = false;
@@ -1550,9 +1579,10 @@ export function AgenticChat() {
     }
     followScrollRef.current = true;
     setShowJumpToLatest(false);
+    const preset = activePreset;
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: "user", content: prompt, attachments: messageAttachments.length ? messageAttachments : undefined, timestamp: currentTime() };
     setMessages((current) => [...current, userMessage]);
-    setChatTitle(prompt.length > 42 ? `${prompt.slice(0, 42)}…` : prompt);
+    setChatTitle(buildConversationTitle([...messages, userMessage], { agentLabel: preset.label }));
     setShowHome(false);
     setManusPage("home");
     setDraft("");
@@ -1565,7 +1595,6 @@ export function AgenticChat() {
     setBusy(true);
     setComputerActivity(null);
     trackRunStatus({ phase: "accepted", message: "Menyiapkan permintaan" });
-    const preset = activePreset;
     const assistantId = `assistant-${Date.now()}`;
     const controller = new AbortController();
     requestControllerRef.current?.abort();
@@ -1654,7 +1683,17 @@ export function AgenticChat() {
             })),
           },
         );
-        updateAssistant(assistantId, response.content, false, { agentId: preset.id, action, requestId: response.requestId, durationMs: response.durationMs, sourceMode: requestSourceMode, citationSources: requestEvidenceSources, followUpQuestions: buildEvidenceFollowUpQuestions(preset.id, requestEvidenceSources), reviewRequired: response.reviewRequired });
+        setChatTitle(buildConversationTitle([...messages, userMessage, { role: "assistant", content: response.content }], { agentLabel: preset.label, sources: requestEvidenceSources }));
+        updateAssistant(assistantId, response.content, false, {
+          agentId: preset.id,
+          action,
+          requestId: response.requestId,
+          durationMs: response.durationMs,
+          sourceMode: requestSourceMode,
+          citationSources: requestEvidenceSources,
+          followUpQuestions: buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: requestEvidenceSources, agentLabel: preset.label }),
+          reviewRequired: response.reviewRequired,
+        });
       } catch (error) {
         if (controller.signal.aborted) return;
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
