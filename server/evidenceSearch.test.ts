@@ -85,6 +85,9 @@ describe("federated evidence search", () => {
       if (url.includes("/fullTextXML")) {
         return new Response(`<article><fig id="F1"><label>Figure 1</label><caption><p>Diagnostic pathway for the study population.</p></caption><graphic xlink:href="example.g001.jpg" /></fig></article>`, { status: 200, headers: { "Content-Type": "application/xml" } });
       }
+      if (url.includes("pmc.ncbi.nlm.nih.gov/articles/PMC999")) {
+        return new Response(`<html><img src="https://cdn.ncbi.nlm.nih.gov/pmc/blobs/1234/5678/example.g001.jpg" /></html>`, { status: 200, headers: { "Content-Type": "text/html" } });
+      }
       if (url.includes("europepmc.org") || url.includes("ebi.ac.uk/europepmc")) {
         return jsonResponse({ resultList: { hitCount: 1, result: [{ source: "MED", id: "2", pmcid: "PMC999", title: "Asthma diagnostic pathway", journalTitle: "Clinical Medicine", pubYear: "2024", isOpenAccess: "Y" }] } });
       }
@@ -92,7 +95,20 @@ describe("federated evidence search", () => {
     }) as typeof fetch;
     const result = await searchFederatedEvidence({ query: "asthma diagnosis", limit: 5, providers: ["europepmc"], fetchImpl });
     expect(result.results[0]?.figures?.[0]).toMatchObject({ label: "Figure 1", caption: "Diagnostic pathway for the study population." });
-    expect(result.results[0]?.figures?.[0]?.imageUrl).toContain("PMC999");
+    expect(result.results[0]?.figures?.[0]?.imageUrl).toBe("https://cdn.ncbi.nlm.nih.gov/pmc/blobs/1234/5678/example.g001.jpg");
+  });
+
+  test("adds relevant web-search results when a server-side search key is configured", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.search.brave.com")) {
+        return jsonResponse({ web: { total: 1, results: [{ title: "Asthma diagnosis guideline", url: "https://guidelines.example/asthma", description: "Evidence-based asthma diagnosis and management guidance.", profile: { long_name: "Clinical Guidelines" } }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "asthma diagnosis", limit: 5, providers: ["web"], webSearchApiKey: "test-key", fetchImpl });
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({ source: "web", title: "Asthma diagnosis guideline", url: "https://guidelines.example/asthma" });
+    expect(result.providers[0]).toMatchObject({ provider: "web", status: "ok" });
   });
 
   test("returns partial results when one provider is unavailable", async () => {

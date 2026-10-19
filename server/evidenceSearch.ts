@@ -1,4 +1,4 @@
-export type EvidenceProviderId = "pubmed" | "europepmc" | "openalex" | "crossref";
+export type EvidenceProviderId = "pubmed" | "europepmc" | "openalex" | "crossref" | "web";
 
 export type EvidenceRetractedStatus = "retracted" | "corrected" | "unknown";
 
@@ -79,6 +79,9 @@ export type FederatedEvidenceSearchOptions = {
   ncbiEmail?: string;
   crossrefEmail?: string;
   openAlexEmail?: string;
+  webSearchApiKey?: string;
+  webSearchProvider?: "brave" | "tavily";
+  webSearchUrl?: string;
 };
 
 type ProviderRecord = Omit<FederatedEvidenceRecord, "id" | "sourceIds" | "score" | "matchReasons"> & {
@@ -95,7 +98,7 @@ type ProviderResult = {
 
 type JsonRecord = Record<string, unknown>;
 
-const PROVIDER_ORDER: EvidenceProviderId[] = ["pubmed", "europepmc", "openalex", "crossref"];
+const PROVIDER_ORDER: EvidenceProviderId[] = ["pubmed", "europepmc", "openalex", "crossref", "web"];
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_PROVIDER_PAGE_SIZE = 8;
 
@@ -506,6 +509,15 @@ function parseEuropePmcFigures(xml: string, pmcid: string): EvidenceFigure[] {
   return figures.filter((figure): figure is EvidenceFigure => Boolean(figure));
 }
 
+function pmcCdnFigureUrl(html: string, fileName: string): string | undefined {
+  const candidates = Array.from(html.matchAll(/(?:https?:)?\/\/cdn\.ncbi\.nlm\.nih\.gov\/pmc\/blobs\/[^"'<>\s]+/gi))
+    .map((match) => match[0].replace(/&amp;/gi, "&"))
+    .filter((value) => new RegExp(`(?:^|/)${escapeRegExp(fileName)}(?:[?#]|$)`, "i").test(value));
+  const candidate = candidates[0];
+  if (!candidate) return undefined;
+  return safeUrl(candidate.startsWith("//") ? `https:${candidate}` : candidate);
+}
+
 async function enrichEuropePmcFigures(records: ProviderRecord[], options: FederatedEvidenceSearchOptions): Promise<ProviderRecord[]> {
   const fetchImpl = options.fetchImpl || fetch;
   const candidates = records.filter((record) => record.pmcid).slice(0, 3);
@@ -519,7 +531,24 @@ async function enrichEuropePmcFigures(records: ProviderRecord[], options: Federa
         Math.min(options.timeoutMs || DEFAULT_TIMEOUT_MS, 4_000),
       );
       const figures = parseEuropePmcFigures(xml, record.pmcid as string);
-      return figures.length ? { ...record, figures } : record;
+      if (!figures.length) return record;
+      let resolvedFigures = figures;
+      try {
+        const articleHtml = await requestText(
+          fetchImpl,
+          `https://pmc.ncbi.nlm.nih.gov/articles/${encodeURIComponent(record.pmcid as string)}/`,
+          { headers: { Accept: "text/html" } },
+          Math.min(options.timeoutMs || DEFAULT_TIMEOUT_MS, 4_000),
+        );
+        resolvedFigures = figures.map((figure) => {
+          const fileName = decodeURIComponent(figure.imageUrl.split("/").pop() || "");
+          const imageUrl = pmcCdnFigureUrl(articleHtml, fileName);
+          return imageUrl ? { ...figure, imageUrl } : figure;
+        });
+      } catch {
+        // Keep the public article URL as a safe fallback when PMC's HTML is unavailable.
+      }
+      return { ...record, figures: resolvedFigures };
     } catch {
       return record;
     }
@@ -649,6 +678,65 @@ async function searchCrossref(options: FederatedEvidenceSearchOptions, plan: Evi
   return { provider: "crossref", hitCount: numberValue(message["total-results"]) || records.length, records };
 }
 
+function webSearchQuery(plan: EvidenceQueryPlan): string {
+  return (plan.normalizedQuery || plan.originalQuery).replace(/\s+/g, " ").trim().slice(0, 700);
+}
+
+function webSourceDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return "Web source";
+  }
+}
+
+function webResultRecord(value: unknown, index: number, provider: "brave" | "tavily"): ProviderRecord | null {
+  const record = asRecord(value);
+  const url = safeUrl(record.url);
+  const title = stripMarkup(record.title);
+  if (!url || !title) return null;
+  const description = stripMarkup(stringValue(record.description) || stringValue(record.content) || "");
+  const publishedDate = stringValue(record.published_date) || stringValue(record.page_age) || stringValue(record.age);
+  return createProviderRecord("web", url, index + 1, {
+    title,
+    authors: "",
+    journal: provider === "brave" ? stripMarkup(stringValue(asRecord(record.profile).long_name) || "") || webSourceDomain(url) : webSourceDomain(url),
+    year: parseDateYear(publishedDate),
+    abstract: description || undefined,
+    isOpenAccess: false,
+    fullTextUrl: url,
+    publicationTypes: ["Web source"],
+    retractionStatus: "unknown",
+    url,
+  });
+}
+
+async function searchWeb(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+  const fetchImpl = options.fetchImpl || fetch;
+  const apiKey = options.webSearchApiKey?.trim();
+  if (!apiKey) throw new Error("Web search belum dikonfigurasi di server.");
+  const provider = options.webSearchProvider || "brave";
+  const endpoint = safeUrl(options.webSearchUrl) || (provider === "tavily"
+    ? "https://api.tavily.com/search"
+    : "https://api.search.brave.com/res/v1/web/search");
+  const query = webSearchQuery(plan);
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const payload = provider === "tavily"
+    ? await requestJson(fetchImpl, endpoint, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey, query, max_results: Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE), search_depth: "advanced", include_answer: false, include_raw_content: false }),
+    }, timeoutMs)
+    : await requestJson(fetchImpl, endpoint, {
+      headers: { Accept: "application/json", "X-Subscription-Token": apiKey, "User-Agent": "Koasis/1.0 (medical evidence discovery)" },
+    }, timeoutMs);
+  const rawResults = provider === "tavily"
+    ? arrayValue(payload.results)
+    : arrayValue(asRecord(payload.web).results);
+  const records = rawResults.map((value, index) => webResultRecord(value, index, provider)).filter((record): record is ProviderRecord => Boolean(record));
+  return { provider: "web", hitCount: numberValue(asRecord(payload.web).total) || records.length, records };
+}
+
 function identifierKeys(record: ProviderRecord): string[] {
   return uniqueStrings([
     record.doi ? `doi:${record.doi}` : undefined,
@@ -755,11 +843,19 @@ function hasSearchSignal(record: FederatedEvidenceRecord, query: string): boolea
   return matchedGroups >= requiredMatches;
 }
 
+function hasBroadSearchSignal(record: FederatedEvidenceRecord, query: string): boolean {
+  const directTopicTokens = tokenize(query).filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token));
+  if (!directTopicTokens.length) return false;
+  const searchableText = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
+  return directTopicTokens.some((token) => searchableText.has(token));
+}
+
 async function callProvider(provider: EvidenceProviderId, options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
   if (provider === "pubmed") return searchPubmed(options, plan);
   if (provider === "europepmc") return searchEuropePmc(options, plan);
   if (provider === "openalex") return searchOpenAlex(options, plan);
-  return searchCrossref(options, plan);
+  if (provider === "crossref") return searchCrossref(options, plan);
+  return searchWeb(options, plan);
 }
 
 export class EvidenceSearchUnavailableError extends Error {
@@ -771,7 +867,9 @@ export class EvidenceSearchUnavailableError extends Error {
 
 export async function searchFederatedEvidence(options: FederatedEvidenceSearchOptions): Promise<FederatedEvidenceSearchResult> {
   const plan = buildEvidenceQueryPlan(options.query);
-  const requestedProviders = options.providers?.length ? options.providers : PROVIDER_ORDER;
+  const requestedProviders = options.providers?.length
+    ? options.providers
+    : PROVIDER_ORDER.filter((provider) => provider !== "web" || Boolean(options.webSearchApiKey?.trim()));
   const providers = Array.from(new Set(requestedProviders)).filter((provider): provider is EvidenceProviderId => PROVIDER_ORDER.includes(provider));
   if (!providers.length) throw new EvidenceSearchUnavailableError("Tidak ada provider evidence yang diaktifkan.");
   const settled = await Promise.allSettled(providers.map((provider) => callProvider(provider, options, plan)));
@@ -820,9 +918,13 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
       };
     })
     .sort((left, right) => right.score - left.score || (right.citedByCount || 0) - (left.citedByCount || 0));
-  const results = rankedResults
+  const strictResults = rankedResults
     .filter((record) => hasSearchSignal(record, plan.originalQuery))
     .slice(0, Math.max(1, Math.min(MAX_PROVIDER_PAGE_SIZE, Math.round(options.limit))));
+  const broadenedResults = strictResults.length ? [] : rankedResults.filter((record) => hasBroadSearchSignal(record, plan.originalQuery));
+  const results = (strictResults.length ? strictResults : broadenedResults)
+    .slice(0, Math.max(1, Math.min(MAX_PROVIDER_PAGE_SIZE, Math.round(options.limit))));
+  if (!strictResults.length && broadenedResults.length) warnings.push("Pencocokan diperluas ke istilah topik utama; verifikasi relevansi setiap sumber sebelum digunakan.");
   if (!results.length && rankedResults.length) warnings.push("Provider mengembalikan kandidat tanpa kecocokan istilah topik; hasil tersebut disembunyikan agar tidak dianggap sebagai evidence yang relevan.");
   return {
     engine: "federated",

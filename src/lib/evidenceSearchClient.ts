@@ -1,6 +1,6 @@
 import { koasisApiUrl } from "./koasisApi";
 
-export type EvidenceProviderId = "pubmed" | "europepmc" | "openalex" | "crossref";
+export type EvidenceProviderId = "pubmed" | "europepmc" | "openalex" | "crossref" | "web";
 
 export type EvidenceProviderState = {
   provider: EvidenceProviderId;

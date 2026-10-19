@@ -53,26 +53,49 @@ type ComputerClientOptions = {
   signal?: AbortSignal;
 };
 
+const COMPUTER_REQUEST_TIMEOUT_MS = 20_000;
+
 async function request<T>(path: string, init: RequestInit, options: ComputerClientOptions): Promise<T> {
-  const response = await fetch(koasisComputerApiUrl(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}),
-      ...(init.headers || {}),
-    },
-    signal: options.signal,
-  });
-  if (!response.ok) {
-    try {
-      const payload = await response.json() as { error?: string; code?: string };
-      throw new ComputerClientError(payload.error || `Computer backend gagal (HTTP ${response.status}).`, payload.code);
-    } catch (error) {
-      if (error instanceof ComputerClientError) throw error;
-      throw new ComputerClientError(`Computer backend gagal (HTTP ${response.status}).`);
+  const controller = new AbortController();
+  let timedOut = false;
+  const forwardAbort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, COMPUTER_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(koasisComputerApiUrl(path), {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}),
+        ...(init.headers || {}),
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      try {
+        const payload = await response.json() as { error?: string; code?: string };
+        throw new ComputerClientError(payload.error || `Computer backend gagal (HTTP ${response.status}).`, payload.code);
+      } catch (error) {
+        if (error instanceof ComputerClientError) throw error;
+        throw new ComputerClientError(`Computer backend gagal (HTTP ${response.status}).`);
+      }
     }
+    return await response.json() as T;
+  } catch (error) {
+    if (timedOut) throw new ComputerClientError("Backend Computer tidak merespons. Coba refresh beberapa saat lagi.", "computer_timeout");
+    if (controller.signal.aborted && !(error instanceof ComputerClientError)) {
+      throw new ComputerClientError("Permintaan Computer dibatalkan.", "computer_cancelled");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", forwardAbort);
   }
-  return await response.json() as T;
 }
 
 export function getComputerStatus(options: ComputerClientOptions = {}): Promise<ComputerStatus> {

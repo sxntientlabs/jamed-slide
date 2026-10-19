@@ -28,6 +28,7 @@ export function evidenceProviderLabel(source: EvidenceSource): string {
   if (source.source === "pubmed") return "PubMed";
   if (source.source === "openalex") return "OpenAlex";
   if (source.source === "crossref") return "Crossref";
+  if (source.source === "web") return "Web search";
   return source.source;
 }
 

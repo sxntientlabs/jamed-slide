@@ -171,6 +171,27 @@ function computerError(error: unknown): { status: number; code: string; message:
   return { status: 502, code, message: "Layanan Computer sementara tidak tersedia." };
 }
 
+function isTransientComputerLifecycleError(error: unknown): boolean {
+  const code = error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : "";
+  return code === "operation_conflict" || code === "machine_not_running";
+}
+
+async function retryComputerLifecycle<T>(operation: () => Promise<T>, attempts = 4): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientComputerLifecycleError(error) || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 450 * (2 ** attempt)));
+    }
+  }
+  throw lastError;
+}
+
 async function withComputerUserLock<T>(pool: Pool, userId: string, callback: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   const lockKey = `koasis:computer:${userId}`;
@@ -422,10 +443,13 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
           mapping = { user_id: userId, instabox_machine_id: machine.id, machine_name: machine.name };
         }
 
-        const machine = await instabox.ensureRunning(mapping.instabox_machine_id);
-        await instabox.startDesktop(mapping.instabox_machine_id);
-        if (includeStream) await instabox.revokeStreams(mapping.instabox_machine_id);
-        const stream = includeStream ? await instabox.createStream(mapping.instabox_machine_id, viewOnly, 600) : null;
+        const { machine, stream } = await retryComputerLifecycle(async () => {
+          const readyMachine = await instabox.ensureRunning(mapping.instabox_machine_id);
+          await instabox.startDesktop(mapping.instabox_machine_id);
+          if (includeStream) await instabox.revokeStreams(mapping.instabox_machine_id);
+          const readyStream = includeStream ? await instabox.createStream(mapping.instabox_machine_id, viewOnly, 600) : null;
+          return { machine: readyMachine, stream: readyStream };
+        });
         const expiresAt = stream?.expiresAt || new Date(Date.now() + 10 * 60_000).toISOString();
         const sessionId = randomUUID();
         if (!agentSession) {

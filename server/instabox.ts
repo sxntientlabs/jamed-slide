@@ -1,4 +1,4 @@
-import { Sandbox, type Machine, type MachineState, type SandboxInfo } from "@insforge/instabox-sdk";
+import { InstaboxError, Sandbox, type Machine, type MachineState, type SandboxInfo } from "@insforge/instabox-sdk";
 
 export type InstaboxSettings = {
   apiKey: string;
@@ -122,9 +122,18 @@ export class InstaboxService {
     return Sandbox.connect(machineId, { ...this.options(), resume });
   }
 
-  async getMachine(machineId: string): Promise<InstaboxMachineSummary> {
-    const sandbox = await this.connect(machineId, false);
-    return toMachineSummary(await sandbox.getInfo());
+  async getMachine(machineIdOrName: string): Promise<InstaboxMachineSummary> {
+    // Sandbox.connect() settles an active lifecycle operation before it
+    // returns. That is useful before control actions, but it can make the
+    // read-only status endpoint wait for several minutes while a machine is
+    // creating, resuming, or suspending. Listing returns the current state
+    // immediately and also accepts either an ID or a configured name.
+    const machines = await Sandbox.list(this.options());
+    const machine = machines.find((candidate) => candidate.sandboxId === machineIdOrName || candidate.name === machineIdOrName);
+    if (!machine) {
+      throw new InstaboxError(`machine not found: ${machineIdOrName}`, { status: 404, code: "not_found" });
+    }
+    return toMachineSummary(machine);
   }
 
   async provisionMachine(name: string, metadata: Record<string, string>): Promise<InstaboxMachineSummary> {

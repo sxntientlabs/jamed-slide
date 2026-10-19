@@ -14,6 +14,7 @@ POST /api/evidence/search
         +--> Europe PMC (core metadata + abstract/full-text links)
         +--> OpenAlex (works metadata + OA locations)
         +--> Crossref (bibliographic metadata + update/retraction signals)
+        +--> Web search (optional Brave/Tavily discovery, server-side key only)
         |
         +--> provider failure isolation
         +--> DOI / PMID / PMCID deduplication
@@ -31,7 +32,7 @@ Request:
 {
   "query": "P: pasien dewasa dengan asma; I: inhaled corticosteroid; O: eksaserbasi",
   "limit": 5,
-  "providers": ["pubmed", "europepmc", "openalex", "crossref"]
+  "providers": ["pubmed", "europepmc", "openalex", "crossref", "web"]
 }
 ```
 
@@ -44,9 +45,12 @@ NCBI_API_KEY=
 NCBI_CONTACT_EMAIL=
 CROSSREF_MAILTO=
 OPENALEX_MAILTO=
+KOASIS_WEB_SEARCH_API_KEY=
+KOASIS_WEB_SEARCH_PROVIDER=brave
+KOASIS_WEB_SEARCH_URL=
 ```
 
-Semua variabel ini server-only. Tanpa kredensial pun pencarian publik tetap berjalan. `NCBI_API_KEY` meningkatkan batas pemanggilan E-utilities; email dipakai sebagai identitas polite-pool ketika provider mendukungnya.
+Semua variabel ini server-only. Tanpa kredensial pun pencarian jurnal publik tetap berjalan. Bila `KOASIS_WEB_SEARCH_API_KEY` diisi, provider `web` otomatis ikut dalam pencarian; gunakan `brave` (default) atau `tavily`. `KOASIS_WEB_SEARCH_URL` hanya diperlukan bila endpoint provider diganti. `NCBI_API_KEY` meningkatkan batas pemanggilan E-utilities; email dipakai sebagai identitas polite-pool ketika provider mendukungnya.
 
 ## Batas legal dan klinis
 
@@ -59,4 +63,3 @@ Semua variabel ini server-only. Tanpa kredensial pun pencarian publik tetap berj
 ## Langkah berikutnya
 
 Vertical slice ini belum mengklaim seluruh master prompt selesai. Tahap berikutnya adalah adapter ClinicalTrials.gov, DailyMed/openFDA, controlled PNPK document import, PMC/JATS license-aware ingestion, persistence PostgreSQL, dan hybrid vector retrieval. Premium providers (Scopus, ScienceDirect, Cochrane) tetap harus disabled sampai kredensial dan izin lisensinya tersedia.
-

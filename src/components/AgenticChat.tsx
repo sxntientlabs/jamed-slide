@@ -251,6 +251,8 @@ const COMPUTER_STATE_LABELS: Record<string, string> = {
   error: "Error",
 };
 
+const COMPUTER_TRANSITION_STATES = new Set(["creating", "starting", "stopping", "suspending", "resuming", "deleting"]);
+
 function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<string> }) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [session, setSession] = useState<ComputerSession | null>(null);
@@ -278,6 +280,13 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
   }, []);
 
   useEffect(() => {
+    const machineState = status?.machine?.state;
+    if (!machineState || !COMPUTER_TRANSITION_STATES.has(machineState)) return undefined;
+    const timer = window.setTimeout(() => void loadStatus(), 1_800);
+    return () => window.clearTimeout(timer);
+  }, [status?.machine?.state]);
+
+  useEffect(() => {
     if (!session) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
@@ -286,13 +295,27 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
   const openSession = async (viewOnly: boolean) => {
     setBusyAction(viewOnly ? "open" : "control");
     setError("");
+    let token = "";
     try {
-      const token = await getAuthToken();
+      token = await getAuthToken();
       const nextSession = await openComputerSession(viewOnly, { authToken: token });
       setSession(nextSession);
       setStatus((current) => current ? { ...current, machine: nextSession.machine, activeSession: { id: nextSession.sessionId, viewOnly: nextSession.viewOnly, expiresAt: nextSession.expiresAt, status: "active" } } : current);
     } catch (caught) {
-      setError(caught instanceof ComputerClientError ? caught.message : "Desktop Computer belum bisa dibuka.");
+      const message = caught instanceof ComputerClientError ? caught.message : "Desktop Computer belum bisa dibuka.";
+      let refreshedStatus: ComputerStatus | null = null;
+      if (token) {
+        try {
+          refreshedStatus = await getComputerStatus({ authToken: token });
+          setStatus(refreshedStatus);
+        } catch {
+          // Keep the original, actionable error when the recovery read also fails.
+        }
+      }
+      const transient = caught instanceof ComputerClientError && (caught.code === "operation_conflict" || caught.code === "machine_not_running");
+      setError(transient && refreshedStatus?.machine
+        ? "Machine sudah dibuat dan masih menyelesaikan proses awal. Status akan diperbarui otomatis; coba buka desktop lagi sebentar."
+        : message);
     } finally {
       setBusyAction(null);
     }
@@ -328,6 +351,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
   };
 
   const machine = status?.machine;
+  const machineBusy = Boolean(machine && COMPUTER_TRANSITION_STATES.has(machine.state));
   const sessionExpired = Boolean(session && Date.parse(session.expiresAt) <= now);
   const stateLabel = machine ? COMPUTER_STATE_LABELS[machine.state] || machine.state : "Belum dibuat";
   const minutesLeft = session ? Math.max(0, Math.ceil((Date.parse(session.expiresAt) - now) / 60_000)) : 0;
@@ -345,7 +369,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
 
       {machine && <div className="manus-computer-details"><div><small>Resources</small><strong>{machine.vcpus} vCPU · {Math.round(machine.memoryMiB / 1024)} GiB RAM · {machine.storageGiB} GiB</strong></div><div><small>Lifecycle</small><strong>Auto-pause {machine.autoSuspendAfterSeconds ? `${Math.round(machine.autoSuspendAfterSeconds / 60)} menit idle` : "manual"}</strong></div><div><small>Machine ID</small><strong>{machine.id}</strong></div></div>}
 
-      {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button><button type="button" className="manus-button-secondary" onClick={() => void pauseMachine()} disabled={Boolean(busyAction) || machine.state !== "running"}>{busyAction === "pause" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Square size={13} />} Pause machine</button></div>}
+      {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button><button type="button" className="manus-button-secondary" onClick={() => void pauseMachine()} disabled={Boolean(busyAction) || machine.state !== "running"}>{busyAction === "pause" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Square size={13} />} Pause machine</button></div>}
     </section>
 
     {session && <section className="manus-computer-viewer"><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Live desktop</span><strong>{session.viewOnly ? "View-only session" : "Control session"}</strong></div><div><span className="manus-computer-expiry">{sessionExpired ? "Link kedaluwarsa" : `${minutesLeft} menit tersisa`}</span><button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Session sudah berakhir</strong><small>Buka desktop lagi untuk membuat link baru.</small></div> : <iframe className="manus-computer-iframe" src={session.streamUrl} title="Instabox desktop" allow="clipboard-read; clipboard-write" />}</section>}
@@ -618,17 +642,12 @@ function renderInlineText(value: string, keyPrefix: string, citationSources: Evi
         const last = end > 0 && end <= citationSources.length ? citationSources[end - 1] : undefined;
         if (!first || !last || end < start) return <span key={`${keyPrefix}-unresolved-citation-${index}`} className="koasis-unresolved-citation" title="Rentang referensi belum terhubung ke sumber yang dipilih">{chunk}</span>;
         const label = `Buka referensi [${start}–${end}] ${first.title}`;
-        const sourceLabel = evidenceSourceLabel(first).replace(/\s+/g, " ").trim();
-        const displayLabel = sourceLabel.length > 22 ? `${sourceLabel.slice(0, 21)}…` : sourceLabel;
-        return <KoasisCitation key={`${keyPrefix}-citation-range-${index}`} number={`${start}–${end}`} displayLabel={displayLabel} extraCount={end - start} label={label} onClick={() => openEvidenceSource(first)} />;
+        return <KoasisCitation key={`${keyPrefix}-citation-range-${index}`} number={`${start}–${end}`} label={label} onClick={() => openEvidenceSource(first)} />;
       }
       const matched = matchEvidenceCitation(chunk, citationSources);
       if (!matched) return <span key={`${keyPrefix}-unresolved-citation-${index}`} className="koasis-unresolved-citation" title="Referensi belum terhubung ke sumber yang dipilih">{chunk}</span>;
       const label = `Buka referensi [${matched.index + 1}] ${matched.source.title}`;
-      const sourceLabel = evidenceSourceLabel(matched.source).replace(/\s+/g, " ").trim();
-      const displayLabel = sourceLabel.length > 22 ? `${sourceLabel.slice(0, 21)}…` : sourceLabel;
-      const extraCount = Math.max(0, (matched.source.sourceIds?.length || 1) - 1);
-      return <KoasisCitation key={`${keyPrefix}-citation-${index}`} number={String(matched.index + 1)} displayLabel={displayLabel} extraCount={extraCount} label={label} onClick={() => openEvidenceSource(matched.source)} />;
+      return <KoasisCitation key={`${keyPrefix}-citation-${index}`} number={String(matched.index + 1)} label={label} onClick={() => openEvidenceSource(matched.source)} />;
     }
     return <span key={`${keyPrefix}-text-${index}`}>{chunk}</span>;
   });
@@ -744,6 +763,22 @@ function EvidenceReferenceList({ sources }: { sources: EvidenceSource[] }) {
   </section>;
 }
 
+type EvidenceFigureCardData = NonNullable<EvidenceSource["figures"]>[number] & { sourceTitle: string; sourceUrl?: string };
+
+function EvidenceFigureCard({ figure }: { figure: EvidenceFigureCardData }) {
+  const [failed, setFailed] = useState(false);
+  return <figure className="koasis-evidence-figure">
+    <div className={`koasis-evidence-figure-media ${failed ? "is-failed" : ""}`}>
+      {failed ? <div className="koasis-evidence-figure-fallback" role="status">
+        <Shapes size={22} aria-hidden="true" />
+        <strong>Gambar tidak tersedia</strong>
+        <span>Temuan visual dapat dibuka dari artikel asli.</span>
+      </div> : <img src={figure.imageUrl} alt="" loading="lazy" onError={() => setFailed(true)} />}
+    </div>
+    <figcaption><strong>{figure.label || "Figure"}</strong><span>{figure.caption}</span>{figure.sourceUrl && <a href={figure.sourceUrl} target="_blank" rel="noreferrer">Buka sumber asli <ExternalLink size={11} /></a>}</figcaption>
+  </figure>;
+}
+
 function EvidenceFigureGallery({ sources }: { sources: EvidenceSource[] }) {
   const figures = sources.flatMap((source) => (source.figures || []).map((figure) => ({
     ...figure,
@@ -753,10 +788,7 @@ function EvidenceFigureGallery({ sources }: { sources: EvidenceSource[] }) {
   if (!figures.length) return null;
   return <section className="koasis-evidence-figures" aria-label="Temuan visual dari sumber evidence">
     <div className="koasis-evidence-figures-heading"><span><Shapes size={14} /><strong>Temuan visual</strong></span><small>Gambar dari artikel open full text</small></div>
-    <div className="koasis-evidence-figure-grid">{figures.map((figure) => <figure className="koasis-evidence-figure" key={figure.id}>
-      <img src={figure.imageUrl} alt={figure.caption || `${figure.label || "Figure"} dari ${figure.sourceTitle}`} loading="lazy" />
-      <figcaption><strong>{figure.label || "Figure"}</strong><span>{figure.caption}</span>{figure.sourceUrl && <a href={figure.sourceUrl} target="_blank" rel="noreferrer">Buka sumber asli <ExternalLink size={11} /></a>}</figcaption>
-    </figure>)}</div>
+    <div className="koasis-evidence-figure-grid">{figures.map((figure) => <EvidenceFigureCard figure={figure} key={figure.id} />)}</div>
   </section>;
 }
 
@@ -939,6 +971,7 @@ function evidenceProviderLabel(provider: string): string {
   if (provider === "pubmed") return "PubMed";
   if (provider === "openalex") return "OpenAlex";
   if (provider === "crossref") return "Crossref";
+  if (provider === "web") return "Web search";
   return provider;
 }
 
@@ -1188,7 +1221,9 @@ export function AgenticChat() {
     const textarea = composerRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 126)}px`;
+    const height = Math.min(textarea.scrollHeight, 126);
+    textarea.style.height = `${Math.max(height, 52)}px`;
+    textarea.style.overflowY = height >= 126 ? "auto" : "hidden";
   }, [draft]);
 
   useEffect(() => {
@@ -1873,7 +1908,7 @@ export function AgenticChat() {
     </aside>
 
     <main className="agentic-main koasis-main">
-      <header className={`agentic-topbar koasis-topbar ${manusPage !== "home" ? "manus-page-topbar" : ""}`}><div className="agentic-topbar-left"><button type="button" className="agentic-mobile-menu koasis-mobile-menu" aria-label="Buka menu" aria-expanded={mobileSidebarOpen} onClick={() => setMobileSidebarOpen((current) => !current)}>{mobileSidebarOpen ? <X size={19} /> : <Menu size={19} />}</button>{manusPage === "home" ? <KoasisModelSelector activeModel={activeModel} selectedModelId={selectedModelId} open={engineMenuOpen} rootRef={modelSelectorRef} onToggle={toggleModelMenu} onSelect={selectModel} /> : <div className="manus-page-title"><strong>{manusPageTitle[manusPage]}</strong></div>}</div>{manusPage === "home" && !showHome && <div className="koasis-current-thread-title"><strong>{chatTitle}</strong></div>}<div className="agentic-topbar-actions koasis-topbar-actions">{manusPage === "home" && <button type="button" className="koasis-context-toggle" aria-label={workspacePanelOpen ? "Tutup konteks kerja" : "Buka konteks kerja"} aria-expanded={workspacePanelOpen} onClick={toggleWorkspacePanel}><Network size={15} strokeWidth={1.8} aria-hidden="true" /><span>{showHome && homeSurface === "chat" ? "Konteks" : "Shift board"}</span></button>}<button type="button" className="koasis-theme-toggle" aria-label={themeMode === "dark" ? "Aktifkan mode terang" : "Aktifkan mode gelap"} title={themeMode === "dark" ? "Mode terang" : "Mode gelap"} aria-pressed={themeMode === "dark"} onClick={toggleTheme}>{themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}<span>{themeMode === "dark" ? "Dark" : "Light"}</span></button><div className="agentic-topbar-avatar" aria-label={`Akun ${accountLabel}`} title={accountLabel}>{userInitial(user)}</div></div></header>
+      <header className={`agentic-topbar koasis-topbar ${manusPage !== "home" ? "manus-page-topbar" : ""} ${manusPage === "home" && !showHome ? "chat-active" : ""}`}><div className="agentic-topbar-left"><button type="button" className="agentic-mobile-menu koasis-mobile-menu" aria-label="Buka menu" aria-expanded={mobileSidebarOpen} onClick={() => setMobileSidebarOpen((current) => !current)}>{mobileSidebarOpen ? <X size={19} /> : <Menu size={19} />}</button>{manusPage === "home" ? <KoasisModelSelector activeModel={activeModel} selectedModelId={selectedModelId} open={engineMenuOpen} rootRef={modelSelectorRef} onToggle={toggleModelMenu} onSelect={selectModel} /> : <div className="manus-page-title"><strong>{manusPageTitle[manusPage]}</strong></div>}</div>{manusPage === "home" && !showHome && <div className="koasis-current-thread-title"><strong>{chatTitle}</strong></div>}<div className="agentic-topbar-actions koasis-topbar-actions">{manusPage === "home" && <button type="button" className="koasis-context-toggle" aria-label={workspacePanelOpen ? "Tutup konteks kerja" : "Buka konteks kerja"} aria-expanded={workspacePanelOpen} onClick={toggleWorkspacePanel}><Network size={15} strokeWidth={1.8} aria-hidden="true" /><span>{showHome && homeSurface === "chat" ? "Konteks" : "Shift board"}</span></button>}<button type="button" className="koasis-theme-toggle" aria-label={themeMode === "dark" ? "Aktifkan mode terang" : "Aktifkan mode gelap"} title={themeMode === "dark" ? "Mode terang" : "Mode gelap"} aria-pressed={themeMode === "dark"} onClick={toggleTheme}>{themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}<span>{themeMode === "dark" ? "Dark" : "Light"}</span></button><div className="agentic-topbar-avatar" aria-label={`Akun ${accountLabel}`} title={accountLabel}>{userInitial(user)}</div></div></header>
 
       <div className={`koasis-content ${workspacePanelOpen ? "with-board" : "without-board"}`}>
         <section className="koasis-conversation">

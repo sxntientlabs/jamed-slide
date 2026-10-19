@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
 import { firebaseStorage, firestore, getFirebaseSetupError } from "./firebase";
+import { stripUndefinedFirestoreValues } from "./firestoreData";
 import type { OpsAssessmentAttempt, OpsEncounter } from "./clinicalOps";
 import type { EvidenceSource } from "./evidenceSearchClient";
 
@@ -168,7 +169,7 @@ function normalizeRemoteAttachment(value: unknown): RemoteChatAttachment | null 
 function normalizeRemoteEvidenceSource(value: unknown): EvidenceSource | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<EvidenceSource>;
-  const validProviders = ["pubmed", "europepmc", "openalex", "crossref"] as const;
+  const validProviders = ["pubmed", "europepmc", "openalex", "crossref", "web"] as const;
   if (!validProviders.includes(item.source as (typeof validProviders)[number])) return null;
   if (typeof item.id !== "string" || typeof item.title !== "string" || typeof item.url !== "string") return null;
   if (!/^https?:\/\//i.test(item.url)) return null;
@@ -270,10 +271,10 @@ export async function loadKoasisState(userId: string): Promise<RemoteKoasisState
 }
 
 export async function saveKoasisState(userId: string, state: RemoteKoasisState): Promise<void> {
-  await setDoc(userKoasisDocument(userId, "state"), {
+  await setDoc(userKoasisDocument(userId, "state"), stripUndefinedFirestoreValues({
     ...state,
     updatedAt: serverTimestamp(),
-  }, { merge: true });
+  }), { merge: true });
 }
 
 export async function loadKoasisSessions(userId: string): Promise<RemoteChatSession[]> {
@@ -282,7 +283,7 @@ export async function loadKoasisSessions(userId: string): Promise<RemoteChatSess
 }
 
 export async function saveKoasisSession(userId: string, session: RemoteChatSession): Promise<void> {
-  const messages = session.messages.slice(-MAX_MESSAGES_PER_SESSION).map(({ attachments, ...message }) => ({
+  const messages = stripUndefinedFirestoreValues(session.messages.slice(-MAX_MESSAGES_PER_SESSION).map(({ attachments, ...message }) => ({
     ...message,
     ...(attachments?.length ? {
       attachments: attachments.map(({ name, mimeType, kind, storagePath }) => ({
@@ -292,7 +293,7 @@ export async function saveKoasisSession(userId: string, session: RemoteChatSessi
         ...(storagePath !== undefined ? { storagePath } : {}),
       })),
     } : {}),
-  }));
+  })));
   await setDoc(doc(userSessionsCollection(userId), session.id), {
     schemaVersion: 1,
     id: session.id,
@@ -334,12 +335,12 @@ export async function loadClinicalState(userId: string): Promise<RemoteClinicalS
 }
 
 export async function saveClinicalState(userId: string, state: RemoteClinicalState): Promise<void> {
-  await setDoc(userKoasisCollectionDocument(userId, "clinical"), {
+  await setDoc(userKoasisCollectionDocument(userId, "clinical"), stripUndefinedFirestoreValues({
     schemaVersion: 1,
     encounters: state.encounters.slice(0, 40),
     attempts: state.attempts.slice(0, 50),
     updatedAt: serverTimestamp(),
-  }, { merge: true });
+  }), { merge: true });
 }
 
 function isRemoteMkarEvidence(value: unknown): value is RemoteMkarEvidence {
