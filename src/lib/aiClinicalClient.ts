@@ -28,9 +28,9 @@ export async function extractPatientsWithAi(
   try {
     payload = await response.json() as ExtractionResponse;
   } catch {
-    throw new Error(`AI backend mengembalikan response yang tidak valid (HTTP ${response.status}).`);
+    throw new Error("Respons belum lengkap. Coba lagi.");
   }
-  if (!response.ok) throw new Error(payload.error || `AI backend gagal (HTTP ${response.status}).`);
+  if (!response.ok) throw new Error("Koasis belum bisa membaca data ini. Coba lagi.");
   if (!Array.isArray(payload.patients) || !payload.patients.length) {
     throw new Error("AI agent tidak menemukan record pasien dari source tersebut.");
   }

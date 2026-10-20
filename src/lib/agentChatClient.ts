@@ -69,6 +69,7 @@ type AgentChatStreamEvent = {
   durationMs?: number;
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired?: boolean;
+  harness?: AgentHarnessDescriptor;
 };
 
 export type AgentRunPhase = "accepted" | "preparing" | "generating" | "finalizing";
@@ -79,6 +80,15 @@ export type AgentRunStatus = {
   requestId?: string;
 };
 
+export type AgentHarnessDescriptor = {
+  name: string;
+  version: string;
+  mode: "embedded" | "remote";
+  remoteConfigured: boolean;
+  persistenceConfigured: boolean;
+  capabilities: string[];
+};
+
 export type AgentChatResult = {
   content: string;
   model?: string;
@@ -87,6 +97,7 @@ export type AgentChatResult = {
   durationMs?: number;
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired: boolean;
+  harness?: AgentHarnessDescriptor;
 };
 
 export class AgentChatError extends Error {
@@ -108,12 +119,18 @@ type AgentChatOptions = {
   onComputerActivity?: (activity: AgentComputerActivity) => void;
 };
 
+function userFacingAgentError(message: string | undefined, fallback: string): string {
+  const value = message?.trim();
+  if (!value || /\b(?:agent|ai)\s+backend\b|firebase|postgres|\.env|api\s*key|server-side|instabox/i.test(value)) return fallback;
+  return value;
+}
+
 async function readError(response: Response): Promise<AgentChatError> {
   try {
     const payload = await response.json() as AgentChatResponse;
-    return new AgentChatError(payload.error || `Agent backend gagal (HTTP ${response.status}).`, payload.code);
+    return new AgentChatError(userFacingAgentError(payload.error, "Koasis belum bisa memproses permintaan ini. Coba lagi."), payload.code);
   } catch {
-    return new AgentChatError(`Agent backend gagal (HTTP ${response.status}).`);
+    return new AgentChatError("Koasis belum bisa memproses permintaan ini. Coba lagi.");
   }
 }
 
@@ -143,9 +160,9 @@ export async function sendAgentChat(
     try {
       payload = await response.json() as AgentChatResponse;
     } catch {
-      throw new AgentChatError(`Agent backend mengembalikan response yang tidak valid (HTTP ${response.status}).`);
+      throw new AgentChatError("Respons belum lengkap. Coba lagi.");
     }
-    if (!payload.content?.trim()) throw new AgentChatError(payload.error || "Agent backend tidak mengirim isi jawaban.", payload.code);
+    if (!payload.content?.trim()) throw new AgentChatError(userFacingAgentError(payload.error, "Koasis belum menerima jawaban. Coba lagi."), payload.code);
     options.onDelta?.(payload.content, payload.content);
     return { content: payload.content.trim(), model: payload.model, requestId, agentId, reviewRequired: true };
   }
@@ -160,6 +177,7 @@ export async function sendAgentChat(
   let durationMs: number | undefined;
   let sourcePolicy: AgentSourcePolicy | undefined;
   let reviewRequired = true;
+  let harness: AgentHarnessDescriptor | undefined;
 
   const consumeLine = (rawLine: string) => {
     const line = rawLine.trim();
@@ -168,7 +186,7 @@ export async function sendAgentChat(
     try {
       event = JSON.parse(line) as AgentChatStreamEvent;
     } catch {
-      throw new AgentChatError("Agent backend mengirim potongan stream yang tidak valid.");
+      throw new AgentChatError("Respons belum lengkap. Coba lagi.");
     }
     if (event.type === "meta") {
       if (event.model) model = event.model;
@@ -176,6 +194,7 @@ export async function sendAgentChat(
       if (event.agentId) resolvedAgentId = event.agentId;
       if (event.sourcePolicy) sourcePolicy = event.sourcePolicy;
       if (typeof event.reviewRequired === "boolean") reviewRequired = event.reviewRequired;
+      if (event.harness && (event.harness.mode === "embedded" || event.harness.mode === "remote")) harness = event.harness;
     }
     if (event.type === "status" && event.phase) {
       options.onStatus?.({ phase: event.phase, message: event.message || "Agent sedang bekerja", requestId: resolvedRequestId });
@@ -197,7 +216,7 @@ export async function sendAgentChat(
       options.onDelta?.(content, event.content);
     }
     if (event.type === "done" && typeof event.durationMs === "number") durationMs = event.durationMs;
-    if (event.type === "error") throw new AgentChatError(event.error || "Streaming agent terputus.", event.code);
+    if (event.type === "error") throw new AgentChatError(userFacingAgentError(event.error, "Respons terputus sebelum selesai. Coba lagi."), event.code);
   };
 
   while (true) {
@@ -209,6 +228,6 @@ export async function sendAgentChat(
     if (done) break;
   }
   if (buffer.trim()) consumeLine(buffer);
-  if (!content.trim()) throw new AgentChatError("Agent backend tidak mengirim isi jawaban.");
-  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, sourcePolicy, reviewRequired };
+  if (!content.trim()) throw new AgentChatError("Koasis belum menerima jawaban. Coba lagi.");
+  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, sourcePolicy, reviewRequired, harness };
 }

@@ -2749,6 +2749,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .manus-shell .manus-task-list .koasis-chat-row small { font-size: 7px; }
 .manus-sidebar-bottom { display: grid; gap: 10px; }
 .manus-notification-card { display: grid; grid-template-columns: 17px minmax(0, 1fr); gap: 7px; margin: 0 4px; padding: 10px 9px 8px; border: 1px solid var(--ko-line); border-radius: 9px; color: var(--ko-muted); background: var(--ko-panel-soft); }
+.manus-notification-card.is-enabled { border-color: rgba(64, 165, 232, .45); }
 .manus-notification-card > svg { margin-top: 1px; color: var(--ko-ink-soft); stroke-width: 1.65; }
 .manus-notification-card p { margin: 0; color: var(--ko-ink-soft); font-size: 8px; line-height: 1.35; }
 .manus-notification-card > div { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -2756,6 +2757,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .manus-notification-card button:hover { color: var(--ko-ink); background: var(--ko-panel); }
 .manus-notification-card .manus-button-primary { border-color: transparent; color: #1c1c1c; background: #f1f1f1; }
 .manus-shell.theme-light .manus-notification-card .manus-button-primary { color: #fff; background: #262625; }
+.manus-notification-card > small { grid-column: 1 / -1; color: var(--ko-muted); font-size: 8px; line-height: 1.35; }
+.manus-user-icon.active { color: var(--ko-accent); }
 .manus-shell .koasis-user-card { min-width: 0; display: grid; grid-template-columns: 25px minmax(0, 1fr) 25px 25px 25px; align-items: center; gap: 4px; padding: 0 2px; }
 .manus-shell .koasis-user-card > div:nth-child(2) { min-width: 0; }
 .manus-user-icon { width: 25px; height: 25px; display: grid; place-items: center; border: 0; border-radius: 6px; color: var(--ko-muted); background: transparent; }

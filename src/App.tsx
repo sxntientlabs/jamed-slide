@@ -475,7 +475,7 @@ function UtilityModal({ panel, user, workspaceStatus, workspaceSyncError, onClos
             <p className="utility-modal-lead">Kelola akun dan cek status metadata workspace yang disinkronkan.</p>
             <div className="utility-account-card">
               <div className="user-avatar">{userInitial(user)}</div>
-              <div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div>
+              <div><strong>{accountLabel}</strong><span>{user.email || "Akun Koasis"}</span></div>
             </div>
             <div className="utility-setting-list">
               <div className="utility-setting-row">
@@ -755,8 +755,8 @@ function InboxPage({ template, drafts, focusDraftId, onFocusDraft, onDraftTextCh
         </aside>
       </div>
       <section className={`panel detection-panel ${analysisBusy ? "is-processing" : ""} ${analysisNeedsRefresh ? "is-stale" : ""}`}>
-        <div className="detection-copy"><div className="detection-icon"><KoasisIcon name="insight" size={21} /></div><div><span className="eyebrow">{analysisEngine === "ai" ? "AI agent · backend extraction" : analysisEngine === "mixed" ? "AI agent + local fallback" : analysisEngine === "local" ? "Local fallback extraction" : "AI agent siap membaca"}</span><h3>{patients.length ? `${patients.length} pasien terdeteksi` : "Siap membaca catatan"}</h3><p>{patients.length ? "Semua pasien akan masuk tabel ringkasan. Satu kasus utama akan diteruskan ke slide klinis mendalam." : "Catatan dikirim ke AI agent melalui backend lokal. Nilai hasil ekstraksi tetap perlu direview sebelum export."}</p></div></div>
-        {analysisBusy ? <ProcessingState variant="ai" icon="insight" eyebrow="AI agent · proses aktif" title="Membaca catatan pasien" description="Koasis sedang memisahkan pasien, mencocokkan field dengan kontrak template, dan menyiapkan data untuk review." steps={["Membaca source", "Memetakan field", "Menyiapkan review"]} /> : patients.length ? <div className="detected-patients">{patients.map((patient) => <div className="detected-chip" key={patient.id}><span>{patient.displayName.slice(0, 1).toUpperCase()}</span>{patient.displayName}<Check size={13} /></div>)}</div> : <div className="detection-placeholder"><span>Pasien</span><span>Data klinis</span><span>Status field</span></div>}
+        <div className="detection-copy"><div className="detection-icon"><KoasisIcon name="insight" size={21} /></div><div><span className="eyebrow">{analysisEngine === "ai" ? "AI sedang membaca" : analysisEngine === "mixed" ? "AI + pemeriksaan lokal" : analysisEngine === "local" ? "Pemeriksaan lokal" : "AI siap membaca"}</span><h3>{patients.length ? `${patients.length} pasien terdeteksi` : "Siap membaca catatan"}</h3><p>{patients.length ? "Semua pasien akan masuk tabel ringkasan. Satu kasus utama akan diteruskan ke slide klinis mendalam." : "Catatan akan dibaca oleh AI. Hasilnya tetap perlu diperiksa sebelum file dibuat."}</p></div></div>
+        {analysisBusy ? <ProcessingState variant="ai" icon="insight" eyebrow="AI sedang bekerja" title="Membaca catatan pasien" description="Koasis sedang memisahkan pasien, mencocokkan isi dengan template, dan menyiapkan data untuk review." steps={["Membaca catatan", "Menyusun data", "Menyiapkan review"]} /> : patients.length ? <div className="detected-patients">{patients.map((patient) => <div className="detected-chip" key={patient.id}><span>{patient.displayName.slice(0, 1).toUpperCase()}</span>{patient.displayName}<Check size={13} /></div>)}</div> : <div className="detection-placeholder"><span>Pasien</span><span>Data klinis</span><span>Status field</span></div>}
         {analysisNeedsRefresh && patients.length > 0 && <div className="analysis-stale-note" role="status" aria-live="polite"><AlertTriangle size={15} /><div><strong>Input berubah setelah analisis terakhir</strong><span>Jalankan analisis ulang agar perubahan masuk ke hasil ekstraksi sebelum lanjut review.</span></div></div>}
         <div className="detection-actions"><button className="button button-dark" onClick={onAnalyze} disabled={analysisBusy}><RefreshCw size={15} className={analysisBusy ? "spin" : ""} /> {analysisBusy ? "AI sedang membaca…" : patients.length ? "Analisis ulang" : "Deteksi pasien"}</button>{patients.length > 0 && <button className="button button-ghost" onClick={onContinue} disabled={analysisNeedsRefresh || analysisBusy} title={analysisNeedsRefresh ? "Analisis ulang diperlukan setelah perubahan input" : undefined}>{analysisNeedsRefresh ? "Analisis ulang dulu" : "Lanjut review"} <ArrowRight size={15} /></button>}</div>
       </section>
@@ -1392,7 +1392,7 @@ function AuthenticatedApp() {
         } catch (aiError) {
           const localPatients = extractPatients(sourceText, sourceId).patients;
           extractedPatients.push(...localPatients.map((patient) => ({ ...patient, attachments: draft.bulkSource ? [] : draft.attachments ?? [] })));
-          fallbackMessages.push(`${draft.label}: ${aiError instanceof Error ? aiError.message : "AI backend tidak merespons"}`);
+          fallbackMessages.push(`${draft.label}: ${aiError instanceof Error ? aiError.message : "Pembacaan AI belum berhasil"}`);
         }
       }
       if (!extractedPatients.length) throw new Error("Data pasien tidak menghasilkan record yang bisa direview.");
@@ -1407,7 +1407,7 @@ function AuthenticatedApp() {
         ...populatedDrafts.map((draft) => { const text = draft.text; return { id: `source-${draft.id}`, name: `Catatan ${draft.label}`, type: "raw_text" as const, sizeLabel: text ? `${text.length} karakter` : `${(draft.attachments ?? []).length} attachment`, status: "ready" as const, text, patientId: draft.id, patientLabel: draft.label }; }),
       ]);
       if (fallbackMessages.length) {
-        setError(`Sebagian atau seluruh ekstraksi memakai fallback lokal karena AI backend gagal. ${fallbackMessages.join(" ")}`);
+        setError(`Sebagian data dibaca dengan pemeriksaan lokal karena pembacaan AI belum berhasil. ${fallbackMessages.join(" ")}`);
       }
       markAnalysisCompleted("patient", patientRevision);
       markAnalysisCompleted("context", contextRevision);
@@ -1550,7 +1550,7 @@ function AuthenticatedApp() {
       <aside className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}>
         <div className="brand"><img className="brand-lockup" src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div>
         <nav className="main-nav"><span className="nav-label">Ruang kerja</span><button className="nav-item legacy-agent-link" onClick={() => window.location.assign("/")}><KoasisIcon name="spark" size={17} /><span>Agent Chat</span><small>NEW</small></button>{NAV_ITEMS.map(({ id, label, icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><KoasisIcon name={icon} size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="sidebar-utilities"><button className="nav-item" onClick={() => setUtilityPanel("settings")}><KoasisIcon name="settings" size={17} /><span>Pengaturan</span></button><button className="nav-item" onClick={() => setUtilityPanel("help")}><KoasisIcon name="help" size={17} /><span>Bantuan</span></button></div><div className="sidebar-user"><div className="user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div><button className="icon-button" aria-label="Keluar dari akun" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
+        <div className="sidebar-bottom"><div className="sidebar-utilities"><button className="nav-item" onClick={() => setUtilityPanel("settings")}><KoasisIcon name="settings" size={17} /><span>Pengaturan</span></button><button className="nav-item" onClick={() => setUtilityPanel("help")}><KoasisIcon name="help" size={17} /><span>Bantuan</span></button></div><div className="sidebar-user"><div className="user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Koasis"}</span></div><button className="icon-button" aria-label="Keluar dari akun" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
       </aside>
       {mobileNavOpen && <button className="sidebar-scrim" aria-label="Tutup menu navigasi" onClick={() => setMobileNavOpen(false)} />}
       <main className="main-content">

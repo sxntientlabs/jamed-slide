@@ -72,8 +72,7 @@ export const firebaseStorage: FirebaseStorage | null = firebaseApp ? getStorage(
 export const firebaseReady = Boolean(firebaseApp && firebaseAuth && firestore);
 
 export function getFirebaseSetupError(): string {
-  if (firebaseInitError) return `Firebase tidak bisa diinisialisasi: ${firebaseInitError}`;
-  if (missingFirebaseConfig.length) return "Konfigurasi Firebase untuk browser belum lengkap.";
+  if (firebaseInitError || missingFirebaseConfig.length) return "Koasis belum siap digunakan. Coba lagi nanti.";
   return "";
 }
 
@@ -116,13 +115,12 @@ export function firebaseErrorMessage(error: unknown): string {
     "auth/invalid-email": "Format email belum valid.",
     "auth/popup-closed-by-user": "Jendela login Google ditutup sebelum selesai.",
     "auth/popup-blocked": "Popup login diblokir browser. Izinkan popup lalu coba lagi.",
-    "auth/unauthorized-domain": "Domain aplikasi ini belum ditambahkan ke Authorized domains Firebase.",
-    "auth/operation-not-allowed": "Provider login ini belum diaktifkan di Firebase Console.",
+    "auth/unauthorized-domain": "Aplikasi belum bisa digunakan di alamat ini. Hubungi pengelola Koasis.",
+    "auth/operation-not-allowed": "Metode login ini belum tersedia. Coba metode lain.",
     "auth/too-many-requests": "Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.",
-    "auth/network-request-failed": "Koneksi ke Firebase gagal. Periksa jaringan lalu coba lagi.",
+    "auth/network-request-failed": "Koneksi gagal. Periksa jaringan lalu coba lagi.",
   };
   if (messages[code]) return messages[code];
-  if (error instanceof Error && error.message) return error.message;
   return "Login belum berhasil. Coba lagi.";
 }
 

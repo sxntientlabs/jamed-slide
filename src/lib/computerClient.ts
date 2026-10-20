@@ -58,6 +58,18 @@ type ComputerClientOptions = {
 
 const COMPUTER_REQUEST_TIMEOUT_MS = 20_000;
 
+function userFacingComputerError(code: string | undefined, status: number): string {
+  if (code === "computer_machine_not_found" || code === "computer_machine_selection_invalid") return "Komputer yang dipilih belum tersedia.";
+  if (code === "computer_session_expired") return "Sesi desktop sudah berakhir. Buka desktop lagi untuk melanjutkan.";
+  if (code === "computer_control_not_allowed") return "Sesi ini hanya bisa dilihat. Buka sesi kendali untuk menjalankan aksi.";
+  if (code === "computer_agent_control_disabled") return "Agent belum dapat mengendalikan komputer ini.";
+  if (code === "operation_conflict" || code === "machine_not_running") return "Komputer sedang sibuk. Coba lagi sebentar.";
+  if (code === "computer_rate_limited") return "Terlalu banyak permintaan. Coba lagi sebentar.";
+  if (status === 401 || status === 403) return "Sesi login perlu diperbarui. Silakan masuk lagi.";
+  if (status === 404) return "Komputer yang dipilih belum tersedia.";
+  return "Komputer belum bisa digunakan saat ini. Coba lagi sebentar.";
+}
+
 async function request<T>(path: string, init: RequestInit, options: ComputerClientOptions): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
@@ -82,15 +94,15 @@ async function request<T>(path: string, init: RequestInit, options: ComputerClie
     if (!response.ok) {
       try {
         const payload = await response.json() as { error?: string; code?: string };
-        throw new ComputerClientError(payload.error || `Computer backend gagal (HTTP ${response.status}).`, payload.code);
+        throw new ComputerClientError(userFacingComputerError(payload.code, response.status), payload.code);
       } catch (error) {
         if (error instanceof ComputerClientError) throw error;
-        throw new ComputerClientError(`Computer backend gagal (HTTP ${response.status}).`);
+        throw new ComputerClientError(userFacingComputerError(undefined, response.status));
       }
     }
     return await response.json() as T;
   } catch (error) {
-    if (timedOut) throw new ComputerClientError("Backend Computer tidak merespons. Coba refresh beberapa saat lagi.", "computer_timeout");
+    if (timedOut) throw new ComputerClientError("Komputer belum merespons. Coba lagi sebentar.", "computer_timeout");
     if (controller.signal.aborted && !(error instanceof ComputerClientError)) {
       throw new ComputerClientError("Permintaan Computer dibatalkan.", "computer_cancelled");
     }

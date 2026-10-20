@@ -92,7 +92,7 @@ export function createAdminConfigStore(options: AdminConfigStoreOptions): AdminC
   let cache: { config: AdminConfig; expiresAt: number } | null = null;
 
   const ensureSchema = async (): Promise<void> => {
-    if (!pool) throw new Error("PostgreSQL belum dikonfigurasi di server.");
+    if (!pool) throw new Error("Penyimpanan belum siap.");
     if (!schemaPromise) {
       schemaPromise = pool.query(`
         CREATE TABLE IF NOT EXISTS koasis_admin_config (
@@ -127,7 +127,7 @@ export function createAdminConfigStore(options: AdminConfigStoreOptions): AdminC
   };
 
   const save = async (value: unknown): Promise<AdminConfig> => {
-    if (!pool) throw new Error("PostgreSQL belum dikonfigurasi di server.");
+    if (!pool) throw new Error("Penyimpanan belum siap.");
     await ensureSchema();
     const current = await load();
     const config = sanitizeAdminConfig(value, current);

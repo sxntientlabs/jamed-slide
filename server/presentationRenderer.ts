@@ -50,7 +50,7 @@ function numericSuffix(fileName: string): number {
 
 async function renderWithRemoteRenderer(encoded: string, env: Record<string, string>): Promise<unknown> {
   const baseUrl = (env.JAMED_RENDERER_URL || "").replace(/\/+$/, "");
-  if (!baseUrl) throw new Error("JAMED_RENDERER_URL belum dikonfigurasi.");
+  if (!baseUrl) throw new Error("Layanan pratinjau belum siap digunakan.");
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (env.JAMED_RENDERER_TOKEN) headers["X-Renderer-Token"] = env.JAMED_RENDERER_TOKEN;

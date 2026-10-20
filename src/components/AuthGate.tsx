@@ -2,12 +2,9 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { ArrowRight, Check, Eye, EyeOff, KeyRound, Mail, ShieldCheck, UserRound } from "lucide-react";
 import {
   createEmailAccount,
-  firebaseConfigKeys,
   firebaseAuth,
   firebaseErrorMessage,
   firebaseReady,
-  getFirebaseSetupError,
-  missingFirebaseConfig,
   resetEmailPassword,
   signInWithEmailAccount,
   signInWithGoogleAccount,
@@ -51,21 +48,17 @@ function FirebaseSetupScreen() {
       <section className="auth-brand-panel">
         <img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" className="auth-wordmark" />
         <div className="auth-brand-copy">
-          <span className="eyebrow">Firebase workspace setup</span>
-          <h1>Login siap dipakai setelah konfigurasi browser ditambahkan.</h1>
-          <p>Koasis tidak menyimpan credential Firebase di repository. Tambahkan web app config sebagai environment variable lokal atau di runtime hosting.</p>
+          <span className="eyebrow">Workspace belum siap</span>
+          <h1>Koasis sedang menyiapkan workspace kamu.</h1>
+          <p>Pengaturan aplikasi belum lengkap, jadi workspace belum dapat dibuka. Coba lagi nanti atau hubungi pengelola Koasis.</p>
         </div>
       </section>
       <section className="auth-panel auth-setup-panel">
         <div className="auth-panel-icon"><KeyRound size={20} /></div>
-        <span className="eyebrow">Konfigurasi belum lengkap</span>
-        <h2>Tambahkan Firebase web config</h2>
-        <p className="auth-panel-description">Project yang dituju: <strong>jamed-9bdbe</strong>. Nilai ini bukan Secret Manager dan tidak perlu dimasukkan ke repository.</p>
-        <div className="auth-config-list">
-          {firebaseConfigKeys.map((key) => <div className={`auth-config-row ${missingFirebaseConfig.includes(key) ? "missing" : "ready"}`} key={key}><span>{missingFirebaseConfig.includes(key) ? "Belum ada" : "Siap"}</span><code>{key}</code></div>)}
-        </div>
-        <div className="auth-setup-note"><ShieldCheck size={15} /> Setelah env tersedia, restart dev server agar Vite membacanya.</div>
-        <p className="auth-setup-error">{getFirebaseSetupError()}</p>
+        <span className="eyebrow">Penyiapan workspace</span>
+        <h2>Coba lagi nanti</h2>
+        <p className="auth-panel-description">Koasis belum dapat membuka layanan akun saat ini. Tidak ada tindakan yang perlu kamu lakukan di halaman ini.</p>
+        <div className="auth-setup-note"><ShieldCheck size={15} /> Jika masalah berlanjut, hubungi pengelola Koasis.</div>
       </section>
     </main>
   );

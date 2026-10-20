@@ -10,7 +10,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { firebaseStorage, firestore, getFirebaseSetupError } from "./firebase";
+import { firebaseStorage, firestore } from "./firebase";
 import { stripUndefinedFirestoreValues } from "./firestoreData";
 import type { OpsAssessmentAttempt, OpsEncounter } from "./clinicalOps";
 import type { EvidenceSource } from "./evidenceSearchClient";
@@ -125,12 +125,12 @@ const MAX_SESSIONS = 30;
 const MAX_MESSAGES_PER_SESSION = 40;
 
 function requireFirestore() {
-  if (!firestore) throw new Error(getFirebaseSetupError() || "Firestore belum tersedia.");
+  if (!firestore) throw new Error("Penyimpanan belum tersedia. Coba lagi nanti.");
   return firestore;
 }
 
 function requireStorage() {
-  if (!firebaseStorage) throw new Error(getFirebaseSetupError() || "Firebase Storage belum tersedia.");
+  if (!firebaseStorage) throw new Error("Penyimpanan file belum tersedia. Coba lagi nanti.");
   return firebaseStorage;
 }
 

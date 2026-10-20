@@ -28,6 +28,19 @@ type ThemeMode = "light" | "dark";
 type SourceMode = "workspace" | "attachments" | "sources";
 type ComputerAccessMode = "ask" | "always" | "off";
 type ShiftPhase = "before" | "during" | "after";
+type BrowserNotificationPreference = "prompt" | "enabled" | "dismissed";
+
+const BROWSER_NOTIFICATION_STORAGE_KEY = "koasis.browser-notifications.v1";
+
+function readBrowserNotificationPreference(): BrowserNotificationPreference {
+  if (typeof window === "undefined") return "prompt";
+  try {
+    const value = window.localStorage.getItem(BROWSER_NOTIFICATION_STORAGE_KEY);
+    return value === "enabled" || value === "dismissed" ? value : "prompt";
+  } catch {
+    return "prompt";
+  }
+}
 
 type AgentPreset = Omit<AgentDefinition, "id"> & {
   id: string;
@@ -299,7 +312,7 @@ function renderComposerText(value: string): ReactNode {
 
 const MANUS_COMPUTER_CARDS = [
   { title: "Run clinical workflows", detail: "Keep reports, reminders, and review checklists running around the clock.", tags: ["Koasis", "Workflow"], tone: "workflow" },
-  { title: "Study with a shared workspace", detail: "Prepare cases, exams, and learning sprints in a focused environment.", tags: ["Shared", "Study"], tone: "study" },
+  { title: "Study with an assistant", detail: "Prepare cases, exams, and learning sprints in a focused environment.", tags: ["Study"], tone: "study" },
   { title: "Build & host your tools", detail: "Turn a useful idea into a small assistant or workflow for your rotation.", tags: ["Build", "Workspace"], tone: "build" },
   { title: "Create a case studio", detail: "Keep a longitudinal case, sources, notes, and presentation in one place.", tags: ["Case", "Studio"], tone: "case" },
   { title: "Use your own files", detail: "Bring de-identified notes and source packs into a reviewable task.", tags: ["Files", "Review"], tone: "files" },
@@ -417,7 +430,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
       setSelectedMachineId(result.selectedMachineId);
       setStatus((current) => current ? { ...current, machines: result.machines, selectedMachineId: result.selectedMachineId, machine: result.machine, activeSession: null } : current);
     } catch (caught) {
-      setError(caught instanceof ComputerClientError ? caught.message : "Shared machine belum bisa dipilih.");
+      setError(caught instanceof ComputerClientError ? caught.message : "Komputer bersama belum bisa dipilih.");
     } finally {
       setBusyAction(null);
     }
@@ -431,7 +444,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
       setSession(null);
       await loadStatus();
     } catch (caught) {
-      setError(caught instanceof ComputerClientError ? caught.message : "Session Computer belum bisa ditutup.");
+      setError(caught instanceof ComputerClientError ? caught.message : "Sesi desktop belum bisa ditutup.");
     } finally {
       setBusyAction(null);
     }
@@ -445,34 +458,32 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
   const minutesLeft = session ? Math.max(0, Math.ceil((Date.parse(session.expiresAt) - now) / 60_000)) : 0;
 
   return <section className="manus-page manus-computers-page">
-    <div className="manus-page-heading"><div><h1>Computers</h1><p className="manus-page-subtitle">Pilih salah satu shared workspace Instabox untuk kamu atau agent gunakan.</p></div><button type="button" className="manus-button-secondary" onClick={() => void loadStatus()} disabled={loading}><RotateCcw size={14} className={loading ? "koasis-spinner" : undefined} /> Refresh</button></div>
+    <div className="manus-page-heading"><div><h1>Computers</h1><p className="manus-page-subtitle">Pilih komputer yang ingin kamu gunakan atau izinkan untuk agent.</p></div><button type="button" className="manus-button-secondary" onClick={() => void loadStatus()} disabled={loading}><RotateCcw size={14} className={loading ? "koasis-spinner" : undefined} /> Refresh</button></div>
 
     {error && <div className="manus-computer-alert" role="alert"><ShieldCheck size={15} /><span>{error}</span></div>}
 
-    {!loading && status?.configured && machines.length > 0 && <section className="manus-computer-pool" aria-label="Shared Computer pool">
-      <div className="manus-computer-pool-heading"><div><span className="manus-section-kicker">Shared Computer pool</span><strong>Lima workspace tersedia</strong><small>Pilihan ini dipakai oleh desktop kamu dan Computer agent. Machine yang paused akan dilanjutkan otomatis saat dibuka.</small></div><span className="manus-computer-pool-count">{machines.length} machine</span></div>
-      <div className="manus-computer-pool-list" role="listbox" aria-label="Pilih shared machine">
+    {!loading && status?.configured && machines.length > 0 && <section className="manus-computer-pool" aria-label="Komputer bersama">
+      <div className="manus-computer-pool-heading"><div><span className="manus-section-kicker">Komputer bersama</span><strong>{machines.length} komputer tersedia</strong><small>Pilih komputer yang ingin digunakan. Komputer yang sedang jeda akan aktif saat dibuka.</small></div><span className="manus-computer-pool-count">{machines.length} komputer</span></div>
+      <div className="manus-computer-pool-list" role="listbox" aria-label="Pilih komputer">
         {machines.map((candidate) => <button type="button" role="option" aria-selected={selectedMachineId === candidate.id} className={`manus-computer-machine-option ${selectedMachineId === candidate.id ? "active" : ""}`} key={candidate.id} onClick={() => void selectMachine(candidate.id)} disabled={Boolean(busyAction) || Boolean(session)}>
-          <span className="manus-computer-machine-icon"><Monitor size={15} /></span><span className="manus-computer-machine-copy"><strong>{sharedMachineLabel(candidate)}</strong><small>{candidate.name} · {candidate.vcpus} vCPU · {Math.round(candidate.memoryMiB / 1024)} GiB RAM</small></span><span className={`manus-computer-machine-state ${candidate.state}`}><i />{COMPUTER_STATE_LABELS[candidate.state] || candidate.state}</span>
+          <span className="manus-computer-machine-icon"><Monitor size={15} /></span><span className="manus-computer-machine-copy"><strong>{sharedMachineLabel(candidate)}</strong><small>{candidate.state === "running" ? "Siap digunakan" : "Akan siap saat dibuka"}</small></span><span className={`manus-computer-machine-state ${candidate.state}`}><i />{COMPUTER_STATE_LABELS[candidate.state] || candidate.state}</span>
         </button>)}
       </div>
-      {session && <small className="manus-computer-pool-hint">Tutup desktop sebelum mengganti shared machine.</small>}
+      {session && <small className="manus-computer-pool-hint">Tutup desktop sebelum mengganti komputer.</small>}
     </section>}
 
     <section className="manus-computer-control-card" aria-busy={loading}>
-      <div className="manus-computer-control-heading"><div><span className="manus-section-kicker">Selected workspace</span><h2>{machine ? sharedMachineLabel(machine) : "Computer belum terhubung"}</h2><p>{loading ? "Memeriksa koneksi backend…" : status?.configured ? "API key tetap di server; browser hanya menerima link desktop sementara." : "Backend App Hosting belum memiliki kredensial Instabox."}</p></div><span className={`manus-computer-state ${machine?.state || "unconfigured"}`}><i />{stateLabel}</span></div>
+      <div className="manus-computer-control-heading"><div><span className="manus-section-kicker">Komputer terpilih</span><h2>{machine ? sharedMachineLabel(machine) : "Komputer belum tersedia"}</h2><p>{loading ? "Memeriksa kesiapan komputer…" : status?.configured ? "Komputer siap digunakan. Akses desktop ini hanya berlaku sementara." : "Komputer belum tersedia saat ini."}</p></div><span className={`manus-computer-state ${machine?.state || "unconfigured"}`}><i />{stateLabel}</span></div>
 
-      {!loading && !status?.configured && <div className="manus-computer-empty"><Monitor size={24} /><strong>Instabox belum dikonfigurasi</strong><small>Tambahkan INSTABOX_API_KEY melalui Environment App Hosting. Tidak ada key yang dikirim ke browser.</small></div>}
-      {!loading && status?.configured && !machines.length && <div className="manus-computer-empty"><Monitor size={24} /><strong>Belum ada shared machine yang tersedia</strong><small>Periksa allowlist machine Instabox di backend. Koasis tidak akan membuat machine baru per user.</small></div>}
-
-      {machine && <div className="manus-computer-details"><div><small>Resources</small><strong>{machine.vcpus} vCPU · {Math.round(machine.memoryMiB / 1024)} GiB RAM · {machine.storageGiB} GiB</strong></div><div><small>Lifecycle</small><strong>Auto-pause {machine.autoSuspendAfterSeconds ? `${Math.round(machine.autoSuspendAfterSeconds / 60)} menit idle` : "managed by Instabox"}</strong></div><div><small>Machine ID</small><strong>{machine.id}</strong></div></div>}
+      {!loading && !status?.configured && <div className="manus-computer-empty"><Monitor size={24} /><strong>Komputer belum tersedia</strong><small>Komputer sedang disiapkan. Coba lagi nanti.</small></div>}
+      {!loading && status?.configured && !machines.length && <div className="manus-computer-empty"><Monitor size={24} /><strong>Belum ada komputer yang tersedia</strong><small>Coba lagi nanti atau hubungi pengelola workspace.</small></div>}
 
       {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button></div>}
     </section>
 
-    {session && <section className="manus-computer-viewer"><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Live desktop</span><strong>{session.viewOnly ? "View-only session" : "Control session"}</strong></div><div><span className="manus-computer-expiry">{sessionExpired ? "Link kedaluwarsa" : `${minutesLeft} menit tersisa`}</span><button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Session sudah berakhir</strong><small>Buka desktop lagi untuk membuat link baru.</small></div> : <iframe className="manus-computer-iframe" src={session.streamUrl} title="Instabox desktop" allow="clipboard-read; clipboard-write" />}</section>}
+    {session && <section className="manus-computer-viewer"><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Desktop langsung</span><strong>{session.viewOnly ? "Lihat saja" : "Bisa dikendalikan"}</strong></div><div><span className="manus-computer-expiry">{sessionExpired ? "Tautan kedaluwarsa" : `${minutesLeft} menit tersisa`}</span><button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Sesi sudah berakhir</strong><small>Buka desktop lagi untuk membuat tautan baru.</small></div> : <iframe className="manus-computer-iframe" src={session.streamUrl} title="Desktop langsung" allow="clipboard-read; clipboard-write" />}</section>}
 
-    <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Security boundary</span><h2>Input tetap terkontrol</h2><p>Koasis tidak menyimpan screenshot, password, atau isi ketikan ke PostgreSQL. Link desktop dibuat sementara dan bisa dicabut kapan saja.</p></div><div className="manus-computer-security-note"><ShieldCheck size={18} /><span><strong>Server-side API key</strong><small>Firebase ID token memetakan user ke shared machine yang dipilih.</small></span></div></section>
+    <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Privasi</span><h2>Akses tetap terkontrol</h2><p>Akses desktop bersifat sementara dan dapat ditutup kapan saja. Data yang kamu masukkan tidak disimpan oleh Koasis.</p></div><div className="manus-computer-security-note"><ShieldCheck size={18} /><span><strong>Akses sementara</strong><small>Kamu dapat menutup sesi kapan saja.</small></span></div></section>
   </section>;
 }
 
@@ -481,11 +492,11 @@ function HomeStudioKicker({ visual, label }: { visual: HomeStudioVisual; label: 
     ? ["/brand-icons/pubmed.svg", "/brand-icons/scopus.svg", "/brand-icons/cochrane.svg"]
     : visual === "apps"
       ? ["/brand-icons/google-docs.svg", "/brand-icons/google-slides.svg", "/brand-icons/google-sheets.svg"]
-      : ["/brand-icons/google-chat.svg"];
+      : [];
 
   return <span className="koasis-manus-card-kicker">
     <span className={`koasis-studio-kicker-icons ${visual === "learn" ? "single" : ""}`} aria-hidden="true">
-      {icons.map((src) => <img key={src} src={src} alt="" />)}
+      {visual === "learn" ? <BookOpen size={16} strokeWidth={1.8} /> : icons.map((src) => <img key={src} src={src} alt="" />)}
     </span>
     {label}
   </span>;
@@ -943,7 +954,7 @@ function FollowUpQuestions({ questions, busy, onSelect }: { questions: string[];
 function safeEvidenceMessageContent(message: ChatMessage): string {
   const isLegacyEvidenceFailure = /Evidence Desk belum menemukan sumber yang cukup relevan|Pencarian sumber belum menghasilkan kandidat yang cukup relevan/i.test(message.content);
   if (!isLegacyEvidenceFailure) return message.content;
-  return "Pencarian evidence awal belum menemukan kecocokan langsung. Koasis tidak akan membuat kesimpulan faktual atau klinis tanpa sumber; tambahkan fokus, populasi, intervensi, atau luaran agar pencarian bisa dilanjutkan.";
+  return "Koasis memperluas pencarian lintas sumber medis dan web. Hasil yang belum memiliki kecocokan topik yang jelas tidak dipakai sebagai evidence; tambahkan fokus klinis, populasi, intervensi, atau luaran agar pencarian dapat diarahkan dengan lebih presisi.";
 }
 
 function ChatArtifactCard({ artifact, kind, error }: { artifact?: ChatArtifact; kind?: ChatArtifactKind; error?: string }) {
@@ -1286,6 +1297,12 @@ export function AgenticChat() {
   const [homeSurface, setHomeSurface] = useState<"chat" | "ops" | "curriculum">("chat");
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
+  const [notificationPreference, setNotificationPreference] = useState<BrowserNotificationPreference>(() => readBrowserNotificationPreference());
+  const [notificationCardOpen, setNotificationCardOpen] = useState(() => {
+    const preference = readBrowserNotificationPreference();
+    return preference !== "enabled" && preference !== "dismissed";
+  });
+  const [notificationStatus, setNotificationStatus] = useState("");
   const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_KOASIS_MODEL);
   const [reasoningEffort, setReasoningEffort] = useState<KoasisReasoningLevel>(DEFAULT_KOASIS_REASONING);
   const [workspace, setWorkspace] = useState<KoasisWorkspace>(DEFAULT_WORKSPACE);
@@ -1323,6 +1340,7 @@ export function AgenticChat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const notificationAudioContextRef = useRef<AudioContext | null>(null);
   const artifactUrlsRef = useRef<Set<string>>(new Set());
   const remoteHydratedRef = useRef(false);
   const remoteLoadSucceededRef = useRef(false);
@@ -1330,6 +1348,8 @@ export function AgenticChat() {
   const accountLabel = user.displayName?.trim() || user.email?.split("@")[0] || "Pengguna";
   const activePreset = findAgentPreset(selectedPresetId) ?? AGENT_PRESETS[0];
   const activeModel = MODEL_OPTIONS.find((model) => model.id === selectedModelId) ?? MODEL_OPTIONS[0];
+  const notificationsSupported = typeof window !== "undefined" && "Notification" in window;
+  const notificationsEnabled = notificationPreference === "enabled" && notificationsSupported && Notification.permission === "granted";
   const composerTrigger = getComposerTrigger(draft);
   const mentionQuery = composerTrigger?.type === "mention" ? composerTrigger.query : "";
   const commandQuery = composerTrigger?.type === "command" ? composerTrigger.query : "";
@@ -1768,7 +1788,7 @@ export function AgenticChat() {
             };
           }
         } catch (error) {
-          console.warn("Modul konteks belum berhasil diunggah ke Firebase Storage; file hanya tersedia selama sesi ini.", error);
+          console.warn("Modul konteks belum berhasil disimpan; file hanya tersedia selama sesi ini.", error);
         }
       }
       setWorkspace(nextWorkspace);
@@ -1807,6 +1827,91 @@ export function AgenticChat() {
       next[existingIndex] = nextMessage;
       return next;
     });
+  };
+
+  const updateBrowserNotificationPreference = (next: BrowserNotificationPreference) => {
+    setNotificationPreference(next);
+    try {
+      window.localStorage.setItem(BROWSER_NOTIFICATION_STORAGE_KEY, next);
+    } catch {
+      // Browser storage may be unavailable in private or restricted contexts.
+    }
+  };
+
+  const createNotificationAudioContext = () => {
+    if (typeof window === "undefined") return null;
+    const AudioContextConstructor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return null;
+    if (!notificationAudioContextRef.current) notificationAudioContextRef.current = new AudioContextConstructor();
+    return notificationAudioContextRef.current;
+  };
+
+  const playTaskCompletionSound = () => {
+    const audioContext = createNotificationAudioContext();
+    if (!audioContext) return;
+    const play = () => {
+      const now = audioContext.currentTime;
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, now);
+      oscillator.frequency.exponentialRampToValueAtTime(1320, now + 0.12);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.07, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.3);
+    };
+    if (audioContext.state === "suspended") void audioContext.resume().then(play).catch(() => undefined);
+    else play();
+  };
+
+  const notifyTaskComplete = (title: string, body: string) => {
+    if (notificationPreference !== "enabled") return;
+    if (!notificationsSupported || Notification.permission !== "granted") {
+      updateBrowserNotificationPreference("prompt");
+      setNotificationStatus("Izin notifikasi browser tidak lagi aktif. Nyalakan kembali dari sini.");
+      setNotificationCardOpen(true);
+      return;
+    }
+    playTaskCompletionSound();
+    try {
+      const notification = new Notification(title, {
+        body,
+        icon: "/koasis-favicon.png",
+        tag: "koasis-task-complete",
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch (error) {
+      console.warn("Notifikasi task Koasis belum dapat ditampilkan.", error);
+    }
+  };
+
+  const enableBrowserNotifications = async () => {
+    setNotificationStatus("");
+    if (!notificationsSupported) {
+      setNotificationStatus("Browser ini belum mendukung notifikasi desktop.");
+      return;
+    }
+    try {
+      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (permission !== "granted") {
+        setNotificationStatus(permission === "denied" ? "Notifikasi diblokir browser. Izinkan dari pengaturan situs lalu coba lagi." : "Izin notifikasi belum diberikan.");
+        return;
+      }
+      updateBrowserNotificationPreference("enabled");
+      setNotificationCardOpen(true);
+      setNotificationStatus("Aktif — notifikasi dan suara akan muncul saat task selesai.");
+      const audioContext = createNotificationAudioContext();
+      if (audioContext?.state === "suspended") void audioContext.resume().catch(() => undefined);
+    } catch {
+      setNotificationStatus("Izin notifikasi belum dapat diaktifkan. Coba lagi dari browser ini.");
+    }
   };
 
   const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode, computerApproved = false, skipComputerApproval = false) => {
@@ -1981,6 +2086,7 @@ export function AgenticChat() {
           artifactKind: requestedArtifactKind,
           artifactError,
         });
+        notifyTaskComplete(`${preset.label} selesai`, artifactError ? "Jawaban selesai, tetapi file output perlu diperiksa." : "Jawaban dan output task sudah siap direview.");
       } catch (error) {
         if (controller.signal.aborted) return;
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
@@ -1989,6 +2095,7 @@ export function AgenticChat() {
           updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
         } else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
         else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        notifyTaskComplete(`${preset.label} selesai dengan catatan`, "Task berhenti dengan catatan. Buka Koasis untuk melihat detail dan mencoba lagi.");
       } finally {
         if (requestControllerRef.current === controller) {
           requestControllerRef.current = null;
@@ -2122,7 +2229,7 @@ export function AgenticChat() {
           setEditableSourceKind((current) => current || "pptx");
           setSourceMode("attachments");
         } catch {
-          errors.push(`${file.name}: PPTX belum bisa dibaca. Untuk output editable, gunakan Create Studio dan minta agent membuatkannya dari chat.`);
+          errors.push(`${file.name}: PPTX belum bisa dibaca. Kirim file lain atau minta agent membuat ulang file editable dari chat.`);
         }
         continue;
       }
@@ -2138,7 +2245,7 @@ export function AgenticChat() {
           nextAttachments.push(stored ? { ...attachment, storagePath: stored.storagePath } : attachment);
         } catch {
           nextAttachments.push(attachment);
-          errors.push(`${file.name}: upload Firebase Storage gagal; file hanya tersedia selama sesi ini.`);
+          errors.push(`${file.name}: file belum berhasil disimpan; file tetap tersedia selama sesi ini.`);
         }
       } catch {
         errors.push(`${file.name}: attachment belum bisa dibaca.`);
@@ -2294,7 +2401,7 @@ export function AgenticChat() {
         <div className="koasis-chat-list manus-task-list">{filteredSessions.filter((session) => session.title !== "Percakapan baru").map((session) => <button type="button" title={session.title} className={`koasis-chat-row ${session.id === activeSessionId && manusPage === "home" && !showHome ? "active" : ""}`} key={session.id} onClick={() => openSession(session)}><span className="koasis-chat-row-mark" /><span><strong>{session.title}</strong><small>{findAgentPreset(session.modeId)?.label || "Koasis Agent"} · {new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(new Date(session.updatedAt))}</small></span></button>)}{!filteredSessions.filter((session) => session.title !== "Percakapan baru").length && <div className="koasis-empty-chat">Belum ada task.</div>}</div>
       </div>
 
-      <div className="koasis-sidebar-bottom manus-sidebar-bottom"><div className="manus-notification-card"><Bell size={16} /><p>Receive a browser notification and sound when tasks complete.</p><div><button type="button">Not now</button><button type="button" className="manus-button-primary">Turn on</button></div></div><div className="agentic-user-card koasis-user-card"><div className="agentic-user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div><button type="button" className="manus-user-icon" aria-label="Perangkat" title="Perangkat"><Monitor size={15} /></button><button type="button" className="manus-user-icon" aria-label="Notifikasi" title="Notifikasi"><Bell size={15} /></button><button type="button" className="agentic-user-action" aria-label="Keluar" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
+      <div className="koasis-sidebar-bottom manus-sidebar-bottom">{notificationCardOpen && <div className={`manus-notification-card ${notificationsEnabled ? "is-enabled" : ""}`}><Bell size={16} /><p>{notificationsEnabled ? "Notifikasi dan suara aktif saat tugas selesai." : "Beri tahu aku saat tugas selesai."}</p><div>{!notificationsEnabled && <button type="button" onClick={() => { updateBrowserNotificationPreference("dismissed"); setNotificationCardOpen(false); setNotificationStatus(""); }}>Nanti</button>}<button type="button" className="manus-button-primary" onClick={() => { if (notificationsEnabled) { playTaskCompletionSound(); setNotificationStatus("Suara notifikasi diuji."); } else void enableBrowserNotifications(); }}>{notificationsEnabled ? "Uji suara" : "Aktifkan"}</button></div>{notificationStatus && <small role="status">{notificationStatus}</small>}</div>}<div className="agentic-user-card koasis-user-card"><div className="agentic-user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Koasis"}</span></div><button type="button" className="manus-user-icon" aria-label="Perangkat" title="Perangkat"><Monitor size={15} /></button><button type="button" className={`manus-user-icon ${notificationsEnabled ? "active" : ""}`} aria-label="Notifikasi" title={notificationsEnabled ? "Uji notifikasi" : "Atur notifikasi"} onClick={() => { setNotificationCardOpen(true); if (notificationPreference === "dismissed") updateBrowserNotificationPreference("prompt"); setNotificationStatus(""); }}><Bell size={15} /></button><button type="button" className="agentic-user-action" aria-label="Keluar" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
     </aside>
 
     <main className="agentic-main koasis-main">

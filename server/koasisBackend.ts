@@ -177,21 +177,21 @@ function computerError(error: unknown): { status: number; code: string; message:
   const candidate = error && typeof error === "object" ? error as { code?: unknown; status?: unknown } : {};
   const code = typeof candidate.code === "string" ? candidate.code : "instabox_unavailable";
   const status = typeof candidate.status === "number" ? candidate.status : 0;
-  if (code === "quota_exceeded") return { status: 429, code, message: "Batas akun Instabox sudah tercapai." };
+  if (code === "quota_exceeded") return { status: 429, code, message: "Komputer sedang penuh. Coba lagi nanti." };
   if (code === "insufficient_scope" || code === "unauthenticated" || code === "api_key_expired" || code === "api_key_revoked") {
-    return { status: 503, code: "instabox_credentials", message: "Kredensial Instabox belum memiliki akses yang diperlukan." };
+    return { status: 503, code: "instabox_credentials", message: "Komputer belum siap digunakan." };
   }
-  if (code === "not_found") return { status: 404, code: "computer_machine_not_found", message: "Machine Computer tidak ditemukan." };
-  if (code === "computer_machine_not_found") return { status: 404, code, message: "Machine Computer belum tersedia." };
-  if (code === "computer_machine_selection_invalid") return { status: 404, code, message: "Shared machine yang dipilih tidak tersedia." };
-  if (code === "computer_session_expired") return { status: 409, code, message: "Session Computer sudah berakhir." };
-  if (code === "computer_control_not_allowed") return { status: 409, code, message: "Session Computer ini view-only. Buka session kontrol untuk menjalankan aksi." };
-  if (code === "computer_agent_control_disabled") return { status: 409, code, message: "Kontrol Computer oleh agent belum diaktifkan di server." };
-  if (code === "computer_shared_machine_no_pause") return { status: 409, code, message: "Shared machine dikelola oleh pool dan tidak bisa dijeda dari workspace user." };
-  if (code === "computer_provisioning_disabled") return { status: 409, code, message: "Provisioning machine belum diaktifkan." };
-  if (code === "operation_conflict" || code === "machine_not_running") return { status: 409, code, message: "Machine sedang menjalankan operasi lain. Coba lagi sebentar." };
-  if (status === 400) return { status: 400, code: "instabox_bad_request", message: "Permintaan ke Instabox tidak valid." };
-  return { status: 502, code, message: "Layanan Computer sementara tidak tersedia." };
+  if (code === "not_found") return { status: 404, code: "computer_machine_not_found", message: "Komputer tidak ditemukan." };
+  if (code === "computer_machine_not_found") return { status: 404, code, message: "Belum ada komputer yang tersedia." };
+  if (code === "computer_machine_selection_invalid") return { status: 404, code, message: "Komputer yang dipilih tidak tersedia." };
+  if (code === "computer_session_expired") return { status: 409, code, message: "Sesi desktop sudah berakhir." };
+  if (code === "computer_control_not_allowed") return { status: 409, code, message: "Sesi ini hanya bisa dilihat. Buka sesi kendali untuk menjalankan aksi." };
+  if (code === "computer_agent_control_disabled") return { status: 409, code, message: "Agent belum dapat mengendalikan komputer ini." };
+  if (code === "computer_shared_machine_no_pause") return { status: 409, code, message: "Komputer bersama tidak dapat dijeda dari sini." };
+  if (code === "computer_provisioning_disabled") return { status: 409, code, message: "Komputer baru belum tersedia." };
+  if (code === "operation_conflict" || code === "machine_not_running") return { status: 409, code, message: "Komputer sedang sibuk. Coba lagi sebentar." };
+  if (status === 400) return { status: 400, code: "computer_bad_request", message: "Permintaan komputer tidak valid." };
+  return { status: 502, code, message: "Komputer sementara tidak tersedia." };
 }
 
 function isTransientComputerLifecycleError(error: unknown): boolean {
@@ -319,7 +319,7 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
   let schemaPromise: Promise<void> | null = null;
 
   const ensureSchema = async (): Promise<Pool> => {
-    if (!pool) throw new Error("PostgreSQL belum dikonfigurasi di server.");
+    if (!pool) throw new Error("Layanan penyimpanan belum siap.");
     if (!schemaPromise) {
       schemaPromise = installSchema(pool).catch((error) => {
         schemaPromise = null;
@@ -350,11 +350,11 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       return;
     }
     if (!pool) {
-      sendJson(response, 503, { error: "PostgreSQL belum dikonfigurasi di server.", code: "database_configuration" });
+      sendJson(response, 503, { error: "Layanan penyimpanan belum siap. Coba lagi nanti.", code: "database_configuration" });
       return;
     }
     if (!settings.firebaseProjectId) {
-      sendJson(response, 503, { error: "Konfigurasi Firebase server belum lengkap.", code: "auth_configuration" });
+      sendJson(response, 503, { error: "Layanan akun belum siap. Coba lagi nanti.", code: "auth_configuration" });
       return;
     }
     let identity: { userId: string } | null = null;
@@ -502,7 +502,7 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       return;
     }
     if (!pool) {
-      sendJson(response, 503, { error: "PostgreSQL belum dikonfigurasi di server.", code: "database_configuration" });
+      sendJson(response, 503, { error: "Layanan penyimpanan belum siap. Coba lagi nanti.", code: "database_configuration" });
       return;
     }
     try {
@@ -549,24 +549,24 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
     const userId = await requireUser(request, response, settings.firebaseProjectId);
     if (!userId) return;
     if (!instabox.configured) {
-      sendJson(response, 503, { error: "Instabox belum dikonfigurasi di server.", code: "instabox_configuration" });
+      sendJson(response, 503, { error: "Komputer belum siap digunakan. Coba lagi nanti.", code: "instabox_configuration" });
       return;
     }
     if (!pool) {
-      sendJson(response, 503, { error: "PostgreSQL belum dikonfigurasi di server.", code: "database_configuration" });
+      sendJson(response, 503, { error: "Layanan penyimpanan belum siap. Coba lagi nanti.", code: "database_configuration" });
       return;
     }
     try {
       const body = await readJsonBody(request);
       const selectedIdentifier = requestedMachineId(body);
       if (!selectedIdentifier) {
-        sendJson(response, 400, { error: "machineId shared machine wajib dipilih.", code: "invalid_computer_machine" });
+        sendJson(response, 400, { error: "Pilih komputer terlebih dahulu.", code: "invalid_computer_machine" });
         return;
       }
       const machines = await instabox.listSharedMachines();
       const selectedMachine = machines.find((machine) => machineMatchesIdentifier(machine, selectedIdentifier));
       if (!selectedMachine) {
-        sendJson(response, 404, { error: "Shared machine yang dipilih tidak tersedia.", code: "computer_machine_selection_invalid" });
+        sendJson(response, 404, { error: "Komputer yang dipilih tidak tersedia.", code: "computer_machine_selection_invalid" });
         return;
       }
       const activePool = await ensureSchema();
@@ -598,22 +598,22 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
     const rate = consumeComputerRate(userId, "session", 6);
     if (!rate.allowed) {
       response.setHeader("Retry-After", String(rate.retryAfterSeconds));
-      sendJson(response, 429, { error: "Terlalu banyak pembukaan session Computer. Coba lagi sebentar.", code: "computer_rate_limited" });
+      sendJson(response, 429, { error: "Terlalu banyak permintaan. Coba lagi sebentar.", code: "computer_rate_limited" });
       return;
     }
     if (!instabox.configured) {
-      sendJson(response, 503, { error: "Instabox belum dikonfigurasi di server.", code: "instabox_configuration" });
+      sendJson(response, 503, { error: "Komputer belum siap digunakan. Coba lagi nanti.", code: "instabox_configuration" });
       return;
     }
     if (!pool) {
-      sendJson(response, 503, { error: "PostgreSQL belum dikonfigurasi di server.", code: "database_configuration" });
+      sendJson(response, 503, { error: "Layanan penyimpanan belum siap. Coba lagi nanti.", code: "database_configuration" });
       return;
     }
     try {
       const body = await readJsonBody(request);
       const selectedIdentifier = requestedMachineId(body);
       if (selectedIdentifier === null) {
-        sendJson(response, 400, { error: "machineId shared machine tidak valid.", code: "invalid_computer_machine" });
+        sendJson(response, 400, { error: "Pilihan komputer tidak valid.", code: "invalid_computer_machine" });
         return;
       }
       const agentSession = hasInternalAgentCapability(request) && body.agent === true;
@@ -625,13 +625,13 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       const includeStream = agentSession ? false : body.includeStream !== false;
       const sharedMachines = await instabox.listSharedMachines();
       if (!sharedMachines.length) {
-        throw Object.assign(new Error("Belum ada shared machine yang tersedia."), { code: "computer_machine_not_found", status: 404 });
+        throw Object.assign(new Error("Belum ada komputer yang tersedia."), { code: "computer_machine_not_found", status: 404 });
       }
       const requestedMachine = selectedIdentifier
         ? sharedMachines.find((machine) => machineMatchesIdentifier(machine, selectedIdentifier))
         : undefined;
       if (selectedIdentifier && !requestedMachine) {
-        throw Object.assign(new Error("Shared machine yang dipilih tidak tersedia."), { code: "computer_machine_selection_invalid", status: 404 });
+        throw Object.assign(new Error("Komputer yang dipilih tidak tersedia."), { code: "computer_machine_selection_invalid", status: 404 });
       }
       const activePool = await ensureSchema();
       const result = await withComputerUserLock(activePool, userId, async (client) => {
@@ -645,7 +645,7 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
           : undefined;
         const selectedMachine = requestedMachine || mappedMachine || sharedMachines[0];
         if (!selectedMachine) {
-          throw Object.assign(new Error("Belum ada shared machine yang tersedia."), { code: "computer_machine_not_found", status: 404 });
+          throw Object.assign(new Error("Belum ada komputer yang tersedia."), { code: "computer_machine_not_found", status: 404 });
         }
         if (!mapping || mapping.instabox_machine_id !== selectedMachine.id || mapping.machine_name !== selectedMachine.name) {
           await client.query(
@@ -741,7 +741,7 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       return;
     }
     sendJson(response, 409, {
-      error: "Shared machine dikelola oleh pool dan tidak bisa dijeda dari workspace user.",
+      error: "Komputer bersama tidak dapat dijeda dari sini.",
       code: "computer_shared_machine_no_pause",
     });
   };
@@ -781,14 +781,14 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
           "SELECT id, instabox_machine_id, view_only FROM koasis_computer_sessions WHERE user_id = $1 AND status = 'active' AND expires_at > now() AND ($2::uuid IS NOT NULL AND id = $2::uuid OR $2::uuid IS NULL AND source = 'user') ORDER BY created_at DESC LIMIT 1",
           [userId, sessionId ?? null],
         );
-        if (!activeSession.rows.length) throw Object.assign(new Error("Session Computer sudah berakhir."), { code: "computer_session_expired", status: 409 });
-        if (activeSession.rows[0].view_only) throw Object.assign(new Error("Session Computer ini view-only."), { code: "computer_control_not_allowed", status: 409 });
+        if (!activeSession.rows.length) throw Object.assign(new Error("Sesi desktop sudah berakhir."), { code: "computer_session_expired", status: 409 });
+        if (activeSession.rows[0].view_only) throw Object.assign(new Error("Sesi ini hanya bisa dilihat."), { code: "computer_control_not_allowed", status: 409 });
         return withComputerMachineLock(client, activeSession.rows[0].instabox_machine_id, () => instabox.action(activeSession.rows[0].instabox_machine_id, action));
       });
       sendJson(response, 200, result);
     } catch (error) {
       if (error && typeof error === "object" && (error as { code?: unknown }).code === "computer_session_expired") {
-        sendJson(response, 409, { error: "Session Computer sudah berakhir.", code: "computer_session_expired" });
+        sendJson(response, 409, { error: "Sesi desktop sudah berakhir.", code: "computer_session_expired" });
         return;
       }
       const mapped = computerError(error);
