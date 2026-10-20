@@ -24,10 +24,20 @@ describe("conversation metadata", () => {
       { role: "user", content: "Bandingkan guideline komunitas dengan hasil meta-analisis untuk pasien dewasa." },
     ], { agentLabel: "Evidence Desk" });
 
-    expect(title).toContain("Evidence");
+    expect(title).toMatch(/^Mencari evidence tentang /);
     expect(title.toLocaleLowerCase()).toContain("pneumonia aspirasi");
     expect(title).not.toBe(firstPrompt);
+    expect(title).not.toContain(" · ");
     expect(title.length).toBeLessThanOrEqual(68);
+  });
+
+  test("uses a natural sentence for Computer tasks", () => {
+    const title = buildConversationTitle([
+      { role: "user", content: "Buka Computer lalu cek YouTube untuk mencari video ini." },
+    ], { agentLabel: "Koasis Agent" });
+
+    expect(title).toBe("Menggunakan Computer untuk membuka YouTube");
+    expect(title).not.toContain(" · ");
   });
 
   test("changes follow-ups when the answer and evidence graph change", () => {
@@ -51,4 +61,3 @@ describe("conversation metadata", () => {
     expect(second.join(" ").toLocaleLowerCase()).toContain("hematoma");
   });
 });
-

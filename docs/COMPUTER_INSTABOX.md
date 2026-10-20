@@ -89,3 +89,37 @@ Provisioning dan lifecycle memakai advisory lock PostgreSQL per user supaya requ
 6. Untuk machine existing, set `INSTABOX_DEFAULT_MACHINE_NAME` dan `INSTABOX_DEFAULT_OWNER_UID`.
 7. Untuk machine per user, ubah `INSTABOX_ALLOW_PROVISIONING=true` setelah quota akun dan kebijakan biaya disetujui.
 8. Untuk mengaktifkan agent menggunakan Computer, set `INSTABOX_ALLOW_AGENT_CONTROL=true`. Ini tidak diperlukan untuk tombol manual `Buka desktop` atau `Ambil kontrol`.
+
+## Keep-alive shared machines
+
+Lima machine shared dapat melewati batas idle 30 menit pada InstaBox. Repository
+menyediakan single-run job yang aman dijalankan oleh scheduler Dokploy:
+
+```text
+npm run instabox:keepalive
+```
+
+Job ini memakai `INSTABOX_API_KEY` dari environment server, me-resume machine
+yang sudah paused, lalu menjalankan command no-op `true` agar timer idle
+ter-reset. Job tidak membuka desktop, tidak membaca/menulis file, dan tidak
+mencetak API key.
+
+Tambahkan Cron Job pada service `Koasis App` di Dokploy dengan jadwal berikut
+(25 menit dipilih agar tidak balapan dengan batas auto-pause 30 menit):
+
+```cron
+*/25 * * * *
+```
+
+Command-nya:
+
+```bash
+npm run instabox:keepalive
+```
+
+Gunakan environment runtime yang sama dengan `Koasis App`, minimal
+`INSTABOX_API_KEY`, `INSTABOX_API_URL`, dan `INSTABOX_SHARED_MACHINE_IDS`.
+Jangan menaruh key di repo, `VITE_*`, browser, atau Secret Manager yang tidak
+Anda kelola. Menjaga kelima machine tetap aktif meningkatkan pemakaian
+resource; bila ingin menghindari biaya idle, jangan pasang job ini dan biarkan
+Instabox melakukan auto-pause.

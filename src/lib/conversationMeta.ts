@@ -18,7 +18,7 @@ export type FollowUpQuestionInput = {
 };
 
 const STOP_WORDS = new Set([
-  "a", "about", "ada", "agar", "akan", "aku", "anda", "antara", "apa", "apakah", "atau", "and", "bagi", "bagaimana", "bahwa", "baik", "baru", "beberapa", "belum", "bisa", "buat", "dan", "dapat", "dari", "dengan", "di", "dalam", "dijelaskan", "untuk", "dulu", "fitur", "from", "guna", "hal", "hingga", "how", "i", "ia", "in", "ini", "is", "itu", "jadi", "jelaskan", "jika", "juga", "kah", "kamu", "karena", "ke", "keadaan", "kemudian", "ketika", "khusus", "kita", "lagi", "lebih", "lalu", "mau", "melalui", "mencari", "mengenai", "menjadi", "menurut", "meski", "minimal", "my", "of", "on", "oleh", "pada", "pakai", "paling", "perlu", "please", "research", "saja", "sama", "saya", "sebagai", "secara", "seperti", "serta", "sudah", "supaya", "tentang", "terhadap", "the", "this", "to", "tolong", "topik", "topic", "tugas", "yang", "you", "your", "bantu", "carikan", "cari", "kirim", "mohon", "riset", "terbaru", "gunakan", "with", "after", "before", "among", "against", "at", "during", "for", "into", "using", "versus",
+  "a", "about", "ada", "agar", "akan", "aku", "anda", "antara", "apa", "apakah", "atau", "and", "bagi", "bagaimana", "bahwa", "baik", "baru", "beberapa", "belum", "bisa", "buat", "dan", "dapat", "dari", "dengan", "di", "dalam", "dijelaskan", "untuk", "dulu", "fitur", "from", "guna", "hal", "hingga", "how", "i", "ia", "in", "ini", "is", "itu", "jadi", "jelaskan", "jika", "juga", "kah", "kamu", "karena", "ke", "keadaan", "kemudian", "ketika", "khusus", "kita", "lagi", "lebih", "lalu", "mau", "melalui", "mencari", "mengenai", "menjadi", "menurut", "meski", "minimal", "my", "of", "on", "oleh", "pada", "pakai", "paling", "perlu", "please", "research", "saja", "sama", "saya", "sebagai", "secara", "seperti", "serta", "sudah", "supaya", "tentang", "terhadap", "the", "this", "to", "tolong", "topik", "topic", "tugas", "yang", "you", "your", "bantu", "carikan", "cari", "kirim", "mohon", "riset", "terbaru", "gunakan", "buka", "open", "akses", "access", "browser", "desktop", "machine", "computer", "klik", "click", "screenshot", "layar", "with", "after", "before", "among", "against", "at", "during", "for", "into", "using", "versus",
   "answer", "based", "body", "case", "could", "current", "evidence", "explain", "find", "following", "give", "help", "identify", "information", "knowledge", "latest", "look", "need", "question", "review", "search", "source", "sources", "study", "tell", "trustworthy", "what", "where", "which", "why",
 ]);
 
@@ -55,8 +55,10 @@ function normalizedWords(value: string): string[] {
 }
 
 const KNOWN_ACRONYMS = new Set(["ats", "ct", "doi", "ecg", "hiv", "idsa", "icu", "mri", "nice", "pico", "pmcid", "pmid", "tb", "who", "xpert"]);
+const TITLE_NOISE_TERMS = new Set(["bandingkan", "compare", "cek", "check", "tinjau", "review", "buka", "open", "akses", "access", "computer", "browser", "desktop", "machine", "video", "lalu"]);
 
 function displayTerm(value: string): string {
+  if (value.toLocaleLowerCase("id-ID") === "youtube") return "YouTube";
   if (KNOWN_ACRONYMS.has(value.toLocaleLowerCase("id-ID"))) return value.toUpperCase();
   return value.charAt(0).toLocaleUpperCase("id-ID") + value.slice(1);
 }
@@ -133,6 +135,19 @@ function intentLabel(messages: ConversationMetaMessage[], agentLabel?: string): 
   return "Diskusi";
 }
 
+function sentenceTitle(intent: string, topic: string, opening: string): string {
+  const normalizedOpening = opening.toLocaleLowerCase("id-ID");
+  if (/\b(?:computer|browser|desktop|machine)\b/.test(normalizedOpening) && /\b(?:buka|open|akses|cek|tinjau|review)\b/.test(normalizedOpening)) {
+    return `Menggunakan Computer untuk membuka ${topic}`;
+  }
+  if (intent === "Evidence") return `Mencari evidence tentang ${topic}`;
+  if (intent === "Perbandingan") return `Membandingkan ${topic}`;
+  if (intent === "Belajar") return `Belajar tentang ${topic}`;
+  if (intent === "Rencana") return `Menyusun rencana untuk ${topic}`;
+  if (intent === "Review") return `Meninjau ${topic}`;
+  return `Membahas ${topic}`;
+}
+
 /**
  * Builds a compact, semantic title from the opening turns of a session. It
  * deliberately ignores the welcome message and never copies a full prompt.
@@ -147,12 +162,18 @@ export function buildConversationTitle(messages: ConversationMetaMessage[], opti
   const phrases = uniqueValues(userMessages.slice(0, 3).flatMap((message) => extractSubjectPhrases(message.content)));
   const headings = uniqueValues(opening.filter((message) => message.role === "assistant").flatMap((message) => extractHeadings(message.content)));
   const phraseWords = new Set(phrases.flatMap((phrase) => normalizedWords(phrase)));
-  const rankedTerms = topTerms(opening, options.sources);
-  const additionalTerms = rankedTerms.filter((term) => !phraseWords.has(term.toLocaleLowerCase("id-ID"))).slice(0, 3);
-  const topicParts = [...phrases.slice(0, 2), ...additionalTerms].filter(Boolean);
+  // User messages define the subject. Source titles are only a fallback when
+  // the user did not provide enough topical words; otherwise a journal title
+  // can leak into the chat title and make it sound like a keyword list.
+  const rankedTerms = topTerms(opening);
+  const additionalTerms = rankedTerms
+    .filter((term) => !phraseWords.has(term.toLocaleLowerCase("id-ID")))
+    .filter((term) => !TITLE_NOISE_TERMS.has(term.toLocaleLowerCase("id-ID")))
+    .slice(0, phrases.length ? 1 : 3);
+  const topicParts = uniqueValues([...phrases.slice(0, 2), ...additionalTerms].filter(Boolean));
   if (!topicParts.length) topicParts.push(...headings.slice(0, 2));
-  const topic = compact(topicParts.join(" · ") || topTerms(opening, options.sources).join(" · ") || "Topik lintas sesi", 52);
-  return compact(`${intentLabel(opening, options.agentLabel)} · ${topic}`, 68);
+  const topic = compact(topicParts.join(", ") || topTerms(opening, options.sources).join(", ") || "topik lintas sesi", 50);
+  return compact(sentenceTitle(intentLabel(opening, options.agentLabel), topic, userMessages.slice(0, 3).map((message) => message.content).join(" ")), 68);
 }
 
 function questionHash(input: string): number {
