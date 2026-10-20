@@ -6,6 +6,7 @@ describe("promptNeedsEvidence", () => {
     expect(promptNeedsEvidence("Jelaskan tatalaksana pneumonia aspirasi", "koasis")).toBe(true);
     expect(promptNeedsEvidence("Carikan jurnal tentang TB laten", "study")).toBe(true);
     expect(promptNeedsEvidence("Apakah skrining ini direkomendasikan?", "case")).toBe(true);
+    expect(promptNeedsEvidence("Bandingkan strategi diagnosis untuk anemia mikrositik", "koasis")).toBe(true);
   });
 
   it("keeps pure drafting and formatting tasks local", () => {
@@ -19,4 +20,3 @@ describe("promptNeedsEvidence", () => {
     expect(promptNeedsEvidence("Tolong bantu", "prebrief")).toBe(false);
   });
 });
-

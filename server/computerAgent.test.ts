@@ -6,6 +6,9 @@ describe("Computer agent capability", () => {
     expect(computerIntentDetected("buka Computer lalu cek halaman login")).toBe(true);
     expect(computerIntentDetected("tolong jelaskan konsep ini tanpa membuka browser")).toBe(false);
     expect(computerIntentDetected("buatkan ringkasan jurnal")).toBe(false);
+    expect(computerIntentDetected("tolong buka dan tinjau link Google Slides ini https://docs.google.com/presentation/d/example")).toBe(true);
+    expect(computerIntentDetected("gunakan browser untuk membuka website dan cek form ini")).toBe(true);
+    expect(computerIntentDetected("buatkan ringkasan dari link tanpa membuka browser")).toBe(false);
   });
 
   test("exposes bounded desktop tools without arbitrary shell access", () => {
@@ -22,4 +25,3 @@ describe("Computer agent capability", () => {
     expect(() => parseComputerToolArguments(["unexpected"])).toThrow("harus berupa JSON object");
   });
 });
-

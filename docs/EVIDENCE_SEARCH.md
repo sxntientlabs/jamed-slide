@@ -17,8 +17,10 @@ POST /api/evidence/search
         +--> Web search (optional Brave/Tavily discovery, server-side key only)
         |
         +--> provider failure isolation
+        +--> bilingual/semantic query planning (core topic + intent + PICO variants)
+        +--> up to three query variants per provider, executed in parallel
         +--> DOI / PMID / PMCID deduplication
-        +--> reciprocal-rank + lexical relevance reranking
+        +--> reciprocal-rank + core-term + semantic relevance reranking
         +--> provenance, access, and integrity flags
 ```
 
@@ -36,7 +38,7 @@ Request:
 }
 ```
 
-Response memuat `queryPlan` bilingual/PICO, `providers` dengan status tiap provider, `warnings`, dan setiap result membawa `sourceIds`, identifier yang tersedia, `publicationTypes`, `retractionStatus`, `isOpenAccess`, `fullTextUrl` bila provider menyediakannya, serta alasan ranking. Hasil adalah kandidat metadata/abstract; agent tetap diarahkan untuk membuka sumber asli dan menandai batas metadata versus full-text review.
+Response memuat `queryPlan` bilingual/PICO dengan `queryVariants`, `providers` dengan status tiap provider, `warnings`, dan setiap result membawa `sourceIds`, identifier yang tersedia, `publicationTypes`, `retractionStatus`, `isOpenAccess`, `fullTextUrl` bila provider menyediakannya, serta alasan ranking. Hasil adalah kandidat metadata/abstract; agent tetap diarahkan untuk membuka sumber asli dan menandai batas metadata versus full-text review. Query web Brave dikirim sebagai parameter `q` server-side; API key tidak pernah masuk ke browser.
 
 ## Konfigurasi opsional
 

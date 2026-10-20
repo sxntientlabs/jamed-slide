@@ -52,6 +52,7 @@ describe("evidence search query planning", () => {
     expect(plan.pico.intervention).toBe("inhaled corticosteroid");
     expect(plan.pico.outcome).toBe("eksaserbasi");
     expect(plan.expandedTerms).toContain("asthma");
+    expect(plan.queryVariants.length).toBeGreaterThan(0);
   });
 
   test("builds a broad bilingual clinical query instead of searching only the input language", () => {
@@ -59,6 +60,7 @@ describe("evidence search query planning", () => {
     expect(plan.normalizedQuery).toContain("aspiration pneumonia");
     expect(plan.normalizedQuery).toContain("management");
     expect(plan.expandedTerms).toEqual(expect.arrayContaining(["aspiration", "pediatric", "paediatric"]));
+    expect(plan.queryVariants[0]).toMatch(/pneumonia|aspirasi/i);
   });
 
   test("keeps short clinical abbreviations searchable", () => {
@@ -101,6 +103,7 @@ describe("federated evidence search", () => {
   test("adds relevant web-search results when a server-side search key is configured", async () => {
     const fetchImpl = vi.fn(async (input: string | URL) => {
       if (String(input).includes("api.search.brave.com")) {
+        expect(new URL(String(input)).searchParams.get("q")).toMatch(/asthma/i);
         return jsonResponse({ web: { total: 1, results: [{ title: "Asthma diagnosis guideline", url: "https://guidelines.example/asthma", description: "Evidence-based asthma diagnosis and management guidance.", profile: { long_name: "Clinical Guidelines" } }] } });
       }
       throw new Error("provider not selected");

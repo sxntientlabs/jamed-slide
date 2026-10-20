@@ -15,6 +15,8 @@ export type EvidenceQueryPlan = {
   normalizedQuery: string;
   language: "id" | "en" | "mixed" | "unknown";
   expandedTerms: string[];
+  queryVariants?: string[];
+  topicTerms?: string[];
   pico: {
     population?: string;
     intervention?: string;

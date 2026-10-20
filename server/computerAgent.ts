@@ -15,7 +15,7 @@ export const COMPUTER_AGENT_TOOLS = [
     type: "function",
     function: {
       name: "computer_start",
-      description: "Start or resume the user's assigned Koasis Computer. Use this before any other computer tool.",
+      description: "Start or resume the user's selected shared Koasis Computer from the available pool. Use this before any other computer tool.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -107,11 +107,12 @@ export const COMPUTER_AGENT_TOOLS = [
   },
 ] as const;
 
-const COMPUTER_INTENT_PATTERN = /\b(computer|desktop|browser|machine|klik|click|ketik|type|scroll|buka situs|buka website|open browser|screenshot layar)\b/i;
-const COMPUTER_NEGATION_PATTERN = /\b(jangan|tanpa|tidak perlu|gausah|nggak usah|jangan gunakan|do not|don't)\b[^.?!]{0,50}\b(computer|desktop|browser|machine)\b/i;
+const COMPUTER_INTENT_PATTERN = /\b(computer|desktop|browser|machine|browsing eksternal|gunakan internet|pakai internet|klik|click|ketik|type|scroll|buka situs|buka website|open browser|screenshot layar)\b|https?:\/\/|\b(?:drive|docs|slides)\.google\.com\b/i;
+const COMPUTER_ACTION_PATTERN = /\b(?:buka|open|edit|ubah|perbaiki|tinjau|review|cek|akses|unggah|upload|download|unduh|salin|isi|ketik|klik|click)\b[^.?!]{0,90}\b(?:link|dokumen|document|slide|slides|file|situs|website|browser|drive|docs|sheet|sheets)\b/i;
+const COMPUTER_NEGATION_PATTERN = /\b(jangan|tanpa|tidak perlu|gausah|nggak usah|jangan gunakan|do not|don't)\b[^.?!]{0,80}\b(?:computer|desktop|browser|machine|https?:\/\/|drive\.google\.com|docs\.google\.com|slides\.google\.com)\b/i;
 
 export function computerIntentDetected(message: string): boolean {
-  return COMPUTER_INTENT_PATTERN.test(message) && !COMPUTER_NEGATION_PATTERN.test(message);
+  return (COMPUTER_INTENT_PATTERN.test(message) || COMPUTER_ACTION_PATTERN.test(message)) && !COMPUTER_NEGATION_PATTERN.test(message);
 }
 
 export function parseComputerToolArguments(value: unknown): Record<string, unknown> {
@@ -128,4 +129,3 @@ export function parseComputerToolArguments(value: unknown): Record<string, unkno
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   throw new Error("Argumen tool Computer harus berupa JSON object.");
 }
-

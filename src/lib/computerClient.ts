@@ -20,7 +20,10 @@ export type ComputerMachine = {
 
 export type ComputerStatus = {
   configured: boolean;
+  shared: boolean;
   provisioningEnabled: boolean;
+  machines: ComputerMachine[];
+  selectedMachineId: string | null;
   machine: ComputerMachine | null;
   activeSession?: {
     id: string;
@@ -102,8 +105,12 @@ export function getComputerStatus(options: ComputerClientOptions = {}): Promise<
   return request<ComputerStatus>("/api/computer/status", { method: "GET" }, options);
 }
 
-export function openComputerSession(viewOnly = true, options: ComputerClientOptions = {}): Promise<ComputerSession> {
-  return request<ComputerSession>("/api/computer/session", { method: "POST", body: JSON.stringify({ viewOnly }) }, options);
+export function selectComputerMachine(machineId: string, options: ComputerClientOptions = {}): Promise<{ machine: ComputerMachine; selectedMachineId: string; machines: ComputerMachine[] }> {
+  return request<{ machine: ComputerMachine; selectedMachineId: string; machines: ComputerMachine[] }>("/api/computer/select", { method: "POST", body: JSON.stringify({ machineId }) }, options);
+}
+
+export function openComputerSession(viewOnly = true, options: ComputerClientOptions = {}, machineId?: string): Promise<ComputerSession> {
+  return request<ComputerSession>("/api/computer/session", { method: "POST", body: JSON.stringify({ viewOnly, ...(machineId ? { machineId } : {}) }) }, options);
 }
 
 export function revokeComputerSession(options: ComputerClientOptions = {}, sessionId?: string): Promise<{ ok: true }> {

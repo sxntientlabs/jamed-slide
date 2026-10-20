@@ -23,6 +23,8 @@ export type EvidenceQueryPlan = {
   normalizedQuery: string;
   language: "id" | "en" | "mixed" | "unknown";
   expandedTerms: string[];
+  queryVariants: string[];
+  topicTerms: string[];
   pico: {
     population?: string;
     intervention?: string;
@@ -100,7 +102,8 @@ type JsonRecord = Record<string, unknown>;
 
 const PROVIDER_ORDER: EvidenceProviderId[] = ["pubmed", "europepmc", "openalex", "crossref", "web"];
 const DEFAULT_TIMEOUT_MS = 12_000;
-const MAX_PROVIDER_PAGE_SIZE = 8;
+const MAX_PROVIDER_PAGE_SIZE = 12;
+const MAX_QUERY_VARIANTS = 3;
 
 const TERM_EXPANSIONS: Record<string, string[]> = {
   asma: ["asthma", "asthma exacerbation", "reactive airway disease"],
@@ -186,6 +189,18 @@ const GENERIC_CLINICAL_TOKENS = new Set([
   "based", "berdasarkan", "clinical", "diagnosis", "diagnostic", "disease", "explain", "guideline", "guidelines", "jelaskan", "management", "medical", "medis", "obat", "penyakit", "therapy", "tatalaksana", "terapi", "treatment", "valid", "validated",
 ]);
 
+const SEARCH_INTENT_EXPANSIONS: Array<{ pattern: RegExp; terms: string[] }> = [
+  { pattern: /diagnos(?:is|tik)|deteksi|screening|skrining|diagnostic|detection/i, terms: ["diagnosis", "diagnostic", "screening", "detection", "evaluation"] },
+  { pattern: /tatalaksana|pengobatan|terapi|management|treatment|therapy/i, terms: ["management", "treatment", "therapy", "guideline", "clinical practice"] },
+  { pattern: /pencegahan|prevent(?:ion)?|profilaksis|prophylaxis/i, terms: ["prevention", "prophylaxis", "preventive"] },
+  { pattern: /prognosis|luaran|outcome|survival|mortalitas|mortality/i, terms: ["prognosis", "outcome", "survival", "mortality"] },
+  { pattern: /gejala|keluhan|symptom|manifestasi|manifestation/i, terms: ["symptom", "clinical manifestation", "presentation"] },
+  { pattern: /etiologi|penyebab|pathogenesis|patogenesis|transmission|penularan/i, terms: ["etiology", "cause", "pathogenesis", "transmission"] },
+  { pattern: /faktor risiko|risk factor|prediktor|predictor/i, terms: ["risk factor", "predictor", "associated factors"] },
+  { pattern: /prevalensi|prevalence|insidensi|incidence|epidemiologi|epidemiology/i, terms: ["prevalence", "incidence", "epidemiology"] },
+  { pattern: /systematic review|tinjauan sistematis|meta.?analisis|meta.?analysis/i, terms: ["systematic review", "meta-analysis"] },
+];
+
 const SEARCH_STOPWORDS = new Set([
   "a", "aku", "an", "and", "artikel", "atau", "bantu", "berikan", "carikan", "cari", "citation", "citations", "cite", "database", "databases", "dan", "dengan", "evidence", "find", "fitur", "for", "from", "guideline", "guidelines", "gunakan", "ingin", "jurnal", "journal", "kamu", "latest", "literatur", "literature", "mencari", "mengenai", "of", "on", "pada", "pakai", "pake", "paper", "papers", "please", "referensi", "reference", "research", "saya", "search", "sendiri", "source", "sources", "terbaru", "tentang", "the", "to", "tolong", "untuk", "yang", "trustworthy", "medical", "clarify", "question", "identify", "best", "compare", "check", "flag", "uncertainty", "topic", "desired", "date", "range", "output", "brief", "current", "supplied", "records", "address", "help", "this", "with",
 ]);
@@ -264,6 +279,12 @@ function matchedExpansionEntries(query: string): Array<[string, string[]]> {
   return Object.entries(TERM_EXPANSIONS).filter(([term]) => queryHasTerm(query, term));
 }
 
+function matchedIntentExpansionEntries(query: string): Array<[string, string[]]> {
+  return SEARCH_INTENT_EXPANSIONS
+    .filter(({ pattern }) => pattern.test(query))
+    .map(({ pattern, terms }) => [pattern.source, terms]);
+}
+
 function searchSignalTokens(query: string, expandedTerms: string[]): string[] {
   return uniqueStrings([query, ...expandedTerms])
     .flatMap(tokenize)
@@ -272,8 +293,12 @@ function searchSignalTokens(query: string, expandedTerms: string[]): string[] {
 
 function searchSignalGroups(query: string): string[][] {
   const matchedEntries = matchedExpansionEntries(query);
+  const matchedIntentEntries = matchedIntentExpansionEntries(query);
   const coveredTokens = new Set(matchedEntries.flatMap(([term]) => tokenize(term)));
-  const semanticGroups = matchedEntries.map(([term, terms]) => uniqueStrings([term, ...terms]).flatMap(tokenize));
+  const semanticGroups = [
+    ...matchedEntries.map(([term, terms]) => uniqueStrings([term, ...terms]).flatMap(tokenize)),
+    ...matchedIntentEntries.map(([, terms]) => uniqueStrings(terms).flatMap(tokenize)),
+  ];
   const tokenGroups = tokenize(query)
     .filter((token) => !SEARCH_STOPWORDS.has(token))
     .filter((token) => !coveredTokens.has(token))
@@ -343,13 +368,34 @@ function parsePico(query: string): EvidenceQueryPlan["pico"] {
 
 export function buildEvidenceQueryPlan(query: string): EvidenceQueryPlan {
   const originalQuery = query.trim().replace(/\s+/g, " ");
-  const semanticTerms = semanticTermsForQuery(originalQuery);
+  const semanticTerms = uniqueStrings([
+    ...semanticTermsForQuery(originalQuery),
+    ...matchedIntentExpansionEntries(originalQuery).flatMap(([, terms]) => terms),
+  ]);
   const expandedTerms = uniqueStrings(semanticTerms.filter((term) => !queryHasTerm(originalQuery, term)));
+  const topicTerms = uniqueStrings([
+    ...tokenize(originalQuery).filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token)),
+    ...semanticTerms.flatMap(tokenize),
+  ]).slice(0, 24);
+  const queryTopicPhrase = tokenize(originalQuery)
+    .filter((token) => !SEARCH_STOPWORDS.has(token))
+    .slice(0, 10)
+    .join(" ");
+  const focusedSemanticPhrase = semanticTerms
+    .filter((term) => term.includes(" ") && !GENERIC_CLINICAL_TOKENS.has(normalizeTitle(term)))
+    .slice(0, 2)
+    .join(" ");
   const signalTerms = uniqueStrings([...searchSignalTokens(originalQuery, []), ...semanticTerms]);
   const normalizedQuery = signalTerms.length
     ? signalTerms.slice(0, 24).map((term) => term.includes(" ") ? `"${term}"` : term).join(" OR ")
     : originalQuery;
   const pico = parsePico(originalQuery);
+  const queryVariants = uniqueStrings([
+    queryTopicPhrase || topicTerms.slice(0, 8).join(" "),
+    [queryTopicPhrase, focusedSemanticPhrase].filter(Boolean).join(" "),
+    [pico.population, pico.intervention, pico.comparison, pico.outcome].filter(Boolean).join(" "),
+    originalQuery,
+  ]).filter((variant) => variant.length >= 3).slice(0, MAX_QUERY_VARIANTS);
   const warnings: string[] = [];
   if (!Object.keys(pico).length) warnings.push("PICO belum ditulis secara eksplisit; hasil diperingkat dari kecocokan istilah dan provenance sumber.");
   if (!expandedTerms.length) warnings.push("Tidak ada sinonim bilingual yang pasti; provider tetap mencari istilah inti dan memeringkat hasil berdasarkan kecocokan topik.");
@@ -358,6 +404,8 @@ export function buildEvidenceQueryPlan(query: string): EvidenceQueryPlan {
     normalizedQuery,
     language: inferLanguage(originalQuery),
     expandedTerms,
+    queryVariants,
+    topicTerms,
     pico,
     warnings,
   };
@@ -456,11 +504,33 @@ function parsePubmedXml(xml: string, fallbackIds: string[]): ProviderRecord[] {
   }).filter((record) => Boolean(record.title));
 }
 
-async function searchPubmed(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+async function searchProviderVariants(
+  provider: EvidenceProviderId,
+  plan: EvidenceQueryPlan,
+  run: (query: string) => Promise<ProviderResult>,
+): Promise<ProviderResult> {
+  const variants = (plan.queryVariants?.length ? plan.queryVariants : [plan.normalizedQuery]).slice(0, MAX_QUERY_VARIANTS);
+  const settled = await Promise.allSettled(variants.map((variant) => run(variant)));
+  const successful = settled.filter((result): result is PromiseFulfilledResult<ProviderResult> => result.status === "fulfilled");
+  if (!successful.length) {
+    const firstFailure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    throw firstFailure?.reason instanceof Error ? firstFailure.reason : new Error(`${provider} tidak tersedia.`);
+  }
+  const records = deduplicateProviderRecords(successful.flatMap((result) => result.value.records))
+    .sort((left, right) => left.rank - right.rank)
+    .map((record, index) => ({ ...record, rank: index + 1 }));
+  return {
+    provider,
+    hitCount: Math.max(records.length, ...successful.map((result) => result.value.hitCount || 0)),
+    records,
+  };
+}
+
+async function searchPubmedVariant(options: FederatedEvidenceSearchOptions, query: string): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const searchUrl = new URL("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi");
   searchUrl.searchParams.set("db", "pubmed");
-  searchUrl.searchParams.set("term", plan.normalizedQuery);
+  searchUrl.searchParams.set("term", query);
   searchUrl.searchParams.set("retmode", "json");
   searchUrl.searchParams.set("retmax", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
   searchUrl.searchParams.set("sort", "relevance");
@@ -481,6 +551,10 @@ async function searchPubmed(options: FederatedEvidenceSearchOptions, plan: Evide
   if (options.ncbiApiKey) fetchUrl.searchParams.set("api_key", options.ncbiApiKey);
   const xml = await requestText(fetchImpl, fetchUrl, { headers: { Accept: "application/xml" } }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
   return { provider: "pubmed", hitCount, records: parsePubmedXml(xml, ids) };
+}
+
+async function searchPubmed(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+  return searchProviderVariants("pubmed", plan, (query) => searchPubmedVariant(options, query));
 }
 
 function europePmcFullTextUrl(record: JsonRecord): string | undefined {
@@ -557,10 +631,10 @@ async function enrichEuropePmcFigures(records: ProviderRecord[], options: Federa
   return records.map((record) => byId.get(record.providerRecordId) || record);
 }
 
-async function searchEuropePmc(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+async function searchEuropePmcVariant(options: FederatedEvidenceSearchOptions, query: string): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const url = new URL("https://www.ebi.ac.uk/europepmc/webservices/rest/search");
-  url.searchParams.set("query", plan.normalizedQuery);
+  url.searchParams.set("query", query);
   url.searchParams.set("format", "json");
   url.searchParams.set("resultType", "core");
   url.searchParams.set("pageSize", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
@@ -591,14 +665,18 @@ async function searchEuropePmc(options: FederatedEvidenceSearchOptions, plan: Ev
       url: `https://europepmc.org/article/${encodeURIComponent(source)}/${encodeURIComponent(providerRecordId)}`,
     });
   }).filter((record) => Boolean(record.title));
-  const enrichedRecords = await enrichEuropePmcFigures(records, options);
-  return { provider: "europepmc", hitCount: numberValue(resultList.hitCount) || enrichedRecords.length, records: enrichedRecords };
+  return { provider: "europepmc", hitCount: numberValue(resultList.hitCount) || records.length, records };
 }
 
-async function searchOpenAlex(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+async function searchEuropePmc(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+  const result = await searchProviderVariants("europepmc", plan, (query) => searchEuropePmcVariant(options, query));
+  return { ...result, records: await enrichEuropePmcFigures(result.records, options) };
+}
+
+async function searchOpenAlexVariant(options: FederatedEvidenceSearchOptions, query: string): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const url = new URL("https://api.openalex.org/works");
-  url.searchParams.set("search", plan.normalizedQuery);
+  url.searchParams.set("search", query);
   url.searchParams.set("per-page", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
   if (options.openAlexEmail) url.searchParams.set("mailto", options.openAlexEmail);
   const payload = await requestJson(fetchImpl, url, { headers: { Accept: "application/json" } }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
@@ -627,6 +705,10 @@ async function searchOpenAlex(options: FederatedEvidenceSearchOptions, plan: Evi
   return { provider: "openalex", hitCount: numberValue(asRecord(payload.meta).count) || records.length, records };
 }
 
+async function searchOpenAlex(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+  return searchProviderVariants("openalex", plan, (query) => searchOpenAlexVariant(options, query));
+}
+
 function crossrefAbstract(value: unknown): string | undefined {
   // Crossref notes that deposited abstracts can remain copyrighted. Keep this
   // adapter metadata-first and do not pass a Crossref abstract downstream.
@@ -642,10 +724,10 @@ function crossrefRetractionStatus(record: JsonRecord): EvidenceRetractedStatus {
   return "unknown";
 }
 
-async function searchCrossref(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+async function searchCrossrefVariant(options: FederatedEvidenceSearchOptions, query: string): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const url = new URL("https://api.crossref.org/works");
-  url.searchParams.set("query.bibliographic", plan.normalizedQuery);
+  url.searchParams.set("query.bibliographic", query);
   url.searchParams.set("rows", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
   url.searchParams.set("select", "DOI,title,author,container-title,published,published-print,published-online,is-referenced-by-count,link,license,update-to,type,URL");
   if (options.crossrefEmail) url.searchParams.set("mailto", options.crossrefEmail);
@@ -678,8 +760,12 @@ async function searchCrossref(options: FederatedEvidenceSearchOptions, plan: Evi
   return { provider: "crossref", hitCount: numberValue(message["total-results"]) || records.length, records };
 }
 
-function webSearchQuery(plan: EvidenceQueryPlan): string {
-  return (plan.normalizedQuery || plan.originalQuery).replace(/\s+/g, " ").trim().slice(0, 700);
+async function searchCrossref(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+  return searchProviderVariants("crossref", plan, (query) => searchCrossrefVariant(options, query));
+}
+
+function webSearchQuery(query: string): string {
+  return query.replace(/\s+/g, " ").trim().slice(0, 700);
 }
 
 function webSourceDomain(url: string): string {
@@ -711,7 +797,7 @@ function webResultRecord(value: unknown, index: number, provider: "brave" | "tav
   });
 }
 
-async function searchWeb(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+async function searchWebVariant(options: FederatedEvidenceSearchOptions, query: string): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const apiKey = options.webSearchApiKey?.trim();
   if (!apiKey) throw new Error("Web search belum dikonfigurasi di server.");
@@ -719,15 +805,22 @@ async function searchWeb(options: FederatedEvidenceSearchOptions, plan: Evidence
   const endpoint = safeUrl(options.webSearchUrl) || (provider === "tavily"
     ? "https://api.tavily.com/search"
     : "https://api.search.brave.com/res/v1/web/search");
-  const query = webSearchQuery(plan);
+  const searchQuery = webSearchQuery(query);
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const braveUrl = provider === "brave" ? new URL(endpoint) : undefined;
+  if (braveUrl) {
+    // Brave requires the actual query in the URL. Omitting `q` makes the
+    // request look configured while returning an unrelated/default result.
+    braveUrl.searchParams.set("q", searchQuery);
+    braveUrl.searchParams.set("count", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
+  }
   const payload = provider === "tavily"
     ? await requestJson(fetchImpl, endpoint, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey, query, max_results: Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE), search_depth: "advanced", include_answer: false, include_raw_content: false }),
+      body: JSON.stringify({ api_key: apiKey, query: searchQuery, max_results: Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE), search_depth: "advanced", include_answer: false, include_raw_content: false }),
     }, timeoutMs)
-    : await requestJson(fetchImpl, endpoint, {
+    : await requestJson(fetchImpl, braveUrl || endpoint, {
       headers: { Accept: "application/json", "X-Subscription-Token": apiKey, "User-Agent": "Koasis/1.0 (medical evidence discovery)" },
     }, timeoutMs);
   const rawResults = provider === "tavily"
@@ -735,6 +828,10 @@ async function searchWeb(options: FederatedEvidenceSearchOptions, plan: Evidence
     : arrayValue(asRecord(payload.web).results);
   const records = rawResults.map((value, index) => webResultRecord(value, index, provider)).filter((record): record is ProviderRecord => Boolean(record));
   return { provider: "web", hitCount: numberValue(asRecord(payload.web).total) || records.length, records };
+}
+
+async function searchWeb(options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {
+  return searchProviderVariants("web", plan, (query) => searchWebVariant(options, query));
 }
 
 function identifierKeys(record: ProviderRecord): string[] {
@@ -805,49 +902,59 @@ function evidenceRecordId(record: ProviderRecord): string {
 
 function relevanceScore(record: ProviderRecord, query: string, expandedTerms: string[], allProviderCount: number): { score: number; reasons: string[] } {
   const queryTokens = searchSignalTokens(query, expandedTerms);
+  const directQueryTokens = searchSignalTokens(query, []);
   const titleTokens = new Set(tokenize(record.title));
   const bodyTokens = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
   const titleMatches = queryTokens.filter((token) => titleTokens.has(token)).length;
   const bodyMatches = queryTokens.filter((token) => bodyTokens.has(token)).length;
+  const directTitleMatches = directQueryTokens.filter((token) => titleTokens.has(token)).length;
+  const directBodyMatches = directQueryTokens.filter((token) => bodyTokens.has(token)).length;
   const titleCoverage = queryTokens.length ? titleMatches / queryTokens.length : 0;
   const bodyCoverage = queryTokens.length ? bodyMatches / queryTokens.length : 0;
+  const directTitleCoverage = directQueryTokens.length ? directTitleMatches / directQueryTokens.length : 0;
+  const directBodyCoverage = directQueryTokens.length ? directBodyMatches / directQueryTokens.length : 0;
   const providerCoverage = allProviderCount ? 1 / allProviderCount : 1;
   const rrf = 1 / (60 + Math.max(1, record.rank));
   const publicationText = record.publicationTypes.join(" ").toLowerCase();
   const evidenceTypeBonus = /(systematic review|meta-analysis|randomized|randomised|clinical trial|guideline)/i.test(`${record.title} ${publicationText}`) ? 0.18 : 0;
   const reasons: string[] = [];
-  if (titleCoverage >= 0.35) reasons.push("istilah query muncul pada judul");
-  else if (bodyCoverage >= 0.35) reasons.push("istilah query muncul pada metadata/abstract");
+  if (directTitleCoverage >= 0.25) reasons.push("istilah inti query muncul pada judul");
+  else if (directBodyCoverage >= 0.25) reasons.push("istilah inti query muncul pada metadata/abstract");
+  else if (titleCoverage >= 0.35) reasons.push("istilah semantik query muncul pada judul");
+  else if (bodyCoverage >= 0.35) reasons.push("istilah semantik query muncul pada metadata/abstract");
   if (allProviderCount > 1) reasons.push(`terkonfirmasi ${allProviderCount} sumber metadata`);
   if (record.isOpenAccess) reasons.push("memiliki penanda open access");
   if (evidenceTypeBonus) reasons.push("tipe publikasi relevan untuk evidence");
   if (record.retractionStatus === "retracted") reasons.push("perlu perhatian: status retraction terdeteksi");
-  const score = rrf + titleCoverage * 0.72 + bodyCoverage * 0.24 + providerCoverage * 0.08 + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus;
+  const score = rrf + directTitleCoverage * 0.52 + directBodyCoverage * 0.2 + titleCoverage * 0.5 + bodyCoverage * 0.18 + providerCoverage * 0.08 + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus;
   return { score: Number(score.toFixed(6)), reasons: reasons.length ? reasons : ["hasil federated search"] };
+}
+
+function directTopicGroups(query: string): string[][] {
+  return tokenize(query)
+    .filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token))
+    .map((token) => uniqueStrings([token, ...(TERM_EXPANSIONS[token] || [])]).flatMap(tokenize));
 }
 
 function hasSearchSignal(record: FederatedEvidenceRecord, query: string): boolean {
   const queryGroups = searchSignalGroups(query);
   if (!queryGroups.length) return false;
   const searchableText = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
-  const directTopicTokens = tokenize(query).filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token));
-  const topicTerms = uniqueStrings([
-    ...directTopicTokens,
-    ...matchedExpansionEntries(query)
-      .filter(([term]) => !GENERIC_CLINICAL_TOKENS.has(normalizeTitle(term)))
-      .flatMap(([term, terms]) => [term, ...terms]),
-  ]).flatMap(tokenize);
-  if (topicTerms.length && !topicTerms.some((token) => searchableText.has(token))) return false;
+  const topicGroups = directTopicGroups(query);
+  if (topicGroups.length && !topicGroups.some((group) => group.some((token) => searchableText.has(token)))) return false;
   const matchedGroups = queryGroups.filter((group) => group.some((token) => searchableText.has(token))).length;
-  const requiredMatches = queryGroups.length === 1 ? 1 : Math.min(2, queryGroups.length);
-  return matchedGroups >= requiredMatches;
+  // Provider metadata is inconsistent: title-only records and translated
+  // terminology often contain only one of the intent groups. The topic guard
+  // above still prevents unrelated records, while requiring two groups here
+  // was causing valid guideline/review candidates to disappear.
+  return matchedGroups >= 1;
 }
 
 function hasBroadSearchSignal(record: FederatedEvidenceRecord, query: string): boolean {
-  const directTopicTokens = tokenize(query).filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token));
-  if (!directTopicTokens.length) return false;
   const searchableText = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
-  return directTopicTokens.some((token) => searchableText.has(token));
+  const topicGroups = directTopicGroups(query);
+  if (topicGroups.length) return topicGroups.some((group) => group.some((token) => searchableText.has(token)));
+  return searchSignalGroups(query).some((group) => group.some((token) => searchableText.has(token)));
 }
 
 async function callProvider(provider: EvidenceProviderId, options: FederatedEvidenceSearchOptions, plan: EvidenceQueryPlan): Promise<ProviderResult> {

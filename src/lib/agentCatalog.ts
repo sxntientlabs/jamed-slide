@@ -208,8 +208,8 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
     sourcePolicy: "document-only",
     sourceLabel: "Data terdokumentasi",
     outputContract: ["Terdokumentasi", "Belum tersedia", "Konflik", "Checklist template"],
-    handoffDescription: "Gunakan untuk review kelengkapan laporan jaga dan persiapan workflow template di /lapjag.",
-    trustedInstructions: "Preserve patient aliases, wording, units, chronology, uncertainty, and conflicts exactly as documented. Never fill missing clinical data or reuse template examples. Separate documented, missing, and conflicting information. Direct users to /lapjag only when they need template mapping, extraction review, or editable PPTX generation.",
+    handoffDescription: "Gunakan untuk review kelengkapan laporan jaga dan menyusun output editable langsung dari chat.",
+    trustedInstructions: "Preserve patient aliases, wording, units, chronology, uncertainty, and conflicts exactly as documented. Never fill missing clinical data or reuse template examples. Separate documented, missing, and conflicting information. Keep template mapping, extraction review, and editable PPTX generation in the chat workflow; never direct the user to a separate legacy interface.",
   },
 ] as const;
 

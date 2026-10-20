@@ -238,7 +238,7 @@ export function MkarRotationCockpit({ userId, workspace, tasks, activeShiftPhase
             <button type="button" onClick={() => onAction({ type: "case" })}><span className="mkar-start-mark"><KoasisGlyph name="case" size={16} /></span><span><strong>Case workspace</strong><small>Susun fakta, data hilang, dan pertanyaan supervisor.</small></span><ArrowRight size={14} /></button>
             <button type="button" onClick={() => onAction({ type: "workflow", kind: "visite" })}><span className="mkar-start-mark"><KoasisGlyph name="workflow" size={16} /></span><span><strong>Prebrief visite</strong><small>Prioritas, checklist, dan follow-up yang perlu diverifikasi.</small></span><ArrowRight size={14} /></button>
             <button type="button" onClick={() => onAction({ type: "agent", agentId: "study" })}><span className="mkar-start-mark"><KoasisGlyph name="study" size={16} /></span><span><strong>Study sprint</strong><small>Ubah learning gap menjadi recall dan latihan singkat.</small></span><ArrowRight size={14} /></button>
-            <button type="button" onClick={() => onAction({ type: "lapjag" })}><span className="mkar-start-mark"><KoasisGlyph name="report" size={16} /></span><span><strong>Laporan jaga</strong><small>Teruskan ke workspace PPTX yang sudah ada.</small></span><ArrowRight size={14} /></button>
+            <button type="button" onClick={() => onAction({ type: "lapjag" })}><span className="mkar-start-mark"><KoasisGlyph name="report" size={16} /></span><span><strong>Laporan jaga</strong><small>Susun, review, dan buat output editable lewat chat.</small></span><ArrowRight size={14} /></button>
           </div>
         </article>
       </section>

@@ -6,11 +6,26 @@ export type InstaboxSettings = {
   template: string;
   allowProvisioning: boolean;
   allowAgentControl: boolean;
+  sharedMachineIds: string[];
   defaultMachineName: string;
   defaultOwnerUid: string;
   machineTimeoutMs: number;
   autoSuspendMs: number;
 };
+
+/**
+ * The current Instabox plan is intentionally treated as a fixed shared pool.
+ * These are names as shown in the Instabox dashboard; the SDK lookup accepts
+ * either a sandbox id or a machine name, so production can override them with
+ * opaque ids through INSTABOX_SHARED_MACHINE_IDS when needed.
+ */
+export const DEFAULT_SHARED_MACHINE_IDENTIFIERS = [
+  "koasis-alpha",
+  "koasis-beta",
+  "koasis-delta",
+  "koasis-sigma",
+  "koasis-omega",
+] as const;
 
 export type InstaboxMachineSummary = {
   id: string;
@@ -87,12 +102,18 @@ function toMachineSummary(info: SandboxInfo): InstaboxMachineSummary {
 }
 
 export function createInstaboxSettings(env: Record<string, string>): InstaboxSettings {
+  const configuredSharedMachines = (env.INSTABOX_SHARED_MACHINE_IDS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 20);
   return {
     apiKey: (env.INSTABOX_API_KEY || "").trim(),
     apiUrl: (env.INSTABOX_API_URL || "https://api.instabox.sh").trim().replace(/\/+$/, ""),
     template: (env.INSTABOX_TEMPLATE || "agent-browser").trim() || "agent-browser",
     allowProvisioning: /^(1|true|yes|on)$/i.test((env.INSTABOX_ALLOW_PROVISIONING || "").trim()),
     allowAgentControl: /^(1|true|yes|on)$/i.test((env.INSTABOX_ALLOW_AGENT_CONTROL || "").trim()),
+    sharedMachineIds: configuredSharedMachines.length ? configuredSharedMachines : [...DEFAULT_SHARED_MACHINE_IDENTIFIERS],
     defaultMachineName: (env.INSTABOX_DEFAULT_MACHINE_NAME || "").trim(),
     defaultOwnerUid: (env.INSTABOX_DEFAULT_OWNER_UID || "").trim(),
     machineTimeoutMs: toPositiveInteger(env.INSTABOX_MACHINE_TIMEOUT_MS, 4 * 60 * 60_000, 60_000, 24 * 60 * 60_000),
@@ -134,6 +155,14 @@ export class InstaboxService {
       throw new InstaboxError(`machine not found: ${machineIdOrName}`, { status: 404, code: "not_found" });
     }
     return toMachineSummary(machine);
+  }
+
+  async listSharedMachines(): Promise<InstaboxMachineSummary[]> {
+    const machines = await Sandbox.list(this.options());
+    return this.settings.sharedMachineIds
+      .map((identifier) => machines.find((candidate) => candidate.sandboxId === identifier || candidate.name === identifier))
+      .filter((machine): machine is SandboxInfo => Boolean(machine))
+      .map(toMachineSummary);
   }
 
   async provisionMachine(name: string, metadata: Record<string, string>): Promise<InstaboxMachineSummary> {

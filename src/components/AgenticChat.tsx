@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type UIEvent as ReactUIEvent } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Bell, BookOpen, Check, ChevronDown, ChevronUp, DoorOpen, ExternalLink, FileText, FolderPlus, GitBranch, GraduationCap, Grid2X2, Link2, LoaderCircle, LogOut, Menu, Monitor, Moon, MoreHorizontal, Network, Paperclip, PanelLeft, Plus, Puzzle, RotateCcw, Search, Shapes, ShieldCheck, SlidersHorizontal, Square, SquarePen, Star, Sun, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Bell, BookOpen, Check, ChevronDown, ChevronUp, DoorOpen, Download, ExternalLink, FileText, FolderPlus, GitBranch, GraduationCap, Grid2X2, Link2, LoaderCircle, LogOut, Menu, Monitor, Moon, MoreHorizontal, Network, Paperclip, PanelLeft, Plus, Puzzle, RotateCcw, Search, Shapes, ShieldCheck, SlidersHorizontal, SquarePen, Star, Sun, X } from "lucide-react";
 import { useAuth, userInitial } from "./AuthGate";
 import { KoasisGlyph, type KoasisGlyphName } from "./KoasisGlyph";
 import { KoasisCaseBrief } from "./KoasisCaseBrief";
@@ -11,30 +11,63 @@ import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoni
 import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentComputerActivity, type AgentRunStatus } from "../lib/agentChatClient";
 import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "../lib/evidenceCitations";
 import { searchEvidenceSources, type EvidenceQueryPlan, type EvidenceSource } from "../lib/evidenceSearchClient";
-import { ComputerClientError, getComputerStatus, openComputerSession, pauseComputer, revokeComputerSession, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
+import { ComputerClientError, getComputerStatus, openComputerSession, revokeComputerSession, selectComputerMachine, type ComputerMachine, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
+import { loadPublicAdminCatalog } from "../lib/adminApi";
+import type { PublicAdminCatalog } from "../lib/adminConfig";
 import { promptNeedsEvidence } from "../lib/evidencePolicy";
-import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisModelId, type KoasisReasoningLevel } from "../lib/koasisModels";
+import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisReasoningLevel } from "../lib/koasisModels";
 import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
 import { detectSensitiveIdentifiers, redactSensitiveIdentifiers, type SensitiveIdentifierFinding } from "../lib/privacyGuard";
 import { buildConversationTitle, buildUniqueFollowUpQuestions } from "../lib/conversationMeta";
+import { createChatArtifact, type ChatArtifactKind, type GeneratedChatArtifact } from "../lib/chatArtifacts";
+import { extractDocxText } from "../lib/docxParser";
+import { parsePptx } from "../lib/pptxParser";
 
 type ThemeMode = "light" | "dark";
 type SourceMode = "workspace" | "attachments" | "sources";
+type ComputerAccessMode = "ask" | "always" | "off";
 type ShiftPhase = "before" | "during" | "after";
 
-type AgentPreset = AgentDefinition & {
+type AgentPreset = Omit<AgentDefinition, "id"> & {
+  id: string;
   glyph: KoasisGlyphName;
 };
 
-function KoasisModelSelector({ activeModel, selectedModelId, open, rootRef, onToggle, onSelect }: { activeModel: KoasisModelDefinition; selectedModelId: KoasisModelId; open: boolean; rootRef: RefObject<HTMLDivElement>; onToggle: () => void; onSelect: (modelId: KoasisModelId) => void }) {
+type ModelOption = Omit<KoasisModelDefinition, "id"> & { id: string };
+
+type ChatArtifact = GeneratedChatArtifact & { url: string };
+
+function KoasisModelSelector({ activeModel, models, selectedModelId, open, rootRef, onToggle, onSelect }: { activeModel: ModelOption; models: ModelOption[]; selectedModelId: string; open: boolean; rootRef: RefObject<HTMLDivElement>; onToggle: () => void; onSelect: (modelId: string) => void }) {
   return <div className="koasis-model-selector-wrap" ref={rootRef}>
     <button type="button" className="koasis-thread-title koasis-model-trigger" title="Pilih model" aria-label="Pilih model" aria-expanded={open} aria-haspopup="menu" onClick={onToggle}>
       <span className="koasis-thread-title-mark"><img className="koasis-model-neuron" src="/brand-icons/neuron.svg" alt="" aria-hidden="true" /></span>
       <span className="koasis-model-trigger-copy"><strong>{activeModel.label}</strong><small>{activeModel.tier}</small></span>
       <ChevronDown size={12} aria-hidden="true" />
     </button>
-    {open && <div className="koasis-model-popover koasis-topbar-model-popover" role="menu" aria-label="Pilih model"><div className="koasis-model-popover-head"><span className="koasis-overline">Model Koasis</span><small>Pilih sesuai kebutuhan dan kedalaman kerja.</small></div>{KOASIS_MODELS.map((model) => <button type="button" className={selectedModelId === model.id ? "active" : ""} key={model.id} onClick={() => onSelect(model.id)} role="menuitemradio" aria-checked={selectedModelId === model.id}><span className="koasis-model-popover-mark" aria-hidden="true" /><span><strong>{model.label}</strong><small><b>{model.tier}</b> · {model.description}</small></span></button>)}</div>}
+    {open && <div className="koasis-model-popover koasis-topbar-model-popover" role="menu" aria-label="Pilih model"><div className="koasis-model-popover-head"><span className="koasis-overline">Model Koasis</span><small>Pilih sesuai kebutuhan dan kedalaman kerja.</small></div>{models.map((model) => <button type="button" className={selectedModelId === model.id ? "active" : ""} key={model.id} onClick={() => onSelect(model.id)} role="menuitemradio" aria-checked={selectedModelId === model.id}><span className="koasis-model-popover-mark" aria-hidden="true" /><span><strong>{model.label}</strong><small><b>{model.tier}</b> · {model.description}</small></span></button>)}</div>}
+  </div>;
+}
+
+function ComputerAccessSelector({ value, open, onToggle, onChange }: { value: ComputerAccessMode; open: boolean; onToggle: () => void; onChange: (value: ComputerAccessMode) => void }) {
+  const modeLabel = value === "always" ? "Izinkan otomatis" : value === "off" ? "Nonaktif" : "Tanya izin";
+  const options: Array<{ id: ComputerAccessMode; title: string; description: string; icon: ReactNode }> = [
+    { id: "ask", title: "Tanya sebelum pakai", description: "Agent meminta persetujuan di chat sebelum membuka browser atau mengendalikan desktop.", icon: <ShieldCheck size={14} /> },
+    { id: "always", title: "Izinkan otomatis", description: "Agent boleh memakai Computer untuk task yang membutuhkan browser atau desktop.", icon: <Monitor size={14} /> },
+    { id: "off", title: "Nonaktif", description: "Agent tidak boleh menjalankan aksi Computer pada task ini.", icon: <X size={14} /> },
+  ];
+  return <div className="koasis-computer-access-selector">
+    <button type="button" className="koasis-toolbar-mode koasis-computer-access-trigger" title="Atur akses Computer" aria-label={`Atur akses Computer: ${modeLabel}`} aria-expanded={open} aria-haspopup="menu" onClick={onToggle}>
+      <Monitor size={13} aria-hidden="true" /><span>Computer</span><small>{modeLabel}</small><ChevronDown size={11} aria-hidden="true" />
+    </button>
+    {open && <div className="koasis-computer-access-popover" role="menu" aria-label="Atur akses Computer">
+      <div className="koasis-computer-access-head"><span className="koasis-overline">Computer access</span><small>Atur kapan agent boleh membuka browser, membaca layar, klik, atau mengetik.</small></div>
+      {options.map((option) => <button type="button" key={option.id} className={value === option.id ? "active" : ""} role="menuitemradio" aria-checked={value === option.id} onClick={() => onChange(option.id)}>
+        <span className="koasis-computer-access-option-mark" aria-hidden="true">{option.icon}</span>
+        <span><strong>{option.title}</strong><small>{option.description}</small></span>
+        {value === option.id && <Check size={13} aria-label="Terpilih" />}
+      </button>)}
+    </div>}
   </div>;
 }
 
@@ -47,19 +80,21 @@ type ChatMessage = AgentChatMessage & {
   error?: boolean;
   errorKind?: "request" | "evidence-search";
   retryPrompt?: string;
-  action?: "lapjag";
   requestId?: string;
   durationMs?: number;
   sourceMode?: SourceMode;
   citationSources?: EvidenceSource[];
   followUpQuestions?: string[];
   reviewRequired?: boolean;
+  artifact?: ChatArtifact;
+  artifactKind?: ChatArtifactKind;
+  artifactError?: string;
 };
 
 type ChatSession = {
   id: string;
   title: string;
-  modeId: AgentId;
+  modeId: string;
   updatedAt: number;
   messages: ChatMessage[];
 };
@@ -80,10 +115,43 @@ const AGENT_GLYPHS: Record<AgentId, KoasisGlyphName> = {
   lapjag: "report",
 };
 
-const AGENT_PRESETS: AgentPreset[] = AGENT_DEFINITIONS.map((agent) => ({ ...agent, glyph: AGENT_GLYPHS[agent.id] }));
+const DEFAULT_AGENT_PRESETS: AgentPreset[] = AGENT_DEFINITIONS.map((agent) => ({ ...agent, glyph: AGENT_GLYPHS[agent.id] }));
+let AGENT_PRESETS: AgentPreset[] = DEFAULT_AGENT_PRESETS;
+let MODEL_OPTIONS: ModelOption[] = KOASIS_MODELS.map((model) => ({ ...model }));
+
+function validGlyph(value: string): KoasisGlyphName {
+  return ["agent", "study", "clinical", "report", "concept", "plan", "case", "exam", "guideline", "workflow", "chat"].includes(value) ? value as KoasisGlyphName : "agent";
+}
+
+function applyPublicAdminCatalog(catalog: PublicAdminCatalog): void {
+  const fallbackById = new Map(DEFAULT_AGENT_PRESETS.map((agent) => [agent.id, agent]));
+  AGENT_PRESETS = catalog.agents.map((agent) => ({
+    ...(fallbackById.get(agent.id) || DEFAULT_AGENT_PRESETS[0]),
+    ...agent,
+    id: agent.id,
+    glyph: validGlyph(agent.glyph),
+  }));
+  if (!AGENT_PRESETS.length) AGENT_PRESETS = DEFAULT_AGENT_PRESETS;
+  MODEL_OPTIONS = catalog.models.map((model) => ({ ...model }));
+  if (!MODEL_OPTIONS.length) MODEL_OPTIONS = KOASIS_MODELS.map((model) => ({ ...model }));
+}
 
 function presetsForGroup(group: AgentGroup): AgentPreset[] {
   return AGENT_PRESETS.filter((preset) => preset.group === group);
+}
+
+function findAgentPreset(value: unknown): AgentPreset | undefined {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return AGENT_PRESETS.find((preset) => preset.id.toLowerCase() === raw || preset.label.trim().toLowerCase() === raw);
+}
+
+function normalizeAppAgentId(value: unknown): string {
+  return findAgentPreset(value)?.id || normalizeAgentId(value);
+}
+
+function normalizeAppModelId(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return MODEL_OPTIONS.some((model) => model.id === raw) ? raw : normalizeKoasisModelId(value);
 }
 
 const AGENT_WELCOME: Record<string, string> = {
@@ -99,7 +167,7 @@ const AGENT_WELCOME: Record<string, string> = {
   evidence: "Halo, aku Evidence Desk. Lampirkan atau sebutkan sumber yang ingin dibandingkan; jika sumber belum tersedia, aku akan menyatakan batasannya dengan jelas.",
   presentation: "Halo, aku Case & Presentation Studio. Kita ubah timeline kasus dan source pack menjadi CBD, makalah, outline PPT, dan latihan tanya jawab.",
   messages: "Halo, aku DPJP Message Desk. Kita buat draft pesan yang ringkas, sopan, alias-only, dan siap kamu review sebelum dikirim.",
-  lapjag: "Halo, aku Laporan Jaga. Aku bantu menyiapkan struktur data, review fakta, dan mengarahkanmu ke workspace template PPTX di /lapjag saat dibutuhkan.",
+  lapjag: "Halo, aku Laporan Jaga. Aku bantu menyiapkan struktur data, review fakta, dan menyusun output editable langsung di percakapan ini.",
 };
 
 const DEFAULT_WORKSPACE: KoasisWorkspace = {
@@ -231,7 +299,7 @@ function renderComposerText(value: string): ReactNode {
 
 const MANUS_COMPUTER_CARDS = [
   { title: "Run clinical workflows", detail: "Keep reports, reminders, and review checklists running around the clock.", tags: ["Koasis", "Workflow"], tone: "workflow" },
-  { title: "Study with a private workspace", detail: "Prepare cases, exams, and learning sprints in a focused environment.", tags: ["Private", "Study"], tone: "study" },
+  { title: "Study with a shared workspace", detail: "Prepare cases, exams, and learning sprints in a focused environment.", tags: ["Shared", "Study"], tone: "study" },
   { title: "Build & host your tools", detail: "Turn a useful idea into a small assistant or workflow for your rotation.", tags: ["Build", "Workspace"], tone: "build" },
   { title: "Create a case studio", detail: "Keep a longitudinal case, sources, notes, and presentation in one place.", tags: ["Case", "Studio"], tone: "case" },
   { title: "Use your own files", detail: "Bring de-identified notes and source packs into a reviewable task.", tags: ["Files", "Review"], tone: "files" },
@@ -254,12 +322,27 @@ const COMPUTER_STATE_LABELS: Record<string, string> = {
 
 const COMPUTER_TRANSITION_STATES = new Set(["creating", "starting", "stopping", "suspending", "resuming", "deleting"]);
 
+const SHARED_MACHINE_LABELS: Record<string, string> = {
+  alpha: "Oasis Alpha",
+  beta: "Oasis Beta",
+  delta: "Oasis Delta",
+  sigma: "Oasis Sigma",
+  omega: "Oasis Omega",
+};
+
+function sharedMachineLabel(machine: ComputerMachine): string {
+  const source = `${machine.name} ${machine.id}`.toLowerCase();
+  const key = Object.keys(SHARED_MACHINE_LABELS).find((candidate) => new RegExp(`(?:^|[-_ ])${candidate}(?:$|[-_ ])`, "i").test(source));
+  return key ? SHARED_MACHINE_LABELS[key] : machine.name;
+}
+
 function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<string> }) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [session, setSession] = useState<ComputerSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busyAction, setBusyAction] = useState<"open" | "control" | "pause" | "revoke" | null>(null);
+  const [busyAction, setBusyAction] = useState<"open" | "control" | "select" | "revoke" | null>(null);
   const [error, setError] = useState("");
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const loadStatus = async () => {
@@ -268,6 +351,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
       const token = await getAuthToken();
       const nextStatus = await getComputerStatus({ authToken: token });
       setStatus(nextStatus);
+      setSelectedMachineId(nextStatus.selectedMachineId || nextStatus.machine?.id || nextStatus.machines[0]?.id || null);
       setError("");
     } catch (caught) {
       setError(caught instanceof ComputerClientError ? caught.message : "Status Computer belum bisa dimuat.");
@@ -299,9 +383,10 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
     let token = "";
     try {
       token = await getAuthToken();
-      const nextSession = await openComputerSession(viewOnly, { authToken: token });
+      const nextSession = await openComputerSession(viewOnly, { authToken: token }, selectedMachineId || undefined);
       setSession(nextSession);
-      setStatus((current) => current ? { ...current, machine: nextSession.machine, activeSession: { id: nextSession.sessionId, viewOnly: nextSession.viewOnly, expiresAt: nextSession.expiresAt, status: "active" } } : current);
+      setSelectedMachineId(nextSession.machine.id);
+      setStatus((current) => current ? { ...current, selectedMachineId: nextSession.machine.id, machine: nextSession.machine, machines: current.machines.some((item) => item.id === nextSession.machine.id) ? current.machines.map((item) => item.id === nextSession.machine.id ? nextSession.machine : item) : [...current.machines, nextSession.machine], activeSession: { id: nextSession.sessionId, viewOnly: nextSession.viewOnly, expiresAt: nextSession.expiresAt, status: "active" } } : current);
     } catch (caught) {
       const message = caught instanceof ComputerClientError ? caught.message : "Desktop Computer belum bisa dibuka.";
       let refreshedStatus: ComputerStatus | null = null;
@@ -322,6 +407,22 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
     }
   };
 
+  const selectMachine = async (machineId: string) => {
+    if (machineId === selectedMachineId || session) return;
+    setBusyAction("select");
+    setError("");
+    try {
+      const token = await getAuthToken();
+      const result = await selectComputerMachine(machineId, { authToken: token });
+      setSelectedMachineId(result.selectedMachineId);
+      setStatus((current) => current ? { ...current, machines: result.machines, selectedMachineId: result.selectedMachineId, machine: result.machine, activeSession: null } : current);
+    } catch (caught) {
+      setError(caught instanceof ComputerClientError ? caught.message : "Shared machine belum bisa dipilih.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const revokeSession = async () => {
     setBusyAction("revoke");
     try {
@@ -336,21 +437,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
     }
   };
 
-  const pauseMachine = async () => {
-    setBusyAction("pause");
-    try {
-      const token = await getAuthToken();
-      const result = await pauseComputer({ authToken: token });
-      setSession(null);
-      setStatus((current) => current ? { ...current, machine: result.machine, activeSession: null } : current);
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof ComputerClientError ? caught.message : "Machine belum bisa dijeda.");
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
+  const machines = status?.machines || [];
   const machine = status?.machine;
   const machineBusy = Boolean(machine && COMPUTER_TRANSITION_STATES.has(machine.state));
   const sessionExpired = Boolean(session && Date.parse(session.expiresAt) <= now);
@@ -358,24 +445,34 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
   const minutesLeft = session ? Math.max(0, Math.ceil((Date.parse(session.expiresAt) - now) / 60_000)) : 0;
 
   return <section className="manus-page manus-computers-page">
-    <div className="manus-page-heading"><div><h1>Computers</h1><p className="manus-page-subtitle">Workspace Linux pribadi untuk agent dan task yang kamu jalankan.</p></div><button type="button" className="manus-button-secondary" onClick={() => void loadStatus()} disabled={loading}><RotateCcw size={14} className={loading ? "koasis-spinner" : undefined} /> Refresh</button></div>
+    <div className="manus-page-heading"><div><h1>Computers</h1><p className="manus-page-subtitle">Pilih salah satu shared workspace Instabox untuk kamu atau agent gunakan.</p></div><button type="button" className="manus-button-secondary" onClick={() => void loadStatus()} disabled={loading}><RotateCcw size={14} className={loading ? "koasis-spinner" : undefined} /> Refresh</button></div>
 
     {error && <div className="manus-computer-alert" role="alert"><ShieldCheck size={15} /><span>{error}</span></div>}
 
+    {!loading && status?.configured && machines.length > 0 && <section className="manus-computer-pool" aria-label="Shared Computer pool">
+      <div className="manus-computer-pool-heading"><div><span className="manus-section-kicker">Shared Computer pool</span><strong>Lima workspace tersedia</strong><small>Pilihan ini dipakai oleh desktop kamu dan Computer agent. Machine yang paused akan dilanjutkan otomatis saat dibuka.</small></div><span className="manus-computer-pool-count">{machines.length} machine</span></div>
+      <div className="manus-computer-pool-list" role="listbox" aria-label="Pilih shared machine">
+        {machines.map((candidate) => <button type="button" role="option" aria-selected={selectedMachineId === candidate.id} className={`manus-computer-machine-option ${selectedMachineId === candidate.id ? "active" : ""}`} key={candidate.id} onClick={() => void selectMachine(candidate.id)} disabled={Boolean(busyAction) || Boolean(session)}>
+          <span className="manus-computer-machine-icon"><Monitor size={15} /></span><span className="manus-computer-machine-copy"><strong>{sharedMachineLabel(candidate)}</strong><small>{candidate.name} · {candidate.vcpus} vCPU · {Math.round(candidate.memoryMiB / 1024)} GiB RAM</small></span><span className={`manus-computer-machine-state ${candidate.state}`}><i />{COMPUTER_STATE_LABELS[candidate.state] || candidate.state}</span>
+        </button>)}
+      </div>
+      {session && <small className="manus-computer-pool-hint">Tutup desktop sebelum mengganti shared machine.</small>}
+    </section>}
+
     <section className="manus-computer-control-card" aria-busy={loading}>
-      <div className="manus-computer-control-heading"><div><span className="manus-section-kicker">Instabox workspace</span><h2>{machine?.name || "Computer belum terhubung"}</h2><p>{loading ? "Memeriksa koneksi backend…" : status?.configured ? "API key tetap di server; browser hanya menerima link desktop sementara." : "Backend App Hosting belum memiliki kredensial Instabox."}</p></div><span className={`manus-computer-state ${machine?.state || "unconfigured"}`}><i />{stateLabel}</span></div>
+      <div className="manus-computer-control-heading"><div><span className="manus-section-kicker">Selected workspace</span><h2>{machine ? sharedMachineLabel(machine) : "Computer belum terhubung"}</h2><p>{loading ? "Memeriksa koneksi backend…" : status?.configured ? "API key tetap di server; browser hanya menerima link desktop sementara." : "Backend App Hosting belum memiliki kredensial Instabox."}</p></div><span className={`manus-computer-state ${machine?.state || "unconfigured"}`}><i />{stateLabel}</span></div>
 
       {!loading && !status?.configured && <div className="manus-computer-empty"><Monitor size={24} /><strong>Instabox belum dikonfigurasi</strong><small>Tambahkan INSTABOX_API_KEY melalui Environment App Hosting. Tidak ada key yang dikirim ke browser.</small></div>}
-      {!loading && status?.configured && !machine && <div className="manus-computer-empty"><Monitor size={24} /><strong>Belum ada machine untuk akun ini</strong><small>{status.provisioningEnabled ? "Machine akan dibuat saat kamu membuka workspace pertama kali." : "Provisioning per-user masih dimatikan di server."}</small>{status.provisioningEnabled && <button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction)}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Plus size={14} />} Buat dan buka Computer</button>}</div>}
+      {!loading && status?.configured && !machines.length && <div className="manus-computer-empty"><Monitor size={24} /><strong>Belum ada shared machine yang tersedia</strong><small>Periksa allowlist machine Instabox di backend. Koasis tidak akan membuat machine baru per user.</small></div>}
 
-      {machine && <div className="manus-computer-details"><div><small>Resources</small><strong>{machine.vcpus} vCPU · {Math.round(machine.memoryMiB / 1024)} GiB RAM · {machine.storageGiB} GiB</strong></div><div><small>Lifecycle</small><strong>Auto-pause {machine.autoSuspendAfterSeconds ? `${Math.round(machine.autoSuspendAfterSeconds / 60)} menit idle` : "manual"}</strong></div><div><small>Machine ID</small><strong>{machine.id}</strong></div></div>}
+      {machine && <div className="manus-computer-details"><div><small>Resources</small><strong>{machine.vcpus} vCPU · {Math.round(machine.memoryMiB / 1024)} GiB RAM · {machine.storageGiB} GiB</strong></div><div><small>Lifecycle</small><strong>Auto-pause {machine.autoSuspendAfterSeconds ? `${Math.round(machine.autoSuspendAfterSeconds / 60)} menit idle` : "managed by Instabox"}</strong></div><div><small>Machine ID</small><strong>{machine.id}</strong></div></div>}
 
-      {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button><button type="button" className="manus-button-secondary" onClick={() => void pauseMachine()} disabled={Boolean(busyAction) || machine.state !== "running"}>{busyAction === "pause" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Square size={13} />} Pause machine</button></div>}
+      {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button></div>}
     </section>
 
     {session && <section className="manus-computer-viewer"><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Live desktop</span><strong>{session.viewOnly ? "View-only session" : "Control session"}</strong></div><div><span className="manus-computer-expiry">{sessionExpired ? "Link kedaluwarsa" : `${minutesLeft} menit tersisa`}</span><button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Session sudah berakhir</strong><small>Buka desktop lagi untuk membuat link baru.</small></div> : <iframe className="manus-computer-iframe" src={session.streamUrl} title="Instabox desktop" allow="clipboard-read; clipboard-write" />}</section>}
 
-    <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Security boundary</span><h2>Input tetap terkontrol</h2><p>Koasis tidak menyimpan screenshot, password, atau isi ketikan ke PostgreSQL. Link desktop dibuat sementara dan bisa dicabut kapan saja.</p></div><div className="manus-computer-security-note"><ShieldCheck size={18} /><span><strong>Server-side API key</strong><small>Firebase ID token memetakan user ke machine miliknya.</small></span></div></section>
+    <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Security boundary</span><h2>Input tetap terkontrol</h2><p>Koasis tidak menyimpan screenshot, password, atau isi ketikan ke PostgreSQL. Link desktop dibuat sementara dan bisa dicabut kapan saja.</p></div><div className="manus-computer-security-note"><ShieldCheck size={18} /><span><strong>Server-side API key</strong><small>Firebase ID token memetakan user ke shared machine yang dipilih.</small></span></div></section>
   </section>;
 }
 
@@ -424,6 +521,21 @@ type PendingPrivacyReview = {
   attachments: AgentChatAttachment[];
   findings: SensitiveIdentifierFinding[];
 };
+
+type PendingComputerApproval = {
+  prompt: string;
+  attachments: AgentChatAttachment[];
+  contextSources?: EvidenceSource[];
+  contextSourceMode?: SourceMode;
+};
+
+const COMPUTER_APPROVAL_PATTERN = /\b(computer|desktop|browser|machine|browsing eksternal|gunakan internet|pakai internet|klik|click|ketik|type|scroll|buka situs|buka website|open browser|screenshot layar)\b|https?:\/\/|\b(?:drive|docs|slides)\.google\.com\b/i;
+const COMPUTER_APPROVAL_ACTION_PATTERN = /\b(?:buka|open|edit|ubah|perbaiki|tinjau|review|cek|akses|unggah|upload|download|unduh|salin|isi|ketik|klik|click)\b[^.?!]{0,90}\b(?:link|dokumen|document|slide|slides|file|situs|website|browser|drive|docs|sheet|sheets)\b/i;
+const COMPUTER_APPROVAL_NEGATION_PATTERN = /\b(jangan|tanpa|tidak perlu|gausah|nggak usah|jangan gunakan|do not|don't)\b[^.?!]{0,80}\b(?:computer|desktop|browser|machine|https?:\/\/|drive\.google\.com|docs\.google\.com|slides\.google\.com)\b/i;
+
+function promptNeedsComputerApproval(prompt: string): boolean {
+  return (COMPUTER_APPROVAL_PATTERN.test(prompt) || COMPUTER_APPROVAL_ACTION_PATTERN.test(prompt)) && !COMPUTER_APPROVAL_NEGATION_PATTERN.test(prompt);
+}
 
 const AGENT_STARTERS: Record<string, AgentStarter[]> = {
   koasis: [
@@ -489,7 +601,7 @@ const AGENT_STARTERS: Record<string, AgentStarter[]> = {
   lapjag: [
     { title: "Review data laporan", detail: "Cek kelengkapan dan bagian yang kosong", prompt: "Bantu review data laporan jaga ini: pisahkan fakta, data kosong, dan bagian yang perlu dikonfirmasi." },
     { title: "Susun alur laporan", detail: "Siapkan struktur sebelum masuk template", prompt: "Bantu susun struktur laporan jaga yang dapat diaudit tanpa mengarang data pasien." },
-    { title: "Siapkan output PPTX", detail: "Tentukan data yang perlu disiapkan", prompt: "Bantu buat checklist persiapan sebelum aku melanjutkan laporan jaga ke output PPTX." },
+    { title: "Buat output PPTX", detail: "Susun file editable dari isi chat", prompt: "Buat file PPTX editable langsung dari bahan laporan jaga yang akan aku kirim. Susun draft dan tandai bagian yang masih perlu direview." },
   ],
 };
 
@@ -516,7 +628,6 @@ function toRemoteMessage(message: ChatMessage): RemoteChatMessage {
   if (message.fallback !== undefined) remote.fallback = message.fallback;
   if (message.error !== undefined) remote.error = message.error;
   if (message.retryPrompt !== undefined) remote.retryPrompt = message.retryPrompt;
-  if (message.action !== undefined) remote.action = message.action;
   if (message.requestId !== undefined) remote.requestId = message.requestId;
   if (message.durationMs !== undefined) remote.durationMs = message.durationMs;
   if (message.sourceMode !== undefined) remote.sourceMode = message.sourceMode;
@@ -546,7 +657,7 @@ function toRemoteSession(session: ChatSession): RemoteChatSession {
 function fromRemoteSession(session: RemoteChatSession): ChatSession {
   const sources = session.messages.flatMap((message) => message.citationSources || []).slice(-8);
   const generatedTitle = buildConversationTitle(session.messages, {
-    agentLabel: AGENT_PRESETS.find((preset) => preset.id === normalizeAgentId(session.modeId))?.label,
+    agentLabel: findAgentPreset(session.modeId)?.label,
     sources,
   });
   const messages = session.messages.map((message, index, allMessages) => {
@@ -558,14 +669,14 @@ function fromRemoteSession(session: RemoteChatSession): ChatSession {
         prompt,
         answer: message.content,
         sources: message.citationSources || [],
-        agentLabel: AGENT_PRESETS.find((preset) => preset.id === normalizeAgentId(session.modeId))?.label,
+        agentLabel: findAgentPreset(session.modeId)?.label,
       }),
     };
   });
   return {
     id: session.id,
     title: generatedTitle === "Percakapan baru" ? session.title : generatedTitle,
-    modeId: normalizeAgentId(session.modeId),
+    modeId: normalizeAppAgentId(session.modeId),
     updatedAt: session.updatedAt || Date.now(),
     messages,
   };
@@ -632,9 +743,19 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function inferChatArtifactKind(prompt: string, _agentId: string, editableSourceKind?: ChatArtifactKind | null): ChatArtifactKind | undefined {
+  const normalized = prompt.replace(/\s+/g, " ").trim().toLowerCase();
+  const asksForArtifact = /\b(?:buat|buatkan|bikin|generate|hasilkan|siapkan|download|unduh|export|edit|ubah|perbaiki|convert|konversi|file|editable|dapat diunduh)\b/i.test(normalized);
+  if (!asksForArtifact) return undefined;
+  if (/(?:pptx?|powerpoint|slide deck|slides?|presentasi|pitch deck)/i.test(normalized)) return "pptx";
+  if (/(?:docx?|microsoft word|word document|file dokumen|dokumen|laporan|makalah|report)/i.test(normalized)) return "docx";
+  if (editableSourceKind && /\b(?:edit|ubah|perbaiki|rapikan|revisi|rewrite|convert|konversi|generate|hasilkan|buat|buatkan|export|unduh|download)\b/i.test(normalized)) return editableSourceKind;
+  return undefined;
+}
+
 function fallbackReply(prompt: string): string {
   const normalized = prompt.toLowerCase();
-  if (/laporan|jaga|template|pptx/.test(normalized)) return "Agent sedang tidak tersambung, tetapi workflow Laporan Jaga tetap bisa dibuka dari menu kiri. Untuk jawaban AI, coba kirim ulang saat koneksi backend tersedia.";
+  if (/laporan|jaga|template|pptx|docx|dokumen|presentasi/.test(normalized)) return "Agent sedang tidak tersambung. Bahanmu belum diproses dan file editable belum dibuat. Coba kirim ulang saat koneksi backend tersedia.";
   if (/belajar|konsep|ujian|study/.test(normalized)) return "Agent sedang tidak tersambung. Simpan dulu target belajarmu; setelah koneksi kembali, Koasis akan menyusun recall, latihan klinis, dan exit ticket tanpa mengarang sumber.";
   if (/visite|pasien|kasus|catatan|handover/.test(normalized)) return "Agent sedang tidak tersambung. Catatanmu belum diproses. Jangan gunakan draft offline sebagai keputusan klinis; coba kirim ulang setelah koneksi kembali.";
   return "Agent sedang tidak tersambung. Draft ini belum diproses dan belum boleh dianggap sebagai output klinis. Coba lagi sebentar.";
@@ -825,7 +946,17 @@ function safeEvidenceMessageContent(message: ChatMessage): string {
   return "Pencarian evidence awal belum menemukan kecocokan langsung. Koasis tidak akan membuat kesimpulan faktual atau klinis tanpa sumber; tambahkan fokus, populasi, intervensi, atau luaran agar pencarian bisa dilanjutkan.";
 }
 
-function MessageBubble({ message, userLabel, onRetry, onAction, onFollowUp }: { message: ChatMessage; userLabel: string; onRetry: (message: ChatMessage) => void; onAction: (action: "lapjag") => void; onFollowUp: (prompt: string) => void }) {
+function ChatArtifactCard({ artifact, kind, error }: { artifact?: ChatArtifact; kind?: ChatArtifactKind; error?: string }) {
+  if (!artifact && !error) return null;
+  const label = (artifact?.kind || kind) === "pptx" ? "PPTX editable" : "DOCX editable";
+  return <section className="koasis-chat-artifact" aria-label="Output file dari chat">
+    <div className="koasis-chat-artifact-icon" aria-hidden="true">{artifact?.kind === "pptx" ? <Shapes size={17} /> : <FileText size={17} />}</div>
+    <div className="koasis-chat-artifact-copy"><strong>{artifact ? artifact.title : `Output ${label}`}</strong><span>{artifact ? `${label} · dibuat dari jawaban yang sudah bisa direview` : error}</span></div>
+    {artifact && <a className="koasis-chat-artifact-download" href={artifact.url} download={artifact.fileName}><Download size={14} /> Unduh</a>}
+  </section>;
+}
+
+function MessageBubble({ message, userLabel, onRetry, onFollowUp }: { message: ChatMessage; userLabel: string; onRetry: (message: ChatMessage) => void; onFollowUp: (prompt: string) => void }) {
   const assistant = message.role === "assistant";
   const messageAgent = AGENT_PRESETS.find((preset) => preset.id === message.agentId)?.label || "Koasis Agent";
   const visibleContent = safeEvidenceMessageContent(message);
@@ -839,8 +970,8 @@ function MessageBubble({ message, userLabel, onRetry, onAction, onFollowUp }: { 
       {assistant && !message.streaming && !message.error && <FollowUpQuestions questions={message.followUpQuestions || []} busy={false} onSelect={onFollowUp} />}
       {message.attachments?.map((attachment) => <div className="koasis-message-attachment" key={`${message.id}-${attachment.name}`}><Paperclip size={12} />{attachment.name}</div>)}
       {message.error && <div className="koasis-message-error"><span>{message.errorKind === "evidence-search" ? "Pencarian evidence belum menemukan kecocokan langsung. Tambahkan konteks atau buka sumber yang tersedia untuk melanjutkan review." : "Belum terkirim ke agent. Periksa koneksi atau coba lagi."}</span>{message.retryPrompt && <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> Coba lagi</button>}</div>}
+      {assistant && !message.streaming && <ChatArtifactCard artifact={message.artifact} kind={message.artifactKind} error={message.artifactError} />}
       {assistant && !message.streaming && !message.error && <KoasisMessageActions text={visibleContent} />}
-      {assistant && message.action === "lapjag" && <button type="button" className="koasis-inline-action" onClick={() => onAction("lapjag")}>Buka Laporan Jaga <ArrowRight size={14} /></button>}
     </div>
   </article>;
 }
@@ -870,6 +1001,15 @@ function ComputerActivityPreview({ activity, busy }: { activity: AgentComputerAc
   </section>;
 }
 
+function ComputerApprovalCard({ prompt, onApprove, onDecline, onDismiss }: { prompt: string; onApprove: () => void; onDecline: () => void; onDismiss: () => void }) {
+  return <section className="koasis-computer-approval" role="alertdialog" aria-labelledby="koasis-computer-approval-title">
+    <div className="koasis-computer-approval-head"><span className="koasis-computer-approval-mark"><Monitor size={17} /></span><div><span className="koasis-overline">Permission gate</span><h2 id="koasis-computer-approval-title">Agent meminta akses Computer</h2></div><button type="button" aria-label="Tutup permintaan Computer" title="Tutup" onClick={onDismiss}><X size={15} /></button></div>
+    <p>Agent mendeteksi bahwa tugas ini mungkin memerlukan browser atau desktop bersama. Jika disetujui, agent dapat membuka halaman, membaca tampilan, klik, mengetik, dan menggulir sesuai batas task. Preview aktivitasnya akan muncul langsung di chat.</p>
+    <div className="koasis-computer-approval-request"><small>Permintaan yang akan dijalankan</small><strong>{prompt}</strong></div>
+    <div className="koasis-computer-approval-actions"><button type="button" className="koasis-button-secondary" onClick={onDismiss}>Batalkan</button><button type="button" className="koasis-button-secondary" onClick={onDecline}>Lanjutkan tanpa Computer</button><button type="button" className="koasis-button-primary" onClick={onApprove}><Monitor size={13} /> Izinkan Computer</button></div>
+  </section>;
+}
+
 function HomeSurface({ workspace, tasks, onAction, onOpenWorkspace }: { workspace: KoasisWorkspace; tasks: WorkspaceTask[]; onAction: (action: HomeAction) => void; onOpenWorkspace: () => void }) {
   const completed = tasks.filter((task) => task.done).length;
   return <div className="koasis-home-surface koasis-manus-home">
@@ -895,18 +1035,47 @@ function HomeSurface({ workspace, tasks, onAction, onOpenWorkspace }: { workspac
   </div>;
 }
 
-function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<ManusPage, "home">; onStartTask: () => void; getAuthToken: () => Promise<string> }) {
+function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<ManusPage, "home">; onStartTask: (agentId?: string) => void; getAuthToken: () => Promise<string> }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
 
   if (page === "agents") {
+    const groupFilters = [{ id: "All", label: "Semua" }, ...AGENT_GROUPS.map((group) => ({ id: group.id, label: group.label }))];
+    const visibleAgents = AGENT_PRESETS.filter((agent) => {
+      const matchesFilter = filter === "All" || agent.group === filter;
+      const normalizedQuery = query.trim().toLowerCase();
+      return matchesFilter && (!normalizedQuery || `${agent.label} ${agent.shortDescription} ${agent.purpose} ${agent.sourceLabel}`.toLowerCase().includes(normalizedQuery));
+    });
     return <section className="manus-page manus-agents-page">
-      <div className="manus-agents-hero-mark"><KoasisGlyph name="agent" size={34} /></div>
-      <h1>Meet Koasis Specialist Agents</h1>
-      <p>Your agent workspace is moving beyond one chat. Choose a specialist, build a focused workflow, and keep the right context with you from task to task.</p>
-      <div className="manus-agents-preview" aria-label="Preview of Koasis agent teams"><div className="manus-agents-preview-phone"><i /><i /><i /><i /></div><div className="manus-agents-preview-panel"><span /><span /><span /><strong>Koasis agent workspace</strong><small>Specialists working together</small></div><span className="manus-agents-preview-orb" /></div>
-      <div className="manus-agents-actions"><button type="button" className="manus-button-secondary" disabled>Coming soon</button><button type="button" className="manus-button-primary" onClick={onStartTask}>Start a task</button></div>
-      <div className="manus-agents-note">Specialist agents for prebrief, case discussion, procedures, evidence, exams, and more.</div>
+      <div className="manus-agents-heading">
+        <div>
+          <span className="manus-section-kicker">Specialist catalog</span>
+          <h1>Specialist Agents</h1>
+          <p>Pilih partner kerja yang paling sesuai. Setiap agent punya fokus, batasan, dan kontrak output yang berbeda.</p>
+        </div>
+        <span className="manus-agents-count"><i />{AGENT_PRESETS.length} agent tersedia</span>
+      </div>
+      <div className="manus-agents-toolbar">
+        <label className="manus-search-field"><Search size={15} /><input aria-label="Cari specialist agent" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari agent, fokus, atau sumber" /></label>
+        <div className="manus-agents-filters" role="tablist" aria-label="Filter specialist agent">{groupFilters.map((group) => <button type="button" role="tab" aria-selected={filter === group.id} className={filter === group.id ? "active" : ""} key={group.id} onClick={() => setFilter(group.id)}>{group.label}</button>)}</div>
+      </div>
+      <div className="manus-agents-catalog" aria-label="Katalog specialist agent">
+        {visibleAgents.map((agent) => {
+          const groupLabel = AGENT_GROUPS.find((group) => group.id === agent.group)?.label || "Workspace";
+          return <article className="manus-agent-card" key={agent.id}>
+            <div className="manus-agent-card-head">
+              <span className="manus-agent-card-mark"><KoasisGlyph name={agent.glyph} size={18} /></span>
+              <div className="manus-agent-card-title"><small>{groupLabel}</small><strong>{agent.label}</strong></div>
+              <span className="manus-agent-card-risk">{agent.riskLabel}</span>
+            </div>
+            <p>{agent.shortDescription}</p>
+            <div className="manus-agent-card-meta"><span><ShieldCheck size={12} />{agent.sourceLabel}</span><span>{agent.outputContract.slice(0, 2).join(" · ")}</span></div>
+            <div className="manus-agent-card-footer"><small>{agent.purpose}</small><button type="button" className="manus-button-primary" onClick={() => onStartTask(agent.id)}>Mulai task <ArrowRight size={13} /></button></div>
+          </article>;
+        })}
+      </div>
+      {!visibleAgents.length && <div className="manus-empty-state manus-agents-empty"><Search size={28} /><strong>Agent tidak ditemukan</strong><small>Coba kata kunci atau kelompok katalog lain.</small></div>}
+      <div className="manus-agents-note"><ShieldCheck size={12} /> Kontrak agent tetap divalidasi server-side sebelum digunakan.</div>
     </section>;
   }
 
@@ -917,7 +1086,7 @@ function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<M
       <div className="manus-page-heading"><h1>Library</h1><div className="manus-page-heading-actions"><label className="manus-search-field"><Search size={15} /><input aria-label="Search files" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search files" /></label><button type="button" className="manus-icon-button" aria-label="Filter files"><SlidersHorizontal size={15} /></button><button type="button" className="manus-icon-button" aria-label="Change library view"><MoreHorizontal size={16} /></button></div></div>
       <div className="manus-filter-tabs">{filters.map((item) => <button type="button" className={filter === item ? "active" : ""} key={item} onClick={() => setFilter(item)}>{item}</button>)}</div>
       <div className="manus-list-heading"><span>October 2026</span><small>{items.length} items</small></div>
-      <div className="manus-library-list">{items.map((item) => <button type="button" className="manus-library-row" key={item.title} onClick={onStartTask}><span className={`manus-file-icon ${item.kind}`}><FileText size={17} /></span><span><strong>{item.title}</strong><small>{item.detail}</small></span><time>{item.time}</time><MoreHorizontal size={16} /></button>)}{!items.length && <div className="manus-empty-state"><FileText size={28} /><strong>No files found</strong><small>Try a different search or bring a file into a new task.</small></div>}</div>
+      <div className="manus-library-list">{items.map((item) => <button type="button" className="manus-library-row" key={item.title} onClick={() => onStartTask()}><span className={`manus-file-icon ${item.kind}`}><FileText size={17} /></span><span><strong>{item.title}</strong><small>{item.detail}</small></span><time>{item.time}</time><MoreHorizontal size={16} /></button>)}{!items.length && <div className="manus-empty-state"><FileText size={28} /><strong>No files found</strong><small>Try a different search or bring a file into a new task.</small></div>}</div>
     </section>;
   }
 
@@ -926,7 +1095,7 @@ function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<M
     return <section className="manus-page manus-creations-page">
       <div className="manus-page-heading"><h1>Creations</h1><div className="manus-page-heading-actions"><label className="manus-search-field"><Search size={15} /><input aria-label="Search creations" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search creations" /></label><button type="button" className="manus-icon-button" aria-label="Favorite creations"><Star size={16} /></button></div></div>
       <div className="manus-filter-tabs">{filters.map((item) => <button type="button" className={filter === item ? "active" : ""} key={item} onClick={() => setFilter(item)}>{item}</button>)}</div>
-      <div className="manus-empty-state manus-creation-empty"><div className="manus-empty-document"><FileText size={27} /></div><strong>No creations yet</strong><small>Build a website, app, or workspace from a task.</small><button type="button" className="manus-button-primary" onClick={onStartTask}>Build now</button></div>
+      <div className="manus-empty-state manus-creation-empty"><div className="manus-empty-document"><FileText size={27} /></div><strong>No creations yet</strong><small>Build a website, app, or workspace from a task.</small><button type="button" className="manus-button-primary" onClick={() => onStartTask()}>Build now</button></div>
     </section>;
   }
 
@@ -938,7 +1107,7 @@ function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<M
       <div className="manus-plugin-featured"><div><span className="manus-plugin-badge evidence"><BookOpen size={16} /></span><strong>Evidence sources</strong><small>Bring trustworthy clinical sources into a task.</small></div><div><span className="manus-plugin-badge workspace"><Shapes size={16} /></span><strong>Koasis workspace</strong><small>Keep your context and outputs together.</small></div><div><span className="manus-plugin-badge document"><FileText size={16} /></span><strong>Document studio</strong><small>Turn notes into a reviewable artifact.</small></div></div>
       <label className="manus-search-field manus-plugin-search"><Search size={15} /><input aria-label="Search plugins" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins" /></label>
       <div className="manus-filter-tabs">{filters.map((item) => <button type="button" className={filter === item ? "active" : ""} key={item} onClick={() => setFilter(item)}>{item}</button>)}</div>
-      <div className="manus-plugin-grid">{plugins.map((plugin) => <button type="button" className="manus-plugin-card" key={plugin.name} onClick={onStartTask}><span className={`manus-plugin-badge ${plugin.kind}`}><ManusPluginIcon kind={plugin.kind} /></span><span><strong>{plugin.name}</strong><small>{plugin.detail}</small></span><span className="manus-plugin-add">+</span></button>)}</div>
+      <div className="manus-plugin-grid">{plugins.map((plugin) => <button type="button" className="manus-plugin-card" key={plugin.name} onClick={() => onStartTask()}><span className={`manus-plugin-badge ${plugin.kind}`}><ManusPluginIcon kind={plugin.kind} /></span><span><strong>{plugin.name}</strong><small>{plugin.detail}</small></span><span className="manus-plugin-add">+</span></button>)}</div>
     </section>;
   }
 
@@ -948,9 +1117,9 @@ function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<M
 
   if (page === "automations") {
     return <section className="manus-page manus-automations-page">
-      <div className="manus-page-heading"><h1>Automations</h1><button type="button" className="manus-button-primary" onClick={onStartTask}><Plus size={15} /> Create automation</button></div>
+      <div className="manus-page-heading"><h1>Automations</h1><button type="button" className="manus-button-primary" onClick={() => onStartTask()}><Plus size={15} /> Create automation</button></div>
       <div className="manus-automation-intro"><GitBranch size={24} /><div><strong>Scheduled tasks stay out of your head.</strong><small>Create a repeatable workflow for reminders, study sprints, or review queues.</small></div></div>
-      <div className="manus-empty-state"><GitBranch size={28} /><strong>No automations yet</strong><small>Start from a task and decide when it should run.</small><button type="button" className="manus-button-primary" onClick={onStartTask}>Create your first automation</button></div>
+      <div className="manus-empty-state"><GitBranch size={28} /><strong>No automations yet</strong><small>Start from a task and decide when it should run.</small><button type="button" className="manus-button-primary" onClick={() => onStartTask()}>Create your first automation</button></div>
     </section>;
   }
 
@@ -965,8 +1134,44 @@ function AgentStartSurface({ preset, onPrompt, onWorkflow }: { preset: AgentPres
   </section>;
 }
 
+function CreateStartSurface({ onPrompt, onPrepareArtifact, onPrepareLinkEdit }: { onPrompt: (prompt: string) => void; onPrepareArtifact: (kind: ChatArtifactKind) => void; onPrepareLinkEdit: () => void }) {
+  return <section className="koasis-create-start" aria-label="Create Studio">
+    <div className="koasis-create-start-heading">
+      <div>
+        <span className="koasis-overline">Create studio</span>
+        <h2>Ubah ide, file, atau link menjadi output yang bisa direview.</h2>
+        <p>Mulai dari percakapan, lampirkan bahan bila perlu, lalu minta output editable atau gunakan Computer untuk meninjau link yang kamu punya aksesnya.</p>
+      </div>
+      <span className="koasis-create-start-status"><i />Tool-enabled</span>
+    </div>
+    <div className="koasis-create-start-grid">
+      <button type="button" className="koasis-create-start-card featured" onClick={() => onPrepareArtifact("pptx")}>
+        <span className="koasis-create-start-icon"><Shapes size={17} /></span>
+        <span><strong>Generate PPTX from chat</strong><small>Masukkan topik, bahan, dan arahan. Agent menyusun isi lalu membuat file PPTX editable di percakapan.</small></span>
+        <ArrowRight size={14} />
+      </button>
+      <button type="button" className="koasis-create-start-card" onClick={() => onPrepareArtifact("docx")}>
+        <span className="koasis-create-start-icon"><FileText size={17} /></span>
+        <span><strong>Generate DOCX from chat</strong><small>Ubah brief, catatan, atau source pack menjadi dokumen yang dapat direview dan diedit.</small></span>
+        <ArrowRight size={14} />
+      </button>
+      <button type="button" className="koasis-create-start-card" onClick={() => onPrompt("Bantu susun output akademik dari konteks yang akan aku kirim. Tentukan apakah bentuk terbaiknya slide, dokumen, atau keduanya; buat outline, isi awal, catatan speaker/editor, sumber yang dibutuhkan, dan daftar hal yang harus direview. Jangan mengarang fakta atau referensi. Jika aku meminta file editable, buat outputnya langsung dari percakapan ini setelah struktur dan isi cukup jelas.")}>
+        <span className="koasis-create-start-icon"><FileText size={17} /></span>
+        <span><strong>Draft slides &amp; documents</strong><small>Bangun outline dan naskah dari catatan, source pack, atau hasil diskusi.</small></span>
+        <ArrowRight size={14} />
+      </button>
+      <button type="button" className="koasis-create-start-card" onClick={onPrepareLinkEdit}>
+        <span className="koasis-create-start-icon"><Monitor size={17} /></span>
+        <span><strong>Edit dari link dengan Computer</strong><small>Siapkan permintaan untuk membuka dan mengedit Google Docs, Slides, atau situs yang kamu kirim.</small></span>
+        <ArrowRight size={14} />
+      </button>
+    </div>
+    <div className="koasis-create-start-foot"><ShieldCheck size={13} /><span>Output tetap berupa draft yang dapat direview. Link privat membutuhkan sesi Computer yang sudah terhubung dan izin akses dari akunmu. Semua hasil tetap dimulai dan dikembalikan lewat chat.</span></div>
+  </section>;
+}
+
 function AgentContractBar({ preset, sourceMode }: { preset: AgentPreset; sourceMode: SourceMode }) {
-  const missingRequiredSource = agentNeedsExternalSource(preset.id) && sourceMode !== "attachments" && sourceMode !== "sources";
+  const missingRequiredSource = (preset.sourcePolicy === "source-required" || agentNeedsExternalSource(preset.id as AgentId)) && sourceMode !== "attachments" && sourceMode !== "sources";
   const sourceLabel = sourceMode === "sources" ? "Hasil pencarian · verifikasi manual" : preset.sourceLabel;
   return <div className={`koasis-agent-contract ${missingRequiredSource ? "needs-source" : ""}`} aria-label="Kontrak specialist agent">
     <span><ShieldCheck size={13} /><strong>{preset.riskLabel}</strong></span>
@@ -984,15 +1189,17 @@ function evidenceProviderLabel(provider: string): string {
   return provider;
 }
 
-function shouldAutoSearchEvidence(prompt: string, presetId: AgentId): boolean {
-  return promptNeedsEvidence(prompt, presetId);
+function shouldAutoSearchEvidence(prompt: string, presetId: string): boolean {
+  return promptNeedsEvidence(prompt, presetId as AgentId) || (findAgentPreset(presetId)?.sourcePolicy === "source-required" && prompt.trim().length >= 20);
 }
 
 function evidenceSearchQuery(prompt: string, conversation: ChatMessage[]): string {
   const normalizedPrompt = prompt.replace(/\s+/g, " ").trim();
-  if (normalizedPrompt.length >= 24) return normalizedPrompt.slice(-1_800);
   const recentContext = conversation.filter((message) => message.role === "user").slice(-2).map((message) => message.content.trim()).filter(Boolean).join(" ");
-  return `${recentContext} ${normalizedPrompt}`.replace(/\s+/g, " ").trim().slice(-1_800);
+  // Keep the active request at the front. A tail slice used to drop the
+  // current topic when prior chat context was long, producing a search for
+  // the wrong subject even though the UI showed the right prompt.
+  return [normalizedPrompt, recentContext].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 720);
 }
 
 function EvidenceSourceSearchPanel({
@@ -1024,7 +1231,7 @@ function EvidenceSourceSearchPanel({
     <p className="koasis-evidence-search-copy">Cari guideline, systematic review, atau studi. Hasil hanya metadata/abstract dan tetap harus diverifikasi di sumber asli.</p>
     <form className="koasis-evidence-search-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
       <Search size={14} aria-hidden="true" />
-      <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Contoh: asthma exacerbation guideline" aria-label="Query sumber evidence" maxLength={240} />
+      <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Contoh: pneumonia aspirasi diagnosis dan tatalaksana" aria-label="Query sumber evidence" maxLength={720} />
       <button type="submit" aria-label="Cari sumber" disabled={busy || query.trim().length < 3}>{busy ? <LoaderCircle size={14} className="koasis-spinner" /> : <ArrowRight size={14} />}</button>
     </form>
     {error && <div className="koasis-evidence-search-error" role="alert">{error}</div>}
@@ -1068,7 +1275,7 @@ export function AgenticChat() {
   const [agentLibraryOpen, setAgentLibraryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarSearchOpen, setSidebarSearchOpen] = useState(false);
-  const [selectedPresetId, setSelectedPresetId] = useState<AgentId>("koasis");
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("koasis");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [engineMenuOpen, setEngineMenuOpen] = useState(false);
   const [composerPalette, setComposerPalette] = useState<ComposerPalette>(null);
@@ -1079,7 +1286,7 @@ export function AgenticChat() {
   const [homeSurface, setHomeSurface] = useState<"chat" | "ops" | "curriculum">("chat");
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
-  const [selectedModelId, setSelectedModelId] = useState<KoasisModelId>(DEFAULT_KOASIS_MODEL);
+  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_KOASIS_MODEL);
   const [reasoningEffort, setReasoningEffort] = useState<KoasisReasoningLevel>(DEFAULT_KOASIS_REASONING);
   const [workspace, setWorkspace] = useState<KoasisWorkspace>(DEFAULT_WORKSPACE);
   const [workspaceTasks, setWorkspaceTasks] = useState<WorkspaceTask[]>(DEFAULT_TASKS);
@@ -1093,6 +1300,9 @@ export function AgenticChat() {
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null);
   const [runTrail, setRunTrail] = useState<KoasisRunEvent[]>([]);
   const [computerActivity, setComputerActivity] = useState<AgentComputerActivity | null>(null);
+  const [computerApproval, setComputerApproval] = useState<PendingComputerApproval | null>(null);
+  const [computerAccessMode, setComputerAccessMode] = useState<ComputerAccessMode>("ask");
+  const [computerAccessMenuOpen, setComputerAccessMenuOpen] = useState(false);
   const [privacyReview, setPrivacyReview] = useState<PendingPrivacyReview | null>(null);
   const [evidenceQuery, setEvidenceQuery] = useState("");
   const [evidenceResults, setEvidenceResults] = useState<EvidenceSource[]>([]);
@@ -1100,7 +1310,10 @@ export function AgenticChat() {
   const [selectedEvidenceSources, setSelectedEvidenceSources] = useState<EvidenceSource[]>([]);
   const [evidenceSearchBusy, setEvidenceSearchBusy] = useState(false);
   const [evidenceSearchError, setEvidenceSearchError] = useState("");
+  const [pendingArtifactKind, setPendingArtifactKind] = useState<ChatArtifactKind | null>(null);
+  const [editableSourceKind, setEditableSourceKind] = useState<ChatArtifactKind | null>(null);
   const [remoteHydrated, setRemoteHydrated] = useState(false);
+  const [, setCatalogRevision] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const followScrollRef = useRef(true);
   const composerWrapRef = useRef<HTMLDivElement>(null);
@@ -1110,12 +1323,13 @@ export function AgenticChat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const artifactUrlsRef = useRef<Set<string>>(new Set());
   const remoteHydratedRef = useRef(false);
   const remoteLoadSucceededRef = useRef(false);
 
   const accountLabel = user.displayName?.trim() || user.email?.split("@")[0] || "Pengguna";
-  const activePreset = AGENT_PRESETS.find((preset) => preset.id === selectedPresetId) ?? AGENT_PRESETS[0];
-  const activeModel = KOASIS_MODELS.find((model) => model.id === selectedModelId) ?? KOASIS_MODELS[1];
+  const activePreset = findAgentPreset(selectedPresetId) ?? AGENT_PRESETS[0];
+  const activeModel = MODEL_OPTIONS.find((model) => model.id === selectedModelId) ?? MODEL_OPTIONS[0];
   const composerTrigger = getComposerTrigger(draft);
   const mentionQuery = composerTrigger?.type === "mention" ? composerTrigger.query : "";
   const commandQuery = composerTrigger?.type === "command" ? composerTrigger.query : "";
@@ -1128,7 +1342,7 @@ export function AgenticChat() {
   const filteredSessions = useMemo(() => sessions.filter((session) => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
-    const agentLabel = AGENT_PRESETS.find((preset) => preset.id === normalizeAgentId(session.modeId))?.label || "Koasis Agent";
+    const agentLabel = findAgentPreset(session.modeId)?.label || "Koasis Agent";
     return `${session.title} ${agentLabel}`.toLowerCase().includes(query);
   }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20), [searchQuery, sessions]);
 
@@ -1152,10 +1366,26 @@ export function AgenticChat() {
 
   useEffect(() => {
     document.body.dataset.koasisTheme = themeMode;
+    document.documentElement.dataset.koasisTheme = themeMode;
     return () => {
       delete document.body.dataset.koasisTheme;
+      delete document.documentElement.dataset.koasisTheme;
     };
   }, [themeMode]);
+
+  useEffect(() => {
+    let disposed = false;
+    void loadPublicAdminCatalog().then((catalog) => {
+      if (disposed) return;
+      applyPublicAdminCatalog(catalog);
+      setSelectedModelId((current) => MODEL_OPTIONS.some((model) => model.id === current) ? current : catalog.defaultModelId);
+      setSelectedPresetId((current) => AGENT_PRESETS.some((agent) => agent.id === current) ? current : catalog.defaultAgentId);
+      setCatalogRevision((current) => current + 1);
+    }).catch(() => {
+      // Static catalog remains available when the public backend is temporarily unavailable.
+    });
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -1171,8 +1401,9 @@ export function AgenticChat() {
           setWorkspace(restored.workspace);
           setWorkspaceTasks(restored.tasks.length ? restored.tasks : DEFAULT_TASKS);
           setThemeMode(remoteState.preferences.themeMode);
-          setSelectedModelId(normalizeKoasisModelId(remoteState.preferences.modelId));
+          setSelectedModelId(normalizeAppModelId(remoteState.preferences.modelId));
           setReasoningEffort(normalizeKoasisReasoning(remoteState.preferences.reasoningEffort));
+          setComputerAccessMode(remoteState.preferences.computerAccessMode === "always" || remoteState.preferences.computerAccessMode === "off" ? remoteState.preferences.computerAccessMode : "ask");
           setWorkspacePanelOpen(Boolean(remoteState.preferences.workspacePanelOpen));
           if (remoteState.preferences.shiftPhase) setShiftPhase(remoteState.preferences.shiftPhase);
         }
@@ -1183,7 +1414,7 @@ export function AgenticChat() {
           setActiveSessionId(firstSession.id);
           setMessages(firstSession.messages);
           setChatTitle(firstSession.title);
-          setSelectedPresetId(normalizeAgentId(firstSession.modeId));
+          setSelectedPresetId(normalizeAppAgentId(firstSession.modeId));
         }
       })
       .catch((error) => {
@@ -1213,12 +1444,13 @@ export function AgenticChat() {
         themeMode,
         modelId: selectedModelId,
         reasoningEffort,
+        computerAccessMode,
         workspacePanelOpen,
         shiftPhase,
       })).catch((error) => console.warn("Koasis workspace belum tersimpan ke Firestore.", error));
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [reasoningEffort, remoteHydrated, selectedModelId, shiftPhase, themeMode, user.uid, workspace, workspacePanelOpen, workspaceTasks]);
+  }, [computerAccessMode, reasoningEffort, remoteHydrated, selectedModelId, shiftPhase, themeMode, user.uid, workspace, workspacePanelOpen, workspaceTasks]);
 
   useEffect(() => {
     if (!remoteHydrated || !remoteHydratedRef.current || !remoteLoadSucceededRef.current) return;
@@ -1256,21 +1488,24 @@ export function AgenticChat() {
   }, [draft]);
 
   useEffect(() => {
-    if (!modelMenuOpen && !engineMenuOpen && !composerPalette) return;
+    if (!modelMenuOpen && !engineMenuOpen && !computerAccessMenuOpen && !composerPalette) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && (composerWrapRef.current?.contains(target) || modelSelectorRef.current?.contains(target))) return;
       setModelMenuOpen(false);
       setEngineMenuOpen(false);
+      setComputerAccessMenuOpen(false);
       setComposerPalette(null);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [composerPalette, engineMenuOpen, modelMenuOpen]);
+  }, [computerAccessMenuOpen, composerPalette, engineMenuOpen, modelMenuOpen]);
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
     recognitionRef.current?.stop();
+    artifactUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    artifactUrlsRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -1282,6 +1517,7 @@ export function AgenticChat() {
       if (event.key === "Escape") {
         setModelMenuOpen(false);
         setEngineMenuOpen(false);
+        setComputerAccessMenuOpen(false);
         setComposerPalette(null);
         setMobileSidebarOpen(false);
         setWorkflowKind(null);
@@ -1292,7 +1528,6 @@ export function AgenticChat() {
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  const openLegacyWorkspace = () => window.location.assign("/lapjag");
   const toggleTheme = () => setThemeMode((current) => current === "dark" ? "light" : "dark");
   const toggleWorkspacePanel = () => setWorkspacePanelOpen((current) => !current);
   const openManusPage = (page: Exclude<ManusPage, "home">) => {
@@ -1303,6 +1538,7 @@ export function AgenticChat() {
     setAgentLibraryOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
     setWorkspacePanelOpen(false);
@@ -1321,6 +1557,7 @@ export function AgenticChat() {
     setAgentLibraryOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setMoreMenuOpen(false);
     setMobileSidebarOpen(false);
   };
@@ -1337,7 +1574,7 @@ export function AgenticChat() {
     setEvidenceSearchError("");
     try {
       const authToken = await user.getIdToken();
-      const response = await searchEvidenceSources(query, { authToken, limit: 5 });
+      const response = await searchEvidenceSources(query, { authToken, limit: 8 });
       setEvidenceResults(response.results);
       setEvidenceQueryPlan(response.queryPlan);
       const failedProviders = response.providers?.filter((provider) => provider.status === "error") || [];
@@ -1402,18 +1639,28 @@ export function AgenticChat() {
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   };
 
-  const startNewChat = () => {
+  const startNewChat = (agentId?: string) => {
     requestControllerRef.current?.abort();
     requestControllerRef.current = null;
     followScrollRef.current = true;
     setShowJumpToLatest(false);
-    const next = newSession();
+    const preset = agentId ? findAgentPreset(agentId) : undefined;
+    const nextBase = newSession();
+    const next = preset
+      ? {
+          ...nextBase,
+          modeId: preset.id,
+          messages: [{ ...INITIAL_MESSAGE, id: `welcome-${nextBase.id}`, agentId: preset.id, content: AGENT_WELCOME[preset.id] || AGENT_WELCOME.koasis }],
+        }
+      : nextBase;
     setSessions((current) => [next, ...current.filter((session) => session.id !== next.id)].slice(0, 30));
     setActiveSessionId(next.id);
     setMessages(next.messages);
     setChatTitle(next.title);
-    setSelectedPresetId("koasis");
+    setSelectedPresetId(preset?.id || "koasis");
     setDraft("");
+    setPendingArtifactKind(null);
+    setEditableSourceKind(null);
     setAttachments([]);
     setAttachmentError("");
     setComposerPalette(null);
@@ -1423,6 +1670,7 @@ export function AgenticChat() {
     setRunStatus(null);
     setRunTrail([]);
     setComputerActivity(null);
+    setComputerApproval(null);
     setPrivacyReview(null);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
@@ -1431,12 +1679,13 @@ export function AgenticChat() {
     setEvidenceQueryPlan(undefined);
     setSelectedEvidenceSources([]);
     setEvidenceSearchError("");
-    setShowHome(true);
+    setShowHome(!preset);
     setManusPage("home");
     setHomeSurface("chat");
     setAgentLibraryOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setComposerPalette(null);
     setMoreMenuOpen(false);
     setMobileSidebarOpen(false);
@@ -1449,8 +1698,10 @@ export function AgenticChat() {
     setActiveSessionId(session.id);
     setMessages(session.messages);
     setChatTitle(session.title);
-    setSelectedPresetId(normalizeAgentId(session.modeId));
+    setSelectedPresetId(normalizeAppAgentId(session.modeId));
     setDraft("");
+    setPendingArtifactKind(null);
+    setEditableSourceKind(null);
     setAttachments([]);
     setAttachmentError("");
     setShowHome(false);
@@ -1459,11 +1710,13 @@ export function AgenticChat() {
     setMobileSidebarOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setComposerPalette(null);
     setBusy(false);
     setRunStatus(null);
     setRunTrail([]);
     setComputerActivity(null);
+    setComputerApproval(null);
     setPrivacyReview(null);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
@@ -1486,10 +1739,12 @@ export function AgenticChat() {
     setMobileSidebarOpen(false);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setComposerPalette(null);
     setRunStatus(null);
     setRunTrail([]);
     setComputerActivity(null);
+    setComputerApproval(null);
     setWorkflowKind(null);
     setCaseBriefOpen(false);
   };
@@ -1529,19 +1784,21 @@ export function AgenticChat() {
     setWorkflowKind(kind);
     setModelMenuOpen(false);
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setMobileSidebarOpen(false);
   };
 
-  const selectModel = (modelId: KoasisModelId) => {
+  const selectModel = (modelId: string) => {
     setSelectedModelId(modelId);
     setEngineMenuOpen(false);
   };
   const toggleModelMenu = () => {
     setEngineMenuOpen((current) => !current);
     setModelMenuOpen(false);
+    setComputerAccessMenuOpen(false);
   };
 
-  const updateAssistant = (assistantId: string, content: string, streaming: boolean, options?: { agentId?: AgentId; fallback?: boolean; error?: boolean; errorKind?: "request" | "evidence-search"; retryPrompt?: string; action?: "lapjag"; requestId?: string; durationMs?: number; sourceMode?: SourceMode; citationSources?: EvidenceSource[]; followUpQuestions?: string[]; reviewRequired?: boolean }) => {
+  const updateAssistant = (assistantId: string, content: string, streaming: boolean, options?: { agentId?: string; fallback?: boolean; error?: boolean; errorKind?: "request" | "evidence-search"; retryPrompt?: string; requestId?: string; durationMs?: number; sourceMode?: SourceMode; citationSources?: EvidenceSource[]; followUpQuestions?: string[]; reviewRequired?: boolean; artifact?: ChatArtifact; artifactKind?: ChatArtifactKind; artifactError?: string }) => {
     setMessages((current) => {
       const nextMessage: ChatMessage = { id: assistantId, agentId: options?.agentId || activePreset.id, role: "assistant", content, timestamp: current.find((message) => message.id === assistantId)?.timestamp || currentTime(), streaming, ...options };
       const existingIndex = current.findIndex((message) => message.id === assistantId);
@@ -1552,7 +1809,7 @@ export function AgenticChat() {
     });
   };
 
-  const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode) => {
+  const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode, computerApproved = false, skipComputerApproval = false) => {
     const initialSourceMode = contextSourceMode ?? sourceMode;
     const initialEvidenceSources = contextSources ?? selectedEvidenceSources;
     const workspaceFile = workspace.contextFile;
@@ -1573,9 +1830,19 @@ export function AgenticChat() {
         setPrivacyReview({ prompt, attachments: messageAttachments, findings });
         setModelMenuOpen(false);
         setEngineMenuOpen(false);
+        setComputerAccessMenuOpen(false);
         setComposerPalette(null);
         return;
       }
+    }
+    const requestComputerApproved = computerApproved || computerAccessMode === "always";
+    if (!requestComputerApproved && computerAccessMode !== "off" && !skipComputerApproval && promptNeedsComputerApproval(requestPrompt)) {
+      setComputerApproval({ prompt, attachments: messageAttachments, contextSources: initialEvidenceSources, contextSourceMode: initialSourceMode });
+      setModelMenuOpen(false);
+      setEngineMenuOpen(false);
+      setComputerAccessMenuOpen(false);
+      setComposerPalette(null);
+      return;
     }
     followScrollRef.current = true;
     setShowJumpToLatest(false);
@@ -1591,6 +1858,7 @@ export function AgenticChat() {
     setSourceMode("workspace");
     setAttachmentError("");
     setEngineMenuOpen(false);
+    setComputerAccessMenuOpen(false);
     setComposerPalette(null);
     setBusy(true);
     setComputerActivity(null);
@@ -1600,7 +1868,9 @@ export function AgenticChat() {
     requestControllerRef.current?.abort();
     requestControllerRef.current = controller;
     let streamedContent = "";
-    const action: ChatMessage["action"] = /laporan|jaga|template|pptx/i.test(prompt) ? "lapjag" : undefined;
+    const requestedArtifactKind = pendingArtifactKind || inferChatArtifactKind(requestPrompt, preset.id, editableSourceKind);
+    setPendingArtifactKind(null);
+    setEditableSourceKind(null);
     const requestUserMessage = requestPrompt === prompt ? userMessage : { ...userMessage, content: requestPrompt };
 
     void (async () => {
@@ -1612,7 +1882,7 @@ export function AgenticChat() {
         if (!requestEvidenceSources.length && requestSourceMode !== "attachments" && shouldAutoSearchEvidence(requestPrompt, preset.id)) {
           trackRunStatus({ phase: "preparing", message: "Mencari sumber evidence yang relevan" });
           try {
-            const searchResponse = await searchEvidenceSources(evidenceSearchQuery(requestPrompt, messages), { authToken, limit: 5, signal: controller.signal });
+            const searchResponse = await searchEvidenceSources(evidenceSearchQuery(requestPrompt, messages), { authToken, limit: 8, signal: controller.signal });
             setEvidenceQueryPlan(searchResponse.queryPlan);
             setEvidenceResults(searchResponse.results);
             if (searchResponse.results.length) {
@@ -1670,11 +1940,12 @@ export function AgenticChat() {
               sessionTitle: chatTitle,
               modelId: selectedModelId,
               reasoningEffort,
+              computerApproved: requestComputerApproved,
             },
             onDelta: (content) => {
               streamedContent = content;
               setStreamingMessageId(assistantId);
-              updateAssistant(assistantId, content, true, { agentId: preset.id, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+              updateAssistant(assistantId, content, true, { agentId: preset.id, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
             },
             onStatus: trackRunStatus,
             onComputerActivity: (activity) => setComputerActivity((current) => ({
@@ -1683,25 +1954,41 @@ export function AgenticChat() {
             })),
           },
         );
+        let artifact: ChatArtifact | undefined;
+        let artifactError: string | undefined;
+        if (requestedArtifactKind) {
+          const artifactLabel = requestedArtifactKind === "pptx" ? "PPTX" : "DOCX";
+          trackRunStatus({ phase: "finalizing", message: `Membuat file ${artifactLabel} dari hasil chat` });
+          try {
+            const generated = await createChatArtifact(requestedArtifactKind, prompt, response.content);
+            const url = URL.createObjectURL(generated.blob);
+            artifactUrlsRef.current.add(url);
+            artifact = { ...generated, url };
+          } catch (error) {
+            artifactError = error instanceof Error ? error.message : `File ${artifactLabel} belum berhasil dibuat.`;
+          }
+        }
         setChatTitle(buildConversationTitle([...messages, userMessage, { role: "assistant", content: response.content }], { agentLabel: preset.label, sources: requestEvidenceSources }));
         updateAssistant(assistantId, response.content, false, {
           agentId: preset.id,
-          action,
           requestId: response.requestId,
           durationMs: response.durationMs,
           sourceMode: requestSourceMode,
           citationSources: requestEvidenceSources,
           followUpQuestions: buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: requestEvidenceSources, agentLabel: preset.label }),
           reviewRequired: response.reviewRequired,
+          artifact,
+          artifactKind: requestedArtifactKind,
+          artifactError,
         });
       } catch (error) {
         if (controller.signal.aborted) return;
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
         if (privacyBlocked) {
           setPrivacyReview({ prompt, attachments: messageAttachments, findings: detectSensitiveIdentifiers(prompt) });
-          updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-        } else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-        else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, action, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+          updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        } else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
       } finally {
         if (requestControllerRef.current === controller) {
           requestControllerRef.current = null;
@@ -1716,10 +2003,6 @@ export function AgenticChat() {
 
   const handleRetry = (message: ChatMessage) => {
     if (message.retryPrompt) submitPrompt(message.retryPrompt, message.attachments || [], false, message.citationSources || [], message.sourceMode || "workspace");
-  };
-
-  const handleAction = (action: "lapjag") => {
-    if (action === "lapjag") openLegacyWorkspace();
   };
 
   const chooseComposerOption = (optionIndex = composerPaletteIndex) => {
@@ -1814,9 +2097,38 @@ export function AgenticChat() {
         }
         continue;
       }
+      if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(file.name)) {
+        try {
+          const extracted = await extractDocxText(file);
+          const limit = 24_000;
+          textParts.push(`[DOCX: ${file.name}]\n${extracted.slice(0, limit)}${extracted.length > limit ? "\n[Isi dipotong agar konteks tetap aman dikirim ke agent.]" : ""}`);
+          setEditableSourceKind((current) => current || "docx");
+          setSourceMode("attachments");
+        } catch {
+          errors.push(`${file.name}: DOCX belum bisa dibaca.`);
+        }
+        continue;
+      }
+      if (file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || /\.pptx$/i.test(file.name)) {
+        try {
+          const parsed = await parsePptx(file, file.name, "generic");
+          const extracted = parsed.slides.map((slide, index) => [
+            `Slide ${index + 1}: ${slide.title || `Slide ${index + 1}`}`,
+            slide.text,
+            slide.speakerNotes ? `Speaker notes: ${slide.speakerNotes}` : "",
+          ].filter(Boolean).join("\n")).join("\n\n");
+          const limit = 24_000;
+          textParts.push(`[PPTX: ${file.name}]\n${extracted.slice(0, limit)}${extracted.length > limit ? "\n[Isi dipotong agar konteks tetap aman dikirim ke agent.]" : ""}`);
+          setEditableSourceKind((current) => current || "pptx");
+          setSourceMode("attachments");
+        } catch {
+          errors.push(`${file.name}: PPTX belum bisa dibaca. Untuk output editable, gunakan Create Studio dan minta agent membuatkannya dari chat.`);
+        }
+        continue;
+      }
       const kind = attachmentKind(file);
       if (!kind) {
-        errors.push(`${file.name}: gunakan TXT, CSV, TSV, PDF, gambar, atau audio.`);
+        errors.push(`${file.name}: gunakan TXT, CSV, TSV, DOCX, PPTX, PDF, gambar, atau audio.`);
         continue;
       }
       try {
@@ -1873,6 +2185,18 @@ export function AgenticChat() {
   };
 
   const handleHomeAction = (action: HomeAction) => {
+    if (action.id === "research") {
+      startNewChat("evidence");
+      return;
+    }
+    if (action.id === "learn") {
+      startNewChat("study");
+      return;
+    }
+    if (action.id === "create") {
+      startNewChat("presentation");
+      return;
+    }
     setSelectedPresetId("koasis");
     setSourceMode("workspace");
     setManusPage("home");
@@ -1880,6 +2204,19 @@ export function AgenticChat() {
     setWorkflowKind(null);
     setCaseBriefOpen(false);
     submitPrompt(action.prompt, []);
+  };
+
+  const prepareCreateLinkEdit = () => {
+    setDraft("Gunakan Computer untuk membuka dan meninjau link dokumen atau slide ini. Setelah link tersedia, bantu lakukan perubahan yang saya minta dengan preview/review sebelum menyimpan: ");
+    setSourceMode("workspace");
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
+  const prepareCreateArtifact = (kind: ChatArtifactKind) => {
+    setPendingArtifactKind(kind);
+    setDraft(`Buat file ${kind === "pptx" ? "PPTX" : "DOCX"} editable langsung dari percakapan ini. Susun isi yang dapat direview, pertahankan fakta dan sumber yang aku berikan, lalu siapkan file setelah draft selesai. Topik atau bahan: `);
+    setSourceMode("workspace");
+    window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const handleMkarAction = (action: MkarCockpitAction) => {
@@ -1896,7 +2233,7 @@ export function AgenticChat() {
       return;
     }
     if (action.type === "lapjag") {
-      openLegacyWorkspace();
+      startNewChat("presentation");
       return;
     }
     if (action.type === "workflow") {
@@ -1916,6 +2253,20 @@ export function AgenticChat() {
     window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
+  const approveComputerRequest = () => {
+    const pending = computerApproval;
+    if (!pending) return;
+    setComputerApproval(null);
+    submitPrompt(pending.prompt, pending.attachments, false, pending.contextSources, pending.contextSourceMode, true);
+  };
+
+  const continueWithoutComputer = () => {
+    const pending = computerApproval;
+    if (!pending) return;
+    setComputerApproval(null);
+    submitPrompt(pending.prompt, pending.attachments, false, pending.contextSources, pending.contextSourceMode, false, true);
+  };
+
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const manusPageTitle: Record<Exclude<ManusPage, "home">, string> = { computers: "Computers", agents: "Specialist Agents", library: "Library", creations: "Creations", automations: "Automations", plugins: "Plugins & Clinical Tools" };
 
@@ -1923,7 +2274,7 @@ export function AgenticChat() {
     {mobileSidebarOpen && <button type="button" className="agentic-sidebar-scrim" aria-label="Tutup sidebar" onClick={() => setMobileSidebarOpen(false)} />}
     <aside className={`agentic-sidebar koasis-sidebar ${mobileSidebarOpen ? "mobile-open" : ""}`}>
       <div className="agentic-sidebar-top koasis-sidebar-top"><button type="button" className={`agentic-sidebar-brand koasis-sidebar-brand ${sidebarCollapsed ? "collapsed-toggle" : ""}`} aria-label={sidebarCollapsed ? "Buka sidebar" : "Koasis"} title={sidebarCollapsed ? "Buka sidebar" : undefined} onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); }}><KoasisMark className="agentic-sidebar-mark" /><div className="koasis-sidebar-wordmark"><img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div></button><div className="manus-sidebar-top-actions"><button type="button" className="manus-sidebar-search-trigger" aria-label="Search" title="Search" onClick={() => setSidebarSearchOpen((current) => !current)}><Search size={16} /><kbd>⌘ K</kbd></button><button type="button" className="agentic-sidebar-collapse koasis-sidebar-collapse" aria-label="Ciutkan sidebar" title="Ciutkan sidebar" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={17} /></button></div></div>
-      <button type="button" className={`agentic-new-chat koasis-new-chat ${manusPage === "home" && showHome ? "active" : ""}`} onClick={startNewChat} title="New task"><SquarePen size={16} /><span>New task</span></button>
+      <button type="button" className={`agentic-new-chat koasis-new-chat ${manusPage === "home" && showHome ? "active" : ""}`} onClick={() => startNewChat()} title="New task"><SquarePen size={16} /><span>New task</span></button>
       {sidebarSearchOpen && <div className="manus-sidebar-search-field"><Search size={14} /><input autoFocus aria-label="Search tasks" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search tasks" /></div>}
 
       <div className="koasis-sidebar-scroll manus-sidebar-nav">
@@ -1940,29 +2291,30 @@ export function AgenticChat() {
         <button type="button" className="manus-nav-item" onClick={() => openHomeSurface("ops")}><FolderPlus size={16} /><span>New project</span></button>
         <div className="manus-sidebar-divider" />
         <div className="manus-sidebar-section-title">Tasks</div>
-        <div className="koasis-chat-list manus-task-list">{filteredSessions.filter((session) => session.title !== "Percakapan baru").map((session) => <button type="button" title={session.title} className={`koasis-chat-row ${session.id === activeSessionId && manusPage === "home" && !showHome ? "active" : ""}`} key={session.id} onClick={() => openSession(session)}><span className="koasis-chat-row-mark" /><span><strong>{session.title}</strong><small>{AGENT_PRESETS.find((preset) => preset.id === normalizeAgentId(session.modeId))?.label || "Koasis Agent"} · {new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(new Date(session.updatedAt))}</small></span></button>)}{!filteredSessions.filter((session) => session.title !== "Percakapan baru").length && <div className="koasis-empty-chat">Belum ada task.</div>}</div>
+        <div className="koasis-chat-list manus-task-list">{filteredSessions.filter((session) => session.title !== "Percakapan baru").map((session) => <button type="button" title={session.title} className={`koasis-chat-row ${session.id === activeSessionId && manusPage === "home" && !showHome ? "active" : ""}`} key={session.id} onClick={() => openSession(session)}><span className="koasis-chat-row-mark" /><span><strong>{session.title}</strong><small>{findAgentPreset(session.modeId)?.label || "Koasis Agent"} · {new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(new Date(session.updatedAt))}</small></span></button>)}{!filteredSessions.filter((session) => session.title !== "Percakapan baru").length && <div className="koasis-empty-chat">Belum ada task.</div>}</div>
       </div>
 
       <div className="koasis-sidebar-bottom manus-sidebar-bottom"><div className="manus-notification-card"><Bell size={16} /><p>Receive a browser notification and sound when tasks complete.</p><div><button type="button">Not now</button><button type="button" className="manus-button-primary">Turn on</button></div></div><div className="agentic-user-card koasis-user-card"><div className="agentic-user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Firebase"}</span></div><button type="button" className="manus-user-icon" aria-label="Perangkat" title="Perangkat"><Monitor size={15} /></button><button type="button" className="manus-user-icon" aria-label="Notifikasi" title="Notifikasi"><Bell size={15} /></button><button type="button" className="agentic-user-action" aria-label="Keluar" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
     </aside>
 
     <main className="agentic-main koasis-main">
-      <header className={`agentic-topbar koasis-topbar ${manusPage !== "home" ? "manus-page-topbar" : ""} ${manusPage === "home" && !showHome ? "chat-active" : ""}`}><div className="agentic-topbar-left"><button type="button" className="agentic-mobile-menu koasis-mobile-menu" aria-label="Buka menu" aria-expanded={mobileSidebarOpen} onClick={() => setMobileSidebarOpen((current) => !current)}>{mobileSidebarOpen ? <X size={19} /> : <Menu size={19} />}</button>{manusPage === "home" ? <KoasisModelSelector activeModel={activeModel} selectedModelId={selectedModelId} open={engineMenuOpen} rootRef={modelSelectorRef} onToggle={toggleModelMenu} onSelect={selectModel} /> : <div className="manus-page-title"><strong>{manusPageTitle[manusPage]}</strong></div>}</div>{manusPage === "home" && !showHome && <div className="koasis-current-thread-title"><strong>{chatTitle}</strong></div>}<div className="agentic-topbar-actions koasis-topbar-actions">{manusPage === "home" && <button type="button" className="koasis-context-toggle" aria-label={workspacePanelOpen ? "Tutup konteks kerja" : "Buka konteks kerja"} aria-expanded={workspacePanelOpen} onClick={toggleWorkspacePanel}><Network size={15} strokeWidth={1.8} aria-hidden="true" /><span>{showHome && homeSurface === "chat" ? "Konteks" : "Shift board"}</span></button>}<button type="button" className="koasis-theme-toggle" aria-label={themeMode === "dark" ? "Aktifkan mode terang" : "Aktifkan mode gelap"} title={themeMode === "dark" ? "Mode terang" : "Mode gelap"} aria-pressed={themeMode === "dark"} onClick={toggleTheme}>{themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}<span>{themeMode === "dark" ? "Dark" : "Light"}</span></button><div className="agentic-topbar-avatar" aria-label={`Akun ${accountLabel}`} title={accountLabel}>{userInitial(user)}</div></div></header>
+      <header className={`agentic-topbar koasis-topbar ${manusPage !== "home" ? "manus-page-topbar" : ""} ${manusPage === "home" && !showHome ? "chat-active" : ""}`}><div className="agentic-topbar-left"><button type="button" className="agentic-mobile-menu koasis-mobile-menu" aria-label="Buka menu" aria-expanded={mobileSidebarOpen} onClick={() => setMobileSidebarOpen((current) => !current)}>{mobileSidebarOpen ? <X size={19} /> : <Menu size={19} />}</button>{manusPage === "home" ? <KoasisModelSelector activeModel={activeModel} models={MODEL_OPTIONS} selectedModelId={selectedModelId} open={engineMenuOpen} rootRef={modelSelectorRef} onToggle={toggleModelMenu} onSelect={selectModel} /> : <div className="manus-page-title"><strong>{manusPageTitle[manusPage]}</strong></div>}</div>{manusPage === "home" && !showHome && <div className="koasis-current-thread-title"><strong>{chatTitle}</strong></div>}<div className="agentic-topbar-actions koasis-topbar-actions">{manusPage === "home" && <button type="button" className="koasis-context-toggle" aria-label={workspacePanelOpen ? "Tutup konteks kerja" : "Buka konteks kerja"} aria-expanded={workspacePanelOpen} onClick={toggleWorkspacePanel}><Network size={15} strokeWidth={1.8} aria-hidden="true" /><span>{showHome && homeSurface === "chat" ? "Konteks" : "Shift board"}</span></button>}<button type="button" className="koasis-theme-toggle" aria-label={themeMode === "dark" ? "Aktifkan mode terang" : "Aktifkan mode gelap"} title={themeMode === "dark" ? "Mode terang" : "Mode gelap"} aria-pressed={themeMode === "dark"} onClick={toggleTheme}>{themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}<span>{themeMode === "dark" ? "Dark" : "Light"}</span></button><div className="agentic-topbar-avatar" aria-label={`Akun ${accountLabel}`} title={accountLabel}>{userInitial(user)}</div></div></header>
 
       <div className={`koasis-content ${workspacePanelOpen ? "with-board" : "without-board"}`}>
         <section className="koasis-conversation">
           <div className="koasis-conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
-        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} queryPlan={evidenceQueryPlan} selectedSources={selectedEvidenceSources} onUseSource={addEvidenceSourceToContext} />}<AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} /></>}</>}
-            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onAction={handleAction} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
+        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} queryPlan={evidenceQueryPlan} selectedSources={selectedEvidenceSources} onUseSource={addEvidenceSourceToContext} />}{activePreset.id === "presentation" ? <CreateStartSurface onPrompt={(prompt) => submitPrompt(prompt, [])} onPrepareArtifact={prepareCreateArtifact} onPrepareLinkEdit={prepareCreateLinkEdit} /> : <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}</>}
+            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
           </div>
           {showJumpToLatest && <button type="button" className="koasis-jump-latest" onClick={jumpToLatest}><ArrowDown size={14} /> Terbaru</button>}
           {manusPage === "home" && <div className="koasis-composer-area">
             <div className="koasis-composer-wrap" ref={composerWrapRef}>
+              {computerApproval && <ComputerApprovalCard prompt={computerApproval.prompt} onApprove={approveComputerRequest} onDecline={continueWithoutComputer} onDismiss={() => setComputerApproval(null)} />}
               {privacyReview && <KoasisApprovalCard findings={privacyReview.findings.map((finding) => finding.label)} attachmentName={privacyReview.attachments.map((item) => item.name).join(", ") || undefined} onDismiss={() => setPrivacyReview(null)} onSanitize={movePrivacyReviewToComposer} />}
               {attachmentError && <div className="koasis-attachment-error" role="alert">{attachmentError}</div>}
-              <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
+              <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><ComputerAccessSelector value={computerAccessMode} open={computerAccessMenuOpen} onToggle={() => { setComputerAccessMenuOpen((current) => !current); setModelMenuOpen(false); setEngineMenuOpen(false); setComposerPalette(null); }} onChange={(value) => { setComputerAccessMode(value); setComputerAccessMenuOpen(false); }} /><button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); setComputerAccessMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
               <form className={`koasis-composer ${attachments.length ? "has-attachments" : ""}`} onSubmit={handleSubmit}>
-                <input ref={fileInputRef} type="file" accept="image/*,application/pdf,audio/*,.txt,.csv,.tsv" multiple hidden onChange={(event) => { void handleFile(event); }} />
+                <input ref={fileInputRef} type="file" accept="image/*,application/pdf,audio/*,.txt,.csv,.tsv,.docx,.pptx,.md" multiple hidden onChange={(event) => { void handleFile(event); }} />
                 {composerPalette && (composerPalette === "mention" ? mentionOptions : commandOptions).length > 0 && <div className={`koasis-composer-palette ${composerPalette}`} role="listbox" aria-label={composerPalette === "mention" ? "Pilih specialist agent" : "Pilih plugin command"}>
                   <div className="koasis-composer-palette-head"><div><strong>{composerPalette === "mention" ? "Spawn specialist agent" : "Plugin commands"}</strong><small>{composerPalette === "mention" ? "Pilih agent untuk menangani pesan ini." : "Pilih command untuk menjalankan plugin pada konteks aktif."}</small></div><kbd>{composerPalette === "mention" ? "@" : "/"}</kbd></div>
                   <div className="koasis-composer-palette-list">

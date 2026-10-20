@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { AgenticChat } from "./components/AgenticChat";
+import { AdminPage } from "./components/AdminPage";
 import { AuthGate } from "./components/AuthGate";
 import "./styles.css";
 
@@ -12,5 +13,6 @@ function RouteLoading() {
 export default function RootApp() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/lapjag") return <Suspense fallback={<RouteLoading />}><LegacyLaporanJaga /></Suspense>;
+  if (path === "/admin") return <AdminPage />;
   return <AuthGate><AgenticChat /></AuthGate>;
 }

@@ -81,6 +81,7 @@ export type RemoteKoasisState = {
     themeMode: "light" | "dark";
     modelId: string;
     reasoningEffort: string;
+    computerAccessMode?: "ask" | "always" | "off";
     workspacePanelOpen?: boolean;
     shiftPhase?: "before" | "during" | "after";
   };
@@ -264,6 +265,7 @@ export async function loadKoasisState(userId: string): Promise<RemoteKoasisState
       themeMode: data.preferences.themeMode === "light" ? "light" : "dark",
       modelId: typeof data.preferences.modelId === "string" ? data.preferences.modelId : "cito",
       reasoningEffort: typeof data.preferences.reasoningEffort === "string" ? data.preferences.reasoningEffort : "moderate",
+      computerAccessMode: data.preferences.computerAccessMode === "always" || data.preferences.computerAccessMode === "off" ? data.preferences.computerAccessMode : "ask",
       workspacePanelOpen: Boolean(data.preferences.workspacePanelOpen),
       shiftPhase: data.preferences.shiftPhase === "during" || data.preferences.shiftPhase === "after" ? data.preferences.shiftPhase : "before",
     },

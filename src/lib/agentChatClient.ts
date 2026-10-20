@@ -1,6 +1,6 @@
-import type { AgentId, AgentSourcePolicy } from "./agentCatalog";
+import type { AgentSourcePolicy } from "./agentCatalog";
 import type { EvidenceSource } from "./evidenceSearchClient";
-import type { KoasisModelId, KoasisReasoningLevel } from "./koasisModels";
+import type { KoasisReasoningLevel } from "./koasisModels";
 import { koasisApiUrl } from "./koasisApi";
 
 export type AgentChatAttachment = {
@@ -30,8 +30,10 @@ export type AgentWorkspaceContext = {
   sourceMode?: "workspace" | "attachments" | "sources";
   evidenceSources?: EvidenceSource[];
   sessionTitle?: string;
-  modelId?: KoasisModelId;
+  modelId?: string;
   reasoningEffort?: KoasisReasoningLevel;
+  /** Explicit user consent for a Computer action in this request. */
+  computerApproved?: boolean;
 };
 
 interface AgentChatResponse {
@@ -58,7 +60,7 @@ type AgentChatStreamEvent = {
   error?: string;
   code?: string;
   requestId?: string;
-  agentId?: AgentId;
+  agentId?: string;
   phase?: AgentRunPhase;
   message?: string;
   activity?: AgentComputerActivityKind;
@@ -81,7 +83,7 @@ export type AgentChatResult = {
   content: string;
   model?: string;
   requestId: string;
-  agentId: AgentId;
+  agentId: string;
   durationMs?: number;
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired: boolean;
@@ -122,7 +124,7 @@ function createRequestId(): string {
 
 export async function sendAgentChat(
   messages: AgentChatMessage[],
-  agentId: AgentId = "koasis",
+  agentId: string = "koasis",
   options: AgentChatOptions = {},
 ): Promise<AgentChatResult> {
   const requestId = createRequestId();
