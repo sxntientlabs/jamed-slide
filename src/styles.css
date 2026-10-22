@@ -2342,13 +2342,39 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .koasis-computer-activity-state { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; color: var(--ko-accent-strong); font-size: 8px; font-weight: 800; }
 .koasis-computer-activity.error .koasis-computer-activity-state { color: var(--ko-warning); }
 .koasis-computer-activity.complete .koasis-computer-activity-state { color: var(--ko-success); }
+.koasis-computer-activity-head-actions { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.koasis-computer-activity-action { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; border: 1px solid var(--ko-line); border-radius: 6px; padding: 0 7px; color: var(--ko-accent-strong); background: var(--ko-panel); font-size: 8px; font-weight: 800; white-space: nowrap; transition: border-color .16s ease, background .16s ease, color .16s ease; }
+.koasis-computer-activity-action:hover:not(:disabled) { border-color: var(--ko-accent); background: var(--ko-accent-wash); }
+.koasis-computer-activity-action.muted { color: var(--ko-muted); }
+.koasis-computer-activity-action.takeover { border-color: color-mix(in srgb, var(--ko-accent) 32%, var(--ko-line)); color: var(--ko-accent-strong); }
+.koasis-computer-activity-action:disabled { cursor: wait; opacity: .6; }
 .koasis-computer-activity-preview { display: grid; gap: 5px; padding: 9px; background: color-mix(in srgb, var(--ko-panel-soft) 72%, var(--ko-panel)); }
-.koasis-computer-activity-preview img { display: block; width: 100%; max-height: 270px; border: 1px solid var(--ko-line); border-radius: 8px; object-fit: contain; background: #101214; }
+.koasis-computer-activity-preview-button { position: relative; display: block; width: 100%; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.koasis-computer-activity-preview-button img { display: block; width: 100%; max-height: 270px; border: 1px solid var(--ko-line); border-radius: 8px; object-fit: contain; background: #101214; transition: filter .16s ease, border-color .16s ease; }
+.koasis-computer-activity-preview-button:hover img { border-color: var(--ko-accent); filter: brightness(1.08); }
+.koasis-computer-activity-preview-button > span { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; padding: 5px 7px; color: #fff; background: rgba(16,18,20,.78); font-size: 8px; font-weight: 800; opacity: 0; transform: translateY(3px); transition: opacity .16s ease, transform .16s ease; }
+.koasis-computer-activity-preview-button:hover > span, .koasis-computer-activity-preview-button:focus-visible > span { opacity: 1; transform: translateY(0); }
+.koasis-computer-activity-preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.koasis-computer-activity-preview-footer > div { display: inline-flex; align-items: center; gap: 5px; }
 .koasis-computer-activity-preview small { color: var(--ko-subtle); font-size: 7px; }
 .koasis-computer-activity-step { display: flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 10px; color: var(--ko-muted); font-size: 8px; }
+.koasis-computer-activity-step > span:nth-child(2) { min-width: 0; flex: 1; }
+.koasis-computer-activity-step > div { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
 .koasis-computer-activity-step-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--ko-accent); box-shadow: 0 0 0 4px var(--ko-accent-soft); animation: koasis-thinking 1s infinite ease-in-out; }
 .koasis-computer-activity.complete .koasis-computer-activity-step-dot { background: var(--ko-success); box-shadow: 0 0 0 4px var(--ko-success-soft); animation: none; }
 .koasis-computer-activity.error .koasis-computer-activity-step-dot { background: var(--ko-warning); box-shadow: 0 0 0 4px var(--ko-warning-soft); animation: none; }
+.koasis-computer-live { display: grid; gap: 8px; padding: 9px; background: color-mix(in srgb, var(--ko-panel-soft) 72%, var(--ko-panel)); }
+.koasis-computer-live.expanded { position: fixed; z-index: 90; inset: 0; width: 100vw; height: 100dvh; box-sizing: border-box; grid-template-rows: auto minmax(0, 1fr) auto; padding: clamp(12px, 3vw, 28px); border: 0; border-radius: 0; background: var(--ko-bg); box-shadow: 0 0 0 100vmax var(--ko-bg); }
+.koasis-computer-live-head { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.koasis-computer-live-head > div { min-width: 0; display: grid; gap: 3px; }
+.koasis-computer-live-actions { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.koasis-computer-live-head strong { color: var(--ko-ink); font-size: 10px; }
+.koasis-computer-live-head small, .koasis-computer-live-note { color: var(--ko-subtle); font-size: 8px; line-height: 1.35; }
+.koasis-computer-live-badge { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--ko-success) 34%, var(--ko-line)); border-radius: 999px; padding: 4px 7px; color: var(--ko-success); font-size: 8px; font-weight: 800; }
+.koasis-computer-live-badge i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px var(--ko-success-soft); }
+.koasis-computer-live-frame { position: relative; z-index: 1; display: block; width: 100%; min-height: 260px; height: auto; aspect-ratio: 16 / 10; border: 1px solid var(--ko-line-strong); border-radius: 8px; background: #101214; }
+.koasis-computer-live.expanded .koasis-computer-live-frame { min-height: 0; height: auto; aspect-ratio: auto; border-radius: 10px; }
+.koasis-computer-live-error { border-top: 1px solid color-mix(in srgb, var(--ko-warning) 35%, var(--ko-line)); padding: 8px 10px; color: var(--ko-warning); background: var(--ko-warning-soft); font-size: 8px; line-height: 1.4; }
 .koasis-comparison-table { width: 100%; max-width: 100%; overflow-x: auto; margin: 10px 0; border: 1px solid var(--ko-line); border-radius: 10px; color: var(--ko-ink-soft); background: var(--ko-panel); font-size: 9px; }
 .koasis-comparison-row { display: grid; grid-template-columns: repeat(var(--comparison-columns, 3), minmax(0, 1fr)); min-width: 420px; border-top: 1px solid var(--ko-line); }
 .koasis-comparison-row:first-child { border-top: 0; }
@@ -2462,6 +2488,11 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .koasis-send-button.stop { color: var(--ko-warning); background: var(--ko-warning-soft); }
 .koasis-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--ko-subtle); font-size: 8px; }
 .koasis-toolbar-left { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.koasis-agent-mode-toggle { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; border: 1px solid var(--ko-line); border-radius: 999px; padding: 2px; background: var(--ko-panel-soft); }
+.koasis-agent-mode-toggle button { min-height: 23px; border: 0; border-radius: 999px; padding: 0 9px; color: var(--ko-subtle); background: transparent; font-size: 8px; font-weight: 800; line-height: 1; transition: .18s ease; }
+.koasis-agent-mode-toggle button:hover { color: var(--ko-ink); }
+.koasis-agent-mode-toggle button.active { color: var(--ko-ink); background: var(--ko-line); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.koasis-agent-mode-toggle button[aria-selected="true"] { cursor: default; }
 .koasis-toolbar-tool, .koasis-toolbar-mode, .koasis-toolbar-model { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 7px; padding: 5px 6px; color: var(--ko-muted); background: transparent; font-size: 8px; font-weight: 800; }
 .koasis-toolbar-tool:hover, .koasis-toolbar-mode:hover, .koasis-toolbar-model:hover, .koasis-toolbar-tool[aria-expanded="true"], .koasis-toolbar-model[aria-expanded="true"] { color: var(--ko-accent-strong); background: var(--ko-accent-soft); }
 .koasis-toolbar-mode .koasis-glyph { color: var(--ko-accent); }
@@ -2682,8 +2713,24 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .koasis-message.user { max-width: 94%; }
   .koasis-message-text { font-size: 11px; }
   .koasis-computer-activity { width: 100%; margin-left: 0; }
+  .koasis-computer-activity-head { align-items: flex-start; flex-wrap: wrap; }
+  .koasis-computer-activity-head-actions { width: 100%; justify-content: flex-start; }
+  .koasis-computer-activity-state { margin-right: auto; }
   .koasis-computer-activity-preview img { max-height: 210px; }
+  .koasis-computer-activity-preview-button > span { opacity: 1; transform: none; }
+  .koasis-computer-activity-preview-footer { align-items: flex-start; flex-direction: column; }
+  .koasis-computer-activity-preview-footer > div { width: 100%; }
+  .koasis-computer-activity-preview-footer .koasis-computer-activity-action { flex: 1; justify-content: center; }
+  .koasis-computer-live-frame { min-height: 190px; }
+  .koasis-computer-live.expanded { padding: 10px; }
+  .koasis-computer-activity-step { align-items: flex-start; flex-wrap: wrap; padding-block: 9px; }
+  .koasis-computer-activity-step > span:nth-child(2) { flex-basis: calc(100% - 18px); }
+  .koasis-computer-activity-step > div { width: 100%; margin-left: 18px; }
+  .koasis-computer-activity-step > div .koasis-computer-activity-action { flex: 1; justify-content: center; }
   .koasis-composer-toolbar > span { display: none; }
+  .koasis-composer-toolbar { align-items: flex-start; flex-wrap: wrap; row-gap: 4px; }
+  .koasis-toolbar-left { flex-wrap: wrap; gap: 4px; }
+  .koasis-agent-mode-toggle button { padding-inline: 8px; }
   .koasis-computer-access-trigger small { max-width: 64px; }
   .koasis-computer-access-popover { width: min(320px, calc(100vw - 28px)); }
   .koasis-tools-popover, .koasis-mode-popover, .koasis-model-popover { left: 0; width: min(100%, calc(100vw - 28px)); }
@@ -3166,6 +3213,8 @@ html[data-koasis-theme="light"] { color-scheme: light; background: #f5f5f4; }
 .koasis-create-start-foot svg { flex: 0 0 auto; margin-top: 1px; color: var(--ko-success); }
 
 .koasis-chat-artifact { width: min(100%, 650px); display: flex; align-items: center; gap: 10px; margin-top: 13px; border: 1px solid color-mix(in srgb, var(--ko-accent) 27%, var(--ko-line)); border-radius: 12px; padding: 11px 12px; background: var(--ko-accent-wash); }
+.koasis-chat-artifact.image { flex-wrap: wrap; }
+.koasis-chat-artifact-preview { width: 100%; max-height: 260px; object-fit: contain; border: 1px solid var(--ko-line); border-radius: 9px; background: var(--ko-panel); }
 .koasis-chat-artifact-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; border: 1px solid color-mix(in srgb, var(--ko-accent) 30%, var(--ko-line)); border-radius: 9px; color: var(--ko-accent); background: var(--ko-accent-soft); }
 .koasis-chat-artifact-copy { min-width: 0; display: grid; gap: 3px; flex: 1 1 auto; }
 .koasis-chat-artifact-copy strong { overflow: hidden; color: var(--ko-ink); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -4160,6 +4209,8 @@ html[data-koasis-theme="light"] { color-scheme: light; background: #f5f5f4; }
 .manus-shell .koasis-composer-area { padding: 9px clamp(18px, 5vw, 76px) 13px; border-top: 0; background: var(--ko-bg); }
 .manus-shell .koasis-composer-wrap { width: min(100%, 920px); display: flex; flex-direction: column; }
 .manus-shell .koasis-composer-toolbar { order: -1; margin: 0 0 6px; color: var(--ko-muted); }
+.manus-shell .koasis-agent-mode-toggle { min-height: 28px; }
+.manus-shell .koasis-agent-mode-toggle button { min-height: 23px; padding-inline: 10px; }
 .manus-shell .koasis-toolbar-tool, .manus-shell .koasis-toolbar-mode, .manus-shell .koasis-toolbar-model { min-height: 28px; border-radius: 7px; padding: 0 7px; color: var(--ko-muted); font-size: 8px; }
 .manus-shell .koasis-toolbar-tool:hover, .manus-shell .koasis-toolbar-mode:hover, .manus-shell .koasis-toolbar-model:hover, .manus-shell .koasis-toolbar-tool[aria-expanded="true"], .manus-shell .koasis-toolbar-model[aria-expanded="true"] { color: var(--ko-ink); background: var(--ko-panel); }
 .manus-shell .koasis-composer { min-height: 86px; align-items: flex-end; border-color: var(--ko-line-strong); border-radius: 17px; padding: 10px 11px; background: var(--ko-panel-soft); box-shadow: none; }

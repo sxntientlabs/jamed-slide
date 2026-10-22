@@ -1,6 +1,8 @@
 import JSZip from "jszip";
 
-export type ChatArtifactKind = "pptx" | "docx";
+export type ChatArtifactKind = "pptx" | "docx" | "image";
+
+export type EditableChatArtifactKind = Exclude<ChatArtifactKind, "image">;
 
 export type GeneratedChatArtifact = {
   kind: ChatArtifactKind;
@@ -27,6 +29,7 @@ export type ParsedChatArtifactContent = {
 
 const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const IMAGE_DATA_URL_PATTERN = /^data:(image\/(?:png|jpe?g|webp));base64,/i;
 const MAX_SECTIONS = 8;
 const MAX_BLOCKS_PER_SECTION = 10;
 const MAX_BLOCK_CHARS = 900;
@@ -143,6 +146,28 @@ function slugify(value: string): string {
     .slice(0, 48) || "koasis-output";
 }
 
+/**
+ * Infer the requested output without treating a Google Docs URL as a request
+ * to generate a DOCX. Screenshot/image intent always wins because a prompt
+ * can mention Docs as the source and still ask for a picture of the result.
+ */
+export function inferChatArtifactKind(prompt: string, editableSourceKind?: ChatArtifactKind | null): ChatArtifactKind | undefined {
+  const normalized = prompt.replace(/\s+/g, " ").trim().toLowerCase();
+  // Indonesian requests commonly attach the clitic `-nya` ("screenshotnya",
+  // "gambarnya"). Treat those as the same explicit image intent; otherwise a
+  // stale DOCX selection can win and the response ends without an attachment.
+  const asksForImage = /\b(?:screenshot(?:nya)?|screen\s*shot(?:nya)?|tangkapan layar(?:nya)?|tangkap layar(?:nya)?|capture (?:the )?screen|ambil (?:gambar|foto) layar(?:nya)?|foto layar(?:nya)?|kirim (?:screenshot(?:nya)?|gambar(?:nya)?|image(?:nya)?|foto(?:nya)?)|send (?:me )?(?:the )?(?:image|picture|photo)|gambar layar(?:nya)?)\b/i.test(normalized);
+  if (asksForImage) return "image";
+
+  const asksForArtifact = /\b(?:buat|buatkan|bikin|generate|hasilkan|siapkan|download|unduh|export|edit|ubah|perbaiki|convert|konversi|file|editable|dapat diunduh)\b/i.test(normalized);
+  if (!asksForArtifact) return undefined;
+  if (/(?:\bpptx?\b|\bpowerpoint\b|\bslide deck\b|\bslides?\b|\bpresentasi\b|\bpitch deck\b)/i.test(normalized)) return "pptx";
+  // Require a word boundary so `docs.google.com` does not match `doc`.
+  if (/(?:\bdocx?\b|\bmicrosoft word\b|\bword document\b|\bfile dokumen\b|\bdokumen\b|\blaporan\b|\bmakalah\b|\breport\b)/i.test(normalized)) return "docx";
+  if (editableSourceKind && /\b(?:edit|ubah|perbaiki|rapikan|revisi|rewrite|convert|konversi|generate|hasilkan|buat|buatkan|export|unduh|download)\b/i.test(normalized)) return editableSourceKind;
+  return undefined;
+}
+
 function pptRelationship(id: string, type: string, target: string): string {
   return `<Relationship Id="${id}" Type="${type}" Target="${target}"/>`;
 }
@@ -237,7 +262,7 @@ async function createDocxBlob(parsed: ParsedChatArtifactContent): Promise<Blob> 
   return zip.generateAsync({ type: "blob", mimeType: DOCX_MIME });
 }
 
-export async function createChatArtifact(kind: ChatArtifactKind, prompt: string, response: string): Promise<GeneratedChatArtifact> {
+export async function createChatArtifact(kind: EditableChatArtifactKind, prompt: string, response: string): Promise<GeneratedChatArtifact> {
   const parsed = parseChatArtifactContent(prompt, response);
   const extension = kind === "pptx" ? "pptx" : "docx";
   const mimeType = kind === "pptx" ? PPTX_MIME : DOCX_MIME;
@@ -248,5 +273,23 @@ export async function createChatArtifact(kind: ChatArtifactKind, prompt: string,
     fileName: `${slugify(parsed.title)}.${extension}`,
     mimeType,
     blob,
+  };
+}
+
+export async function createImageChatArtifact(dataUrl: string): Promise<GeneratedChatArtifact> {
+  const match = IMAGE_DATA_URL_PATTERN.exec(dataUrl.trim());
+  if (!match) throw new Error("Gambar hasil Computer belum tersedia dalam format yang dapat diunduh.");
+  const mimeType = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase();
+  const response = await fetch(dataUrl);
+  if (!response.ok) throw new Error("Screenshot Computer belum berhasil disiapkan untuk diunduh.");
+  const blob = await response.blob();
+  if (!blob.size) throw new Error("Screenshot Computer kosong.");
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.slice("image/".length);
+  return {
+    kind: "image",
+    title: "Tangkapan layar Computer",
+    fileName: `koasis-screenshot-${Date.now()}.${extension}`,
+    mimeType,
+    blob: blob.type === mimeType ? blob : new Blob([blob], { type: mimeType }),
   };
 }

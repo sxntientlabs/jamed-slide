@@ -9,6 +9,7 @@
     "start": "vite preview --host 0.0.0.0 --port ${PORT:-8080}",
     "preview": "vite preview",
     "instabox:keepalive": "node scripts/instabox-keepalive.mjs",
+    "rakazo:bridge": "node rakazo-bridge/server.mjs",
     "test": "vitest run"
   },
   "engines": {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type UIEvent as ReactUIEvent } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Bell, BookOpen, Check, ChevronDown, ChevronUp, DoorOpen, Download, ExternalLink, FileText, FolderPlus, GitBranch, GraduationCap, Grid2X2, Link2, LoaderCircle, LogOut, Menu, Monitor, Moon, MoreHorizontal, Network, Paperclip, PanelLeft, Plus, Puzzle, RotateCcw, Search, Shapes, ShieldCheck, SlidersHorizontal, SquarePen, Star, Sun, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Bell, BookOpen, Check, ChevronDown, ChevronUp, DoorOpen, Download, ExternalLink, FileText, FolderPlus, GitBranch, GraduationCap, Grid2X2, Image as ImageIcon, Link2, LoaderCircle, LogOut, Maximize2, Menu, Monitor, Moon, MoreHorizontal, Network, Paperclip, PanelLeft, Plus, Puzzle, RotateCcw, Search, Shapes, ShieldCheck, SlidersHorizontal, SquarePen, Star, Sun, X } from "lucide-react";
 import { useAuth, userInitial } from "./AuthGate";
 import { KoasisGlyph, type KoasisGlyphName } from "./KoasisGlyph";
 import { KoasisCaseBrief } from "./KoasisCaseBrief";
@@ -8,7 +8,7 @@ import { KoasisWorkflowDialog, type KoasisWorkflowKind } from "./KoasisWorkflowD
 import { MkarRotationCockpit, type MkarCockpitAction } from "./MkarRotationCockpit";
 import { KoasisClinicalWorkspace } from "./KoasisClinicalWorkspace";
 import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
-import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentComputerActivity, type AgentRunStatus } from "../lib/agentChatClient";
+import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentChatResult, type AgentComputerActivity, type AgentMode, type AgentRunStatus } from "../lib/agentChatClient";
 import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "../lib/evidenceCitations";
 import { searchEvidenceSources, type EvidenceQueryPlan, type EvidenceSource } from "../lib/evidenceSearchClient";
 import { ComputerClientError, getComputerStatus, openComputerSession, revokeComputerSession, selectComputerMachine, type ComputerMachine, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
@@ -17,10 +17,10 @@ import { loadPublicAdminCatalog } from "../lib/adminApi";
 import type { PublicAdminCatalog } from "../lib/adminConfig";
 import { promptNeedsEvidence } from "../lib/evidencePolicy";
 import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisReasoningLevel } from "../lib/koasisModels";
-import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
+import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatArtifact, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
 import { detectSensitiveIdentifiers, redactSensitiveIdentifiers, type SensitiveIdentifierFinding } from "../lib/privacyGuard";
 import { buildConversationTitle, buildUniqueFollowUpQuestions } from "../lib/conversationMeta";
-import { createChatArtifact, type ChatArtifactKind, type GeneratedChatArtifact } from "../lib/chatArtifacts";
+import { createChatArtifact, createImageChatArtifact, inferChatArtifactKind, type ChatArtifactKind, type GeneratedChatArtifact } from "../lib/chatArtifacts";
 import { extractDocxText } from "../lib/docxParser";
 import { parsePptx } from "../lib/pptxParser";
 
@@ -84,6 +84,13 @@ function ComputerAccessSelector({ value, open, onToggle, onChange }: { value: Co
   </div>;
 }
 
+function AgentModeToggle({ value, onChange }: { value: AgentMode; onChange: (value: AgentMode) => void }) {
+  return <div className="koasis-agent-mode-toggle" role="tablist" aria-label="Pilih mode percakapan">
+    <button type="button" role="tab" aria-selected={value === "chat"} className={value === "chat" ? "active" : ""} onClick={() => onChange("chat")} title="Chat ringan dengan konteks sesi dan alat minimum">Chat</button>
+    <button type="button" role="tab" aria-selected={value === "agentic"} className={value === "agentic" ? "active" : ""} onClick={() => onChange("agentic")} title="Agentic: gunakan Agent, tools, dan Computer setelah disetujui">Agentic</button>
+  </div>;
+}
+
 type ChatMessage = AgentChatMessage & {
   id: string;
   agentId?: string;
@@ -102,12 +109,14 @@ type ChatMessage = AgentChatMessage & {
   artifact?: ChatArtifact;
   artifactKind?: ChatArtifactKind;
   artifactError?: string;
+  artifactRemote?: RemoteChatArtifact;
 };
 
 type ChatSession = {
   id: string;
   title: string;
   modeId: string;
+  agentMode: AgentMode;
   updatedAt: number;
   messages: ChatMessage[];
 };
@@ -625,7 +634,7 @@ function currentTime(): string {
 }
 
 function newSession(id = `chat-${Date.now()}`): ChatSession {
-  return { id, title: "Percakapan baru", modeId: "koasis", updatedAt: Date.now(), messages: [{ ...INITIAL_MESSAGE, id: `welcome-${id}` }] };
+  return { id, title: "Percakapan baru", modeId: "koasis", agentMode: "chat", updatedAt: Date.now(), messages: [{ ...INITIAL_MESSAGE, id: `welcome-${id}` }] };
 }
 
 function toRemoteMessage(message: ChatMessage): RemoteChatMessage {
@@ -645,6 +654,7 @@ function toRemoteMessage(message: ChatMessage): RemoteChatMessage {
   if (message.citationSources?.length) remote.citationSources = message.citationSources.slice(0, 8);
   if (message.followUpQuestions?.length) remote.followUpQuestions = message.followUpQuestions.slice(0, 3);
   if (message.reviewRequired !== undefined) remote.reviewRequired = message.reviewRequired;
+  if (message.artifactRemote) remote.artifact = message.artifactRemote;
   const attachments = message.attachments?.map(({ name, mimeType, kind, storagePath }) => ({
     name,
     mimeType,
@@ -660,6 +670,7 @@ function toRemoteSession(session: ChatSession): RemoteChatSession {
     id: session.id,
     title: session.title,
     modeId: session.modeId,
+    agentMode: session.agentMode,
     updatedAt: session.updatedAt,
     messages: session.messages.filter((message) => !message.streaming).slice(-40).map(toRemoteMessage),
   };
@@ -672,10 +683,15 @@ function fromRemoteSession(session: RemoteChatSession): ChatSession {
     sources,
   });
   const messages = session.messages.map((message, index, allMessages) => {
-    if (message.role !== "assistant" || message.error || !message.content.trim()) return { ...message };
+    const { artifact: remoteArtifact, ...messageFields } = message;
+    const localMessage: ChatMessage = {
+      ...messageFields,
+      ...(remoteArtifact ? { artifactKind: remoteArtifact.kind, artifactRemote: remoteArtifact } : {}),
+    };
+    if (message.role !== "assistant" || message.error || !message.content.trim()) return localMessage;
     const prompt = [...allMessages.slice(0, index)].reverse().find((candidate) => candidate.role === "user")?.content || "";
     return {
-      ...message,
+      ...localMessage,
       followUpQuestions: buildUniqueFollowUpQuestions({
         prompt,
         answer: message.content,
@@ -688,6 +704,7 @@ function fromRemoteSession(session: RemoteChatSession): ChatSession {
     id: session.id,
     title: generatedTitle === "Percakapan baru" ? session.title : generatedTitle,
     modeId: normalizeAppAgentId(session.modeId),
+    agentMode: session.agentMode === "agentic" ? "agentic" : "chat",
     updatedAt: session.updatedAt || Date.now(),
     messages,
   };
@@ -754,14 +771,13 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-function inferChatArtifactKind(prompt: string, _agentId: string, editableSourceKind?: ChatArtifactKind | null): ChatArtifactKind | undefined {
-  const normalized = prompt.replace(/\s+/g, " ").trim().toLowerCase();
-  const asksForArtifact = /\b(?:buat|buatkan|bikin|generate|hasilkan|siapkan|download|unduh|export|edit|ubah|perbaiki|convert|konversi|file|editable|dapat diunduh)\b/i.test(normalized);
-  if (!asksForArtifact) return undefined;
-  if (/(?:pptx?|powerpoint|slide deck|slides?|presentasi|pitch deck)/i.test(normalized)) return "pptx";
-  if (/(?:docx?|microsoft word|word document|file dokumen|dokumen|laporan|makalah|report)/i.test(normalized)) return "docx";
-  if (editableSourceKind && /\b(?:edit|ubah|perbaiki|rapikan|revisi|rewrite|convert|konversi|generate|hasilkan|buat|buatkan|export|unduh|download)\b/i.test(normalized)) return editableSourceKind;
-  return undefined;
+function blobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Output belum bisa dibaca."));
+    reader.onerror = () => reject(reader.error ?? new Error("Output belum bisa dibaca."));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function fallbackReply(prompt: string): string {
@@ -958,11 +974,14 @@ function safeEvidenceMessageContent(message: ChatMessage): string {
 }
 
 function ChatArtifactCard({ artifact, kind, error }: { artifact?: ChatArtifact; kind?: ChatArtifactKind; error?: string }) {
-  if (!artifact && !error) return null;
-  const label = (artifact?.kind || kind) === "pptx" ? "PPTX editable" : "DOCX editable";
-  return <section className="koasis-chat-artifact" aria-label="Output file dari chat">
-    <div className="koasis-chat-artifact-icon" aria-hidden="true">{artifact?.kind === "pptx" ? <Shapes size={17} /> : <FileText size={17} />}</div>
-    <div className="koasis-chat-artifact-copy"><strong>{artifact ? artifact.title : `Output ${label}`}</strong><span>{artifact ? `${label} · dibuat dari jawaban yang sudah bisa direview` : error}</span></div>
+  if (!artifact && !error && !kind) return null;
+  const effectiveKind = artifact?.kind || kind;
+  const label = effectiveKind === "pptx" ? "PPTX editable" : effectiveKind === "image" ? "Gambar PNG" : "DOCX editable";
+  const unavailableMessage = error || (kind ? "Output tersimpan, tetapi belum dapat dipulihkan dari riwayat. Coba buka ulang atau kirim ulang permintaan ini." : undefined);
+  return <section className={`koasis-chat-artifact ${effectiveKind === "image" ? "image" : ""}`.trim()} aria-label="Output file dari chat">
+    {artifact?.kind === "image" && <img className="koasis-chat-artifact-preview" src={artifact.url} alt="Tangkapan layar dari Computer" />}
+    <div className="koasis-chat-artifact-icon" aria-hidden="true">{effectiveKind === "pptx" ? <Shapes size={17} /> : effectiveKind === "image" ? <ImageIcon size={17} /> : <FileText size={17} />}</div>
+    <div className="koasis-chat-artifact-copy"><strong>{artifact ? artifact.title : `Output ${label}`}</strong><span>{artifact ? `${label} · siap diunduh dari hasil task` : unavailableMessage}</span></div>
     {artifact && <a className="koasis-chat-artifact-download" href={artifact.url} download={artifact.fileName}><Download size={14} /> Unduh</a>}
   </section>;
 }
@@ -999,16 +1018,46 @@ function AgentThinking({ label, status, events }: { label: string; status: Agent
   return <div className="koasis-agent-thinking-stack"><AicssThinkingSurface label={label} detail={status?.message || "Memulai workflow yang aman dan bisa direview…"} /><AicssThinkingReasoning sentences={reasoningSentences} /><KoasisRunTrace events={events} activePhase={status?.phase} /></div>;
 }
 
-function ComputerActivityPreview({ activity, busy }: { activity: AgentComputerActivity; busy: boolean }) {
+type ComputerLiveBusyState = "view" | "control" | "close" | null;
+
+type ComputerActivityPreviewProps = {
+  activity: AgentComputerActivity;
+  busy: boolean;
+  liveSession: ComputerSession | null;
+  liveBusy: ComputerLiveBusyState;
+  liveError: string;
+  expanded: boolean;
+  onOpenLive: (viewOnly: boolean) => void;
+  onCloseLive: () => void;
+  onToggleFullscreen: () => void;
+};
+
+function ComputerActivityPreview({ activity, busy, liveSession, liveBusy, liveError, expanded, onOpenLive, onCloseLive, onToggleFullscreen }: ComputerActivityPreviewProps) {
   const active = busy && activity.kind !== "error" && activity.kind !== "finished";
   const stateLabel = activity.kind === "error" ? "Perlu perhatian" : active ? "Sedang berjalan" : "Selesai";
   const stateIcon = activity.kind === "error" ? <X size={12} /> : active ? <LoaderCircle size={12} className="koasis-spinner" /> : <Check size={12} />;
+  const liveLabel = liveSession?.viewOnly ? "Lihat saja" : "Kamu memegang kontrol";
   return <section className={`koasis-computer-activity ${active ? "active" : "complete"} ${activity.kind === "error" ? "error" : ""}`} aria-live="polite" aria-label="Aktivitas agent di Computer">
     <div className="koasis-computer-activity-head">
       <div className="koasis-computer-activity-title"><span className="koasis-computer-activity-mark"><Monitor size={14} /></span><span><strong>Agent menggunakan Computer</strong><small>{activity.message}</small></span></div>
-      <span className="koasis-computer-activity-state">{stateIcon}{stateLabel}</span>
+      <div className="koasis-computer-activity-head-actions">
+        <span className="koasis-computer-activity-state">{stateIcon}{stateLabel}</span>
+        {liveSession && !expanded && <button type="button" className="koasis-computer-activity-action" onClick={onToggleFullscreen} disabled={liveBusy === "close"}><Maximize2 size={12} />Layar penuh</button>}
+        {liveSession && !expanded && <button type="button" className="koasis-computer-activity-action muted" onClick={onCloseLive} disabled={liveBusy !== null}>{liveBusy === "close" ? <LoaderCircle size={12} className="koasis-spinner" /> : <X size={12} />}Tutup live</button>}
+      </div>
     </div>
-    {activity.screenshotDataUrl ? <div className="koasis-computer-activity-preview"><img src={activity.screenshotDataUrl} alt="Preview layar Computer saat agent bekerja" /><small>Preview sementara · tidak disimpan ke riwayat chat</small></div> : <div className="koasis-computer-activity-step"><span className="koasis-computer-activity-step-dot" /><span>{activity.message}</span></div>}
+    {liveSession ? <div className={`koasis-computer-live ${expanded ? "expanded" : ""}`} role={expanded ? "dialog" : undefined} aria-modal={expanded ? "true" : undefined} aria-label={expanded ? "Desktop Computer" : undefined}>
+      <div className="koasis-computer-live-head"><div><strong>{liveLabel}</strong><small>{busy ? "Agent tetap menjalankan task-nya di sesi terpisah." : "Sesi desktop sementara untuk melihat atau mengambil alih."}</small></div><div className="koasis-computer-live-actions"><span className="koasis-computer-live-badge"><i />Live</span>{expanded && <><button type="button" className="koasis-computer-activity-action" onClick={onToggleFullscreen} disabled={liveBusy === "close"}><Maximize2 size={12} />Tutup layar penuh</button><button type="button" className="koasis-computer-activity-action muted" onClick={onCloseLive} disabled={liveBusy !== null}>{liveBusy === "close" ? <LoaderCircle size={12} className="koasis-spinner" /> : <X size={12} />}Tutup live</button></>}</div></div>
+      <iframe className="koasis-computer-live-frame" src={liveSession.streamUrl} title="Desktop Computer live" allow="clipboard-read; clipboard-write" />
+      <small className="koasis-computer-live-note">Sesi live bersifat sementara dan tidak menyimpan screenshot atau input ke riwayat chat.</small>
+    </div> : activity.screenshotDataUrl ? <div className="koasis-computer-activity-preview">
+      <button type="button" className="koasis-computer-activity-preview-button" onClick={() => onOpenLive(true)} disabled={liveBusy !== null} aria-label="Buka preview Computer dalam layar penuh">
+        <img src={activity.screenshotDataUrl} alt="Preview layar Computer saat agent bekerja" />
+        <span><Maximize2 size={12} />Klik untuk membuka desktop live</span>
+      </button>
+      <div className="koasis-computer-activity-preview-footer"><small>Preview sementara · tidak disimpan ke riwayat chat</small><div><button type="button" className="koasis-computer-activity-action" onClick={() => onOpenLive(true)} disabled={liveBusy !== null}>{liveBusy === "view" ? <LoaderCircle size={12} className="koasis-spinner" /> : <Maximize2 size={12} />}Lihat layar</button><button type="button" className="koasis-computer-activity-action takeover" onClick={() => onOpenLive(false)} disabled={liveBusy !== null}>{liveBusy === "control" ? <LoaderCircle size={12} className="koasis-spinner" /> : <Monitor size={12} />}Ambil alih</button></div></div>
+    </div> : <div className="koasis-computer-activity-step"><span className="koasis-computer-activity-step-dot" /><span>{activity.message}</span><div><button type="button" className="koasis-computer-activity-action" onClick={() => onOpenLive(true)} disabled={liveBusy !== null}>{liveBusy === "view" ? <LoaderCircle size={12} className="koasis-spinner" /> : <Maximize2 size={12} />}Lihat layar</button><button type="button" className="koasis-computer-activity-action takeover" onClick={() => onOpenLive(false)} disabled={liveBusy !== null}>{liveBusy === "control" ? <LoaderCircle size={12} className="koasis-spinner" /> : <Monitor size={12} />}Ambil alih</button></div></div>}
+    {liveError && <div className="koasis-computer-live-error" role="alert">{liveError}</div>}
   </section>;
 }
 
@@ -1201,16 +1250,25 @@ function evidenceProviderLabel(provider: string): string {
 }
 
 function shouldAutoSearchEvidence(prompt: string, presetId: string): boolean {
-  return promptNeedsEvidence(prompt, presetId as AgentId) || (findAgentPreset(presetId)?.sourcePolicy === "source-required" && prompt.trim().length >= 20);
+  // Computer tasks should go straight to the action runtime. Running a
+  // federated evidence search first is both irrelevant and user-visible as a
+  // long preflight, especially when a source-required specialist is selected.
+  if (promptNeedsComputerApproval(prompt)) return false;
+  return promptNeedsEvidence(prompt, presetId as AgentId);
 }
 
 function evidenceSearchQuery(prompt: string, conversation: ChatMessage[]): string {
   const normalizedPrompt = prompt.replace(/\s+/g, " ").trim();
-  const recentContext = conversation.filter((message) => message.role === "user").slice(-2).map((message) => message.content.trim()).filter(Boolean).join(" ");
-  // Keep the active request at the front. A tail slice used to drop the
-  // current topic when prior chat context was long, producing a search for
-  // the wrong subject even though the UI showed the right prompt.
-  return [normalizedPrompt, recentContext].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 720);
+  const isStandalone = normalizedPrompt.length >= 48 || /\b(?:evidence|referensi|sumber|sitasi|citation|jurnal|journal|paper|artikel|guideline|pedoman|literatur|research|riset|cari|carikan|search|find|diagnos(?:is|tik)|diagnostic|terapi|tatalaksana|treatment|obat|dosis|penyakit|gejala|symptom|prognosis|skrining|screening|pencegahan|prevention|risiko|risk|vaksin|vaccine|prevalensi|prevalence|mortalitas|mortality)\b/i.test(normalizedPrompt);
+  const recentContext = conversation.filter((message) => message.role === "user").slice(-2).map((message) => message.content.trim()).filter(Boolean);
+  // A complete research request is already the best query. Appending older
+  // turns polluted OpenAlex/Crossref/Web ranking with unrelated subjects.
+  return (isStandalone ? [normalizedPrompt] : [normalizedPrompt, ...recentContext])
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 720);
 }
 
 function EvidenceSourceSearchPanel({
@@ -1287,6 +1345,7 @@ export function AgenticChat() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarSearchOpen, setSidebarSearchOpen] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState<string>("koasis");
+  const [agentMode, setAgentMode] = useState<AgentMode>("chat");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [engineMenuOpen, setEngineMenuOpen] = useState(false);
   const [composerPalette, setComposerPalette] = useState<ComposerPalette>(null);
@@ -1320,6 +1379,10 @@ export function AgenticChat() {
   const [computerApproval, setComputerApproval] = useState<PendingComputerApproval | null>(null);
   const [computerAccessMode, setComputerAccessMode] = useState<ComputerAccessMode>("ask");
   const [computerAccessMenuOpen, setComputerAccessMenuOpen] = useState(false);
+  const [computerLiveSession, setComputerLiveSession] = useState<ComputerSession | null>(null);
+  const [computerLiveBusy, setComputerLiveBusy] = useState<ComputerLiveBusyState>(null);
+  const [computerLiveError, setComputerLiveError] = useState("");
+  const [computerPreviewExpanded, setComputerPreviewExpanded] = useState(false);
   const [privacyReview, setPrivacyReview] = useState<PendingPrivacyReview | null>(null);
   const [evidenceQuery, setEvidenceQuery] = useState("");
   const [evidenceResults, setEvidenceResults] = useState<EvidenceSource[]>([]);
@@ -1339,11 +1402,16 @@ export function AgenticChat() {
   const composerMirrorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const computerLiveRequestRef = useRef<AbortController | null>(null);
+  const computerLiveSessionRef = useRef<ComputerSession | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const notificationAudioContextRef = useRef<AudioContext | null>(null);
   const artifactUrlsRef = useRef<Set<string>>(new Set());
   const remoteHydratedRef = useRef(false);
   const remoteLoadSucceededRef = useRef(false);
+  const sessionsRef = useRef(sessions);
+  const activeSessionIdRef = useRef(activeSessionId);
+  const localSessionInteractionRef = useRef(false);
 
   const accountLabel = user.displayName?.trim() || user.email?.split("@")[0] || "Pengguna";
   const activePreset = findAgentPreset(selectedPresetId) ?? AGENT_PRESETS[0];
@@ -1358,6 +1426,15 @@ export function AgenticChat() {
   const trackRunStatus = (next: AgentRunStatus) => {
     setRunStatus(next);
     setRunTrail((current) => [...current.filter((event) => event.phase !== next.phase), { phase: next.phase, message: next.message }]);
+  };
+  const selectAgentMode = (next: AgentMode) => {
+    if (busy || next === agentMode) return;
+    localSessionInteractionRef.current = true;
+    setAgentMode(next);
+    setComputerApproval(null);
+    setComputerAccessMenuOpen(false);
+    if (next === "chat") setComputerAccessMode("off");
+    else if (computerAccessMode === "off") setComputerAccessMode("ask");
   };
   const filteredSessions = useMemo(() => sessions.filter((session) => {
     const query = searchQuery.trim().toLowerCase();
@@ -1394,6 +1471,18 @@ export function AgenticChat() {
   }, [themeMode]);
 
   useEffect(() => {
+    computerLiveSessionRef.current = computerLiveSession;
+  }, [computerLiveSession]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  useEffect(() => {
     let disposed = false;
     void loadPublicAdminCatalog().then((catalog) => {
       if (disposed) return;
@@ -1411,9 +1500,10 @@ export function AgenticChat() {
     let disposed = false;
     remoteHydratedRef.current = false;
     remoteLoadSucceededRef.current = false;
+    localSessionInteractionRef.current = false;
     setRemoteHydrated(false);
     void Promise.all([loadKoasisState(user.uid), loadKoasisSessions(user.uid)])
-      .then(([remoteState, remoteSessions]) => {
+      .then(async ([remoteState, remoteSessions]) => {
         if (disposed) return;
         remoteLoadSucceededRef.current = true;
         if (remoteState) {
@@ -1429,15 +1519,60 @@ export function AgenticChat() {
         }
         if (remoteSessions.length) {
           const restoredSessions = remoteSessions.map(fromRemoteSession);
-          const firstSession = restoredSessions[0];
-          setSessions(restoredSessions);
-          setActiveSessionId(firstSession.id);
-          setMessages(firstSession.messages);
-          setChatTitle(firstSession.title);
-          setSelectedPresetId(normalizeAppAgentId(firstSession.modeId));
+          const hydratedSessions = await Promise.all(restoredSessions.map(async (session) => ({
+            ...session,
+            messages: await Promise.all(session.messages.map(async (message) => {
+              if (!message.artifactRemote?.storagePath) return message;
+              try {
+                const dataUrl = await downloadKoasisFileDataUrl(message.artifactRemote.storagePath);
+                const blobResponse = await fetch(dataUrl);
+                if (!blobResponse.ok) return message;
+                const blob = await blobResponse.blob();
+                if (!blob.size) return message;
+                const url = URL.createObjectURL(blob);
+                artifactUrlsRef.current.add(url);
+                return {
+                  ...message,
+                  artifact: {
+                    kind: message.artifactRemote.kind,
+                    fileName: message.artifactRemote.fileName,
+                    mimeType: message.artifactRemote.mimeType,
+                    title: message.artifactRemote.title,
+                    blob,
+                    url,
+                  },
+                };
+              } catch (error) {
+                console.warn(`Output ${message.artifactRemote.fileName} belum dapat dipulihkan dari Firebase Storage.`, error);
+                return message;
+              }
+            })),
+          })));
+          if (disposed) return;
+          const localSessions = sessionsRef.current.filter((session) => session.messages.some((message) => message.role === "user") || session.id !== "chat-welcome");
+          const mergedSessions = [...hydratedSessions, ...localSessions.filter((local) => !hydratedSessions.some((remote) => remote.id === local.id))]
+            .sort((left, right) => right.updatedAt - left.updatedAt)
+            .slice(0, 30);
+          const preferredSession = localSessionInteractionRef.current
+            ? mergedSessions.find((session) => session.id === activeSessionIdRef.current) || mergedSessions[0]
+            : mergedSessions[0];
+          if (!preferredSession) return;
+          setSessions(mergedSessions);
+          setActiveSessionId(preferredSession.id);
+          setMessages(preferredSession.messages);
+          setChatTitle(preferredSession.title);
+          setSelectedPresetId(normalizeAppAgentId(preferredSession.modeId));
+          setAgentMode(preferredSession.agentMode === "agentic" ? "agentic" : "chat");
+          setShowHome(false);
+          setManusPage("home");
         }
       })
       .catch((error) => {
+        // A temporary read/index/auth failure must not disable all subsequent
+        // writes for this signed-in user. Per-session writes are upserts, so
+        // allowing them after hydration preserves new Agentic history without
+        // deleting any remote sessions that could not be read in this pass.
+        remoteLoadSucceededRef.current = true;
         console.warn("Koasis remote state belum dapat dimuat; sesi ini tetap berjalan di memory.", error);
       })
       .finally(() => {
@@ -1454,8 +1589,21 @@ export function AgenticChat() {
   }, [user.uid]);
 
   useEffect(() => {
-    setSessions((current) => current.map((session) => session.id === activeSessionId ? { ...session, title: chatTitle, modeId: selectedPresetId, updatedAt: Date.now(), messages: messages.slice(-40) } : session));
-  }, [activeSessionId, chatTitle, messages, selectedPresetId]);
+    if (!activeSessionId) return;
+    setSessions((current) => {
+      const nextSession: ChatSession = {
+        id: activeSessionId,
+        title: chatTitle,
+        modeId: selectedPresetId,
+        agentMode,
+        updatedAt: Date.now(),
+        messages: messages.slice(-40),
+      };
+      const hasActiveSession = current.some((session) => session.id === activeSessionId);
+      if (!hasActiveSession) return [nextSession, ...current].slice(0, 30);
+      return current.map((session) => session.id === activeSessionId ? nextSession : session);
+    });
+  }, [activeSessionId, agentMode, chatTitle, messages, selectedPresetId]);
 
   useEffect(() => {
     if (!remoteHydrated || !remoteHydratedRef.current || !remoteLoadSucceededRef.current) return;
@@ -1523,6 +1671,11 @@ export function AgenticChat() {
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
+    computerLiveRequestRef.current?.abort();
+    const liveSession = computerLiveSessionRef.current;
+    if (liveSession) {
+      void user.getIdToken().then((authToken) => revokeComputerSession({ authToken }, liveSession.sessionId)).catch(() => undefined);
+    }
     recognitionRef.current?.stop();
     artifactUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     artifactUrlsRef.current.clear();
@@ -1542,16 +1695,25 @@ export function AgenticChat() {
         setMobileSidebarOpen(false);
         setWorkflowKind(null);
         setCaseBriefOpen(false);
+        if (computerPreviewExpanded) setComputerPreviewExpanded(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
+  useEffect(() => {
+    if (!computerPreviewExpanded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [computerPreviewExpanded]);
+
   const toggleTheme = () => setThemeMode((current) => current === "dark" ? "light" : "dark");
   const toggleWorkspacePanel = () => setWorkspacePanelOpen((current) => !current);
   const openManusPage = (page: Exclude<ManusPage, "home">) => {
     requestControllerRef.current?.abort();
+    void closeComputerLiveSession();
     setManusPage(page);
     setShowHome(true);
     setMoreMenuOpen(false);
@@ -1569,6 +1731,7 @@ export function AgenticChat() {
     openHomeSurface("chat");
   };
   const openHomeSurface = (surface: "chat" | "ops" | "curriculum") => {
+    void closeComputerLiveSession();
     setManusPage("home");
     setShowHome(true);
     setHomeSurface(surface);
@@ -1580,6 +1743,60 @@ export function AgenticChat() {
     setComputerAccessMenuOpen(false);
     setMoreMenuOpen(false);
     setMobileSidebarOpen(false);
+  };
+
+  const openComputerLiveSession = async (viewOnly: boolean) => {
+    computerLiveRequestRef.current?.abort();
+    const controller = new AbortController();
+    computerLiveRequestRef.current = controller;
+    setComputerLiveBusy(viewOnly ? "view" : "control");
+    setComputerLiveError("");
+    try {
+      const authToken = await user.getIdToken();
+      const session = await openComputerSession(viewOnly, { authToken, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (!session.streamUrl) throw new ComputerClientError("Link desktop live belum tersedia. Coba buka lagi sebentar.", "computer_stream_unavailable");
+      computerLiveSessionRef.current = session;
+      setComputerLiveSession(session);
+      setComputerPreviewExpanded(true);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setComputerLiveError(error instanceof ComputerClientError ? error.message : "Desktop live belum bisa dibuka. Coba lagi sebentar.");
+    } finally {
+      if (computerLiveRequestRef.current === controller) {
+        computerLiveRequestRef.current = null;
+        setComputerLiveBusy(null);
+      }
+    }
+  };
+
+  const closeComputerLiveSession = async () => {
+    computerLiveRequestRef.current?.abort();
+    computerLiveRequestRef.current = null;
+    const liveSession = computerLiveSessionRef.current || computerLiveSession;
+    setComputerPreviewExpanded(false);
+    if (!liveSession) {
+      setComputerLiveSession(null);
+      setComputerLiveError("");
+      return;
+    }
+    setComputerLiveBusy("close");
+    try {
+      const authToken = await user.getIdToken();
+      await revokeComputerSession({ authToken }, liveSession.sessionId);
+      setComputerLiveError("");
+    } catch (error) {
+      setComputerLiveError(error instanceof ComputerClientError ? error.message : "Sesi live belum dapat ditutup dengan rapi.");
+    } finally {
+      computerLiveSessionRef.current = null;
+      setComputerLiveSession(null);
+      setComputerLiveBusy(null);
+    }
+  };
+
+  const toggleComputerPreviewFullscreen = () => {
+    if (!computerLiveSession) return;
+    setComputerPreviewExpanded((current) => !current);
   };
 
   const handleEvidenceSearch = async () => {
@@ -1660,7 +1877,9 @@ export function AgenticChat() {
   };
 
   const startNewChat = (agentId?: string) => {
+    localSessionInteractionRef.current = true;
     requestControllerRef.current?.abort();
+    void closeComputerLiveSession();
     requestControllerRef.current = null;
     followScrollRef.current = true;
     setShowJumpToLatest(false);
@@ -1678,6 +1897,7 @@ export function AgenticChat() {
     setMessages(next.messages);
     setChatTitle(next.title);
     setSelectedPresetId(preset?.id || "koasis");
+    setAgentMode(next.agentMode);
     setDraft("");
     setPendingArtifactKind(null);
     setEditableSourceKind(null);
@@ -1712,13 +1932,16 @@ export function AgenticChat() {
   };
 
   const openSession = (session: ChatSession) => {
+    localSessionInteractionRef.current = true;
     requestControllerRef.current?.abort();
+    void closeComputerLiveSession();
     followScrollRef.current = true;
     setShowJumpToLatest(false);
     setActiveSessionId(session.id);
     setMessages(session.messages);
     setChatTitle(session.title);
     setSelectedPresetId(normalizeAppAgentId(session.modeId));
+    setAgentMode(session.agentMode === "agentic" ? "agentic" : "chat");
     setDraft("");
     setPendingArtifactKind(null);
     setEditableSourceKind(null);
@@ -1818,7 +2041,7 @@ export function AgenticChat() {
     setComputerAccessMenuOpen(false);
   };
 
-  const updateAssistant = (assistantId: string, content: string, streaming: boolean, options?: { agentId?: string; fallback?: boolean; error?: boolean; errorKind?: "request" | "evidence-search"; retryPrompt?: string; requestId?: string; durationMs?: number; sourceMode?: SourceMode; citationSources?: EvidenceSource[]; followUpQuestions?: string[]; reviewRequired?: boolean; artifact?: ChatArtifact; artifactKind?: ChatArtifactKind; artifactError?: string }) => {
+  const updateAssistant = (assistantId: string, content: string, streaming: boolean, options?: { agentId?: string; fallback?: boolean; error?: boolean; errorKind?: "request" | "evidence-search"; retryPrompt?: string; requestId?: string; durationMs?: number; sourceMode?: SourceMode; citationSources?: EvidenceSource[]; followUpQuestions?: string[]; reviewRequired?: boolean; artifact?: ChatArtifact; artifactKind?: ChatArtifactKind; artifactError?: string; artifactRemote?: RemoteChatArtifact }) => {
     setMessages((current) => {
       const nextMessage: ChatMessage = { id: assistantId, agentId: options?.agentId || activePreset.id, role: "assistant", content, timestamp: current.find((message) => message.id === assistantId)?.timestamp || currentTime(), streaming, ...options };
       const existingIndex = current.findIndex((message) => message.id === assistantId);
@@ -1941,7 +2164,11 @@ export function AgenticChat() {
       }
     }
     const requestComputerApproved = computerApproved || computerAccessMode === "always";
-    if (!requestComputerApproved && computerAccessMode !== "off" && !skipComputerApproval && promptNeedsComputerApproval(requestPrompt)) {
+    const requestAgentMode = agentMode;
+    localSessionInteractionRef.current = true;
+    const allowComputer = requestAgentMode === "agentic";
+    const effectiveComputerApproved = allowComputer && requestComputerApproved;
+    if (allowComputer && !effectiveComputerApproved && computerAccessMode !== "off" && !skipComputerApproval && promptNeedsComputerApproval(requestPrompt)) {
       setComputerApproval({ prompt, attachments: messageAttachments, contextSources: initialEvidenceSources, contextSourceMode: initialSourceMode });
       setModelMenuOpen(false);
       setEngineMenuOpen(false);
@@ -1973,7 +2200,10 @@ export function AgenticChat() {
     requestControllerRef.current?.abort();
     requestControllerRef.current = controller;
     let streamedContent = "";
-    const requestedArtifactKind = pendingArtifactKind || inferChatArtifactKind(requestPrompt, preset.id, editableSourceKind);
+    const inferredArtifactKind = inferChatArtifactKind(requestPrompt, editableSourceKind);
+    // A screenshot request is explicit and must override a stale DOCX/PPTX
+    // selection left by the Create surface or an attached editable source.
+    const requestedArtifactKind = inferredArtifactKind === "image" ? "image" : pendingArtifactKind || inferredArtifactKind;
     setPendingArtifactKind(null);
     setEditableSourceKind(null);
     const requestUserMessage = requestPrompt === prompt ? userMessage : { ...userMessage, content: requestPrompt };
@@ -2024,51 +2254,90 @@ export function AgenticChat() {
           }))
           : undefined;
         const outgoingRequestUserMessage = hydratedRequestAttachments ? { ...modelUserMessage, attachments: hydratedRequestAttachments } : modelUserMessage;
-        const response = await sendAgentChat(
-          [...messages, outgoingRequestUserMessage].map(({ role, content, attachments }) => ({ role, content, attachments })),
-          preset.id,
-          {
-            signal: controller.signal,
-            authToken,
-            context: {
-              rotation: workspace.rotation,
-              unit: workspace.unit,
-              shift: workspace.shift,
-              goal: workspace.notes?.trim() || workspace.goal,
-              notes: workspace.notes,
-              contextFileName: workspace.contextFile?.name,
-              contextFileType: workspace.contextFile?.mimeType,
-              activeTasks: workspaceTasks.filter((task) => !task.done).map((task) => task.label),
-              phase: shiftPhase,
-              sourceMode: requestSourceMode,
-              evidenceSources: requestEvidenceSources,
-              sessionTitle: chatTitle,
-              modelId: selectedModelId,
-              reasoningEffort,
-              computerApproved: requestComputerApproved,
-            },
-            onDelta: (content) => {
-              streamedContent = content;
-              setStreamingMessageId(assistantId);
-              updateAssistant(assistantId, content, true, { agentId: preset.id, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-            },
-            onStatus: trackRunStatus,
-            onComputerActivity: (activity) => setComputerActivity((current) => ({
-              ...activity,
-              ...(activity.screenshotDataUrl || !current?.screenshotDataUrl ? {} : { screenshotDataUrl: current.screenshotDataUrl }),
-            })),
+        const requestMessages = [...messages, outgoingRequestUserMessage].map(({ role, content, attachments }) => ({ role, content, attachments }));
+        const requestContext = {
+          rotation: workspace.rotation,
+          unit: workspace.unit,
+          shift: workspace.shift,
+          goal: workspace.notes?.trim() || workspace.goal,
+          notes: workspace.notes,
+          contextFileName: workspace.contextFile?.name,
+          contextFileType: workspace.contextFile?.mimeType,
+          activeTasks: workspaceTasks.filter((task) => !task.done).map((task) => task.label),
+          phase: shiftPhase,
+          sourceMode: requestSourceMode,
+          evidenceSources: requestEvidenceSources,
+          sessionTitle: chatTitle,
+          sessionId: activeSessionId,
+          modelId: selectedModelId,
+          reasoningEffort,
+          agentMode: requestAgentMode,
+          computerApproved: effectiveComputerApproved,
+        };
+        const requestOptions = (token: string) => ({
+          signal: controller.signal,
+          authToken: token,
+          context: requestContext,
+          onDelta: (content: string) => {
+            streamedContent = content;
+            setStreamingMessageId(assistantId);
+            updateAssistant(assistantId, content, true, { agentId: preset.id, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
           },
+          onStatus: trackRunStatus,
+          onComputerActivity: (activity: AgentComputerActivity) => setComputerActivity((current) => ({
+            ...activity,
+            ...(activity.screenshotDataUrl || !current?.screenshotDataUrl ? {} : { screenshotDataUrl: current.screenshotDataUrl }),
+          })),
+        });
+        const sendRequest = (token: string) => sendAgentChat(
+          requestMessages,
+          preset.id,
+          requestOptions(token),
         );
+        let response: AgentChatResult;
+        try {
+          response = await sendRequest(authToken);
+        } catch (error) {
+          // A Firebase token can be revoked while the tab remains open. A
+          // single forced refresh prevents that stale session from looking
+          // like a silent Agentic failure; other errors are not retried.
+          if (!(error instanceof AgentChatError && error.code === "unauthorized")) throw error;
+          response = await sendRequest(await user.getIdToken(true));
+        }
         let artifact: ChatArtifact | undefined;
         let artifactError: string | undefined;
+        let artifactRemote: RemoteChatArtifact | undefined;
         if (requestedArtifactKind) {
-          const artifactLabel = requestedArtifactKind === "pptx" ? "PPTX" : "DOCX";
+          const artifactLabel = requestedArtifactKind === "pptx" ? "PPTX" : requestedArtifactKind === "image" ? "gambar" : "DOCX";
           trackRunStatus({ phase: "finalizing", message: `Membuat file ${artifactLabel} dari hasil chat` });
           try {
-            const generated = await createChatArtifact(requestedArtifactKind, prompt, response.content);
+            const generated = requestedArtifactKind === "image"
+              ? response.lastComputerScreenshotDataUrl
+                ? await createImageChatArtifact(response.lastComputerScreenshotDataUrl)
+                : (() => { throw new Error("Screenshot Computer belum tersedia untuk diunduh."); })()
+              : await createChatArtifact(requestedArtifactKind, prompt, response.content);
             const url = URL.createObjectURL(generated.blob);
             artifactUrlsRef.current.add(url);
             artifact = { ...generated, url };
+            try {
+              const stored = await uploadKoasisFile(user.uid, {
+                name: generated.fileName,
+                mimeType: generated.mimeType,
+                dataUrl: await blobAsDataUrl(generated.blob),
+              }, "artifacts");
+              if (stored) artifactRemote = {
+                kind: generated.kind,
+                fileName: generated.fileName,
+                mimeType: generated.mimeType,
+                title: generated.title,
+                storagePath: stored.storagePath,
+              };
+            } catch (error) {
+              // The file remains downloadable in the current chat even when
+              // Storage is temporarily unavailable; the next response can
+              // still be persisted normally.
+              console.warn("Output chat belum berhasil disimpan untuk riwayat.", error);
+            }
           } catch (error) {
             artifactError = error instanceof Error ? error.message : `File ${artifactLabel} belum berhasil dibuat.`;
           }
@@ -2085,6 +2354,7 @@ export function AgenticChat() {
           artifact,
           artifactKind: requestedArtifactKind,
           artifactError,
+          artifactRemote,
         });
         notifyTaskComplete(`${preset.label} selesai`, artifactError ? "Jawaban selesai, tetapi file output perlu diperiksa." : "Jawaban dan output task sudah siap direview.");
       } catch (error) {
@@ -2398,7 +2668,7 @@ export function AgenticChat() {
         <button type="button" className="manus-nav-item" onClick={() => openHomeSurface("ops")}><FolderPlus size={16} /><span>New project</span></button>
         <div className="manus-sidebar-divider" />
         <div className="manus-sidebar-section-title">Tasks</div>
-        <div className="koasis-chat-list manus-task-list">{filteredSessions.filter((session) => session.title !== "Percakapan baru").map((session) => <button type="button" title={session.title} className={`koasis-chat-row ${session.id === activeSessionId && manusPage === "home" && !showHome ? "active" : ""}`} key={session.id} onClick={() => openSession(session)}><span className="koasis-chat-row-mark" /><span><strong>{session.title}</strong><small>{findAgentPreset(session.modeId)?.label || "Koasis Agent"} · {new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(new Date(session.updatedAt))}</small></span></button>)}{!filteredSessions.filter((session) => session.title !== "Percakapan baru").length && <div className="koasis-empty-chat">Belum ada task.</div>}</div>
+        <div className="koasis-chat-list manus-task-list">{filteredSessions.filter((session) => session.title !== "Percakapan baru").map((session) => <button type="button" title={session.title} className={`koasis-chat-row ${session.id === activeSessionId && manusPage === "home" && !showHome ? "active" : ""}`} key={session.id} onClick={() => openSession(session)}><span className="koasis-chat-row-mark" /><span><strong>{session.title}</strong><small>{session.agentMode === "agentic" ? "Agentic" : "Chat"} · {findAgentPreset(session.modeId)?.label || "Koasis Agent"} · {new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(new Date(session.updatedAt))}</small></span></button>)}{!filteredSessions.filter((session) => session.title !== "Percakapan baru").length && <div className="koasis-empty-chat">Belum ada task.</div>}</div>
       </div>
 
       <div className="koasis-sidebar-bottom manus-sidebar-bottom">{notificationCardOpen && <div className={`manus-notification-card ${notificationsEnabled ? "is-enabled" : ""}`}><Bell size={16} /><p>{notificationsEnabled ? "Notifikasi dan suara aktif saat tugas selesai." : "Beri tahu aku saat tugas selesai."}</p><div>{!notificationsEnabled && <button type="button" onClick={() => { updateBrowserNotificationPreference("dismissed"); setNotificationCardOpen(false); setNotificationStatus(""); }}>Nanti</button>}<button type="button" className="manus-button-primary" onClick={() => { if (notificationsEnabled) { playTaskCompletionSound(); setNotificationStatus("Suara notifikasi diuji."); } else void enableBrowserNotifications(); }}>{notificationsEnabled ? "Uji suara" : "Aktifkan"}</button></div>{notificationStatus && <small role="status">{notificationStatus}</small>}</div>}<div className="agentic-user-card koasis-user-card"><div className="agentic-user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Koasis"}</span></div><button type="button" className="manus-user-icon" aria-label="Perangkat" title="Perangkat"><Monitor size={15} /></button><button type="button" className={`manus-user-icon ${notificationsEnabled ? "active" : ""}`} aria-label="Notifikasi" title={notificationsEnabled ? "Uji notifikasi" : "Atur notifikasi"} onClick={() => { setNotificationCardOpen(true); if (notificationPreference === "dismissed") updateBrowserNotificationPreference("prompt"); setNotificationStatus(""); }}><Bell size={15} /></button><button type="button" className="agentic-user-action" aria-label="Keluar" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
@@ -2411,7 +2681,7 @@ export function AgenticChat() {
         <section className="koasis-conversation">
           <div className="koasis-conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
         {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} queryPlan={evidenceQueryPlan} selectedSources={selectedEvidenceSources} onUseSource={addEvidenceSourceToContext} />}{activePreset.id === "presentation" ? <CreateStartSurface onPrompt={(prompt) => submitPrompt(prompt, [])} onPrepareArtifact={prepareCreateArtifact} onPrepareLinkEdit={prepareCreateLinkEdit} /> : <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}</>}
-            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
+            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} liveSession={computerLiveSession} liveBusy={computerLiveBusy} liveError={computerLiveError} expanded={computerPreviewExpanded} onOpenLive={openComputerLiveSession} onCloseLive={() => { void closeComputerLiveSession(); }} onToggleFullscreen={toggleComputerPreviewFullscreen} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
           </div>
           {showJumpToLatest && <button type="button" className="koasis-jump-latest" onClick={jumpToLatest}><ArrowDown size={14} /> Terbaru</button>}
           {manusPage === "home" && <div className="koasis-composer-area">
@@ -2419,7 +2689,7 @@ export function AgenticChat() {
               {computerApproval && <ComputerApprovalCard prompt={computerApproval.prompt} onApprove={approveComputerRequest} onDecline={continueWithoutComputer} onDismiss={() => setComputerApproval(null)} />}
               {privacyReview && <KoasisApprovalCard findings={privacyReview.findings.map((finding) => finding.label)} attachmentName={privacyReview.attachments.map((item) => item.name).join(", ") || undefined} onDismiss={() => setPrivacyReview(null)} onSanitize={movePrivacyReviewToComposer} />}
               {attachmentError && <div className="koasis-attachment-error" role="alert">{attachmentError}</div>}
-              <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><ComputerAccessSelector value={computerAccessMode} open={computerAccessMenuOpen} onToggle={() => { setComputerAccessMenuOpen((current) => !current); setModelMenuOpen(false); setEngineMenuOpen(false); setComposerPalette(null); }} onChange={(value) => { setComputerAccessMode(value); setComputerAccessMenuOpen(false); }} /><button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); setComputerAccessMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
+              <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><AgentModeToggle value={agentMode} onChange={selectAgentMode} />{agentMode === "agentic" && <ComputerAccessSelector value={computerAccessMode} open={computerAccessMenuOpen} onToggle={() => { setComputerAccessMenuOpen((current) => !current); setModelMenuOpen(false); setEngineMenuOpen(false); setComposerPalette(null); }} onChange={(value) => { setComputerAccessMode(value); setComputerAccessMenuOpen(false); }} />}<button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); setComputerAccessMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
               <form className={`koasis-composer ${attachments.length ? "has-attachments" : ""}`} onSubmit={handleSubmit}>
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf,audio/*,.txt,.csv,.tsv,.docx,.pptx,.md" multiple hidden onChange={(event) => { void handleFile(event); }} />
                 {composerPalette && (composerPalette === "mention" ? mentionOptions : commandOptions).length > 0 && <div className={`koasis-composer-palette ${composerPalette}`} role="listbox" aria-label={composerPalette === "mention" ? "Pilih specialist agent" : "Pilih plugin command"}>

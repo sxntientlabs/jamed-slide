@@ -35,7 +35,7 @@ function federatedMockFetch(): typeof fetch {
       return jsonResponse({ resultList: { hitCount: 1, result: [{ source: "MED", id: "12345", pmid: "12345", pmcid: "PMC123", doi: "10.1000/ABC", title: "Asthma treatment outcomes in adults", authorString: "Doe J", journalTitle: "Clinical Medicine", pubYear: "2024", abstractText: "Study abstract.", isOpenAccess: "Y", citedByCount: 11, pubTypeList: { pubType: ["Randomized Controlled Trial"] } }] } });
     }
     if (url.includes("api.openalex.org")) {
-      return jsonResponse({ meta: { count: 1 }, results: [{ id: "https://openalex.org/W1", doi: "https://doi.org/10.1000/ABC", title: "Asthma treatment outcomes in adults", publication_year: 2024, authorships: [{ author: { display_name: "Jane Doe" } }], primary_location: { source: { display_name: "Clinical Medicine" }, landing_page_url: "https://example.test/article" }, open_access: { is_oa: true }, best_oa_location: { landing_page_url: "https://example.test/article" }, cited_by_count: 8, type: "article" }] });
+      return jsonResponse({ meta: { count: 1 }, results: [{ id: "https://openalex.org/W1", doi: "https://doi.org/10.1000/ABC", title: "Asthma treatment outcomes in adults", publication_year: 2024, authorships: [{ author: { display_name: "Jane Doe" } }], primary_location: { source: { display_name: "Clinical Medicine" }, landing_page_url: "https://example.test/article" }, open_access: { is_oa: true }, best_oa_location: { landing_page_url: "https://example.test/article" }, cited_by_count: 8, type: "article", type_crossref: "journal-article", abstract_inverted_index: { Study: [0], abstract: [1] } }] });
     }
     if (url.includes("api.crossref.org")) {
       return jsonResponse({ message: { "total-results": 1, items: [{ DOI: "10.1000/ABC", title: ["Asthma treatment outcomes in adults"], author: [{ given: "Jane", family: "Doe" }], "container-title": ["Clinical Medicine"], published: { "date-parts": [[2024]] }, "is-referenced-by-count": 15, type: "journal-article", "update-to": [{ type: "retraction" }], URL: "https://doi.org/10.1000/ABC" }] } });
@@ -76,6 +76,8 @@ describe("federated evidence search", () => {
     expect(result.engine).toBe("federated");
     expect(result.results).toHaveLength(1);
     expect(result.results[0]?.doi).toBe("10.1000/abc");
+    expect(result.results[0]?.source).toBe("openalex");
+    expect(result.results[0]?.abstract).toBe("Study abstract");
     expect(result.results[0]?.sourceIds).toEqual(expect.arrayContaining(["pubmed", "europepmc", "openalex", "crossref"]));
     expect(result.results[0]?.retractionStatus).toBe("retracted");
     expect(result.providers.every((provider) => provider.status === "ok")).toBe(true);
@@ -140,6 +142,34 @@ describe("federated evidence search", () => {
     const result = await searchFederatedEvidence({ query: "pneumonia aspirasi", limit: 5, providers: ["crossref"], fetchImpl });
     expect(result.results).toEqual([]);
     expect(result.warnings.some((warning) => warning.includes("tanpa kecocokan istilah topik"))).toBe(true);
+  });
+
+  test("excludes thesis and dissertation records from the primary evidence list", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.crossref.org")) {
+        return jsonResponse({ message: { "total-results": 1, items: [{ DOI: "10.1000/thesis", title: ["Aspiration pneumonia management guideline"], type: "dissertation", URL: "https://doi.org/10.1000/thesis" }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "aspiration pneumonia management", limit: 5, providers: ["crossref"], fetchImpl });
+    expect(result.results).toEqual([]);
+    expect(result.warnings.some((warning) => warning.includes("tesis, buku, atau dataset"))).toBe(true);
+  });
+
+  test("uses OpenAlex as the discovery source while requiring the core topic terms", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.openalex.org")) {
+        const requestUrl = new URL(String(input));
+        expect(requestUrl.searchParams.get("filter")).toBe("type:article");
+        return jsonResponse({ meta: { count: 2 }, results: [
+          { id: "https://openalex.org/W-broad", title: "Pneumonia management in adults", publication_year: 2024, type: "article", primary_location: { source: { display_name: "Respiratory Medicine" } } },
+          { id: "https://openalex.org/W-focused", title: "Aspiration pneumonia: diagnosis and management", publication_year: 2024, type: "article", primary_location: { source: { display_name: "Clinical Medicine" } }, abstract_inverted_index: { Aspiration: [0], pneumonia: [1], diagnosis: [2], management: [3] } },
+        ] });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "aspiration pneumonia", limit: 5, providers: ["openalex"], fetchImpl });
+    expect(result.results.map((item) => item.title)).toEqual(["Aspiration pneumonia: diagnosis and management"]);
   });
 
   test("does not turn a generic research request into unrelated evidence", async () => {

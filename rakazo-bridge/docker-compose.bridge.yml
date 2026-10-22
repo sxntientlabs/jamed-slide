@@ -1,0 +1,30 @@
+services:
+  koasis-rakazo-provider-proxy:
+    image: ${RAKAZO_IMAGE:-ghcr.io/elie222/rakazo/app}:${RAKAZO_IMAGE_TAG:-edge}
+    container_name: koasis-rakazo-provider-proxy
+    restart: unless-stopped
+    environment:
+      PORT: "8788"
+      UPSTREAM_BASE_URL: https://rcljvh2.abc-tunnel.us/v1
+    command: ["node", "/opt/koasis-rakazo-bridge/provider-proxy.mjs"]
+    volumes:
+      - ./rakazo-bridge/provider-proxy.mjs:/opt/koasis-rakazo-bridge/provider-proxy.mjs:ro
+    networks:
+      - app
+
+  koasis-rakazo-bridge:
+    image: ${RAKAZO_IMAGE:-ghcr.io/elie222/rakazo/app}:${RAKAZO_IMAGE_TAG:-edge}
+    container_name: koasis-rakazo-bridge
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - ./rakazo-bridge.env
+    command: ["node", "/opt/koasis-rakazo-bridge/server.mjs"]
+    volumes:
+      - ./rakazo-bridge/server.mjs:/opt/koasis-rakazo-bridge/server.mjs:ro
+      - ./rakazo-bridge/exclusiveQueue.mjs:/opt/koasis-rakazo-bridge/exclusiveQueue.mjs:ro
+
+networks:
+  app:
+    external: true
+    name: rakazo_app

@@ -119,6 +119,7 @@ function safeErrorMessage(value: string | undefined): string | undefined {
 
 export function createRakazoAdapter(env: Record<string, string>, pool: Pool | null): RakazoAdapter {
   const remoteUrl = cleanUrl(env.KOASIS_RAKAZO_API_URL || env.RAKAZO_API_URL);
+  const bridgeSecret = (env.KOASIS_RAKAZO_BRIDGE_SECRET || "").trim();
   const eventLimit = positiveInteger(env.KOASIS_RAKAZO_MAX_RUN_EVENTS, DEFAULT_EVENT_LIMIT, 200);
   const runs = new Map<string, RakazoRunRecord>();
   let schemaPromise: Promise<void> | null = null;
@@ -331,6 +332,7 @@ export function createRakazoAdapter(env: Record<string, string>, pool: Pool | nu
         headers: {
           "Content-Type": "application/json",
           "X-Koasis-Rakazo-Forwarded": "1",
+          ...(bridgeSecret ? { "X-Koasis-Rakazo-Secret": bridgeSecret } : {}),
           ...(authorization ? { Authorization: authorization } : {}),
         },
         body: JSON.stringify(body),

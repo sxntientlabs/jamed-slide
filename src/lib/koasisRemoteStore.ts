@@ -24,6 +24,14 @@ export type RemoteChatAttachment = {
   storagePath?: string;
 };
 
+export type RemoteChatArtifact = {
+  kind: "pptx" | "docx" | "image";
+  fileName: string;
+  mimeType: string;
+  title: string;
+  storagePath: string;
+};
+
 export type RemoteChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -41,12 +49,14 @@ export type RemoteChatMessage = {
   followUpQuestions?: string[];
   reviewRequired?: boolean;
   attachments?: RemoteChatAttachment[];
+  artifact?: RemoteChatArtifact;
 };
 
 export type RemoteChatSession = {
   id: string;
   title: string;
   modeId: string;
+  agentMode?: "chat" | "agentic";
   updatedAt: number;
   messages: RemoteChatMessage[];
 };
@@ -167,6 +177,20 @@ function normalizeRemoteAttachment(value: unknown): RemoteChatAttachment | null 
   };
 }
 
+function normalizeRemoteArtifact(value: unknown): RemoteChatArtifact | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<RemoteChatArtifact>;
+  if (item.kind !== "pptx" && item.kind !== "docx" && item.kind !== "image") return null;
+  if (typeof item.fileName !== "string" || typeof item.mimeType !== "string" || typeof item.title !== "string" || typeof item.storagePath !== "string") return null;
+  return {
+    kind: item.kind,
+    fileName: item.fileName.slice(0, 180),
+    mimeType: item.mimeType.slice(0, 160),
+    title: item.title.slice(0, 240),
+    storagePath: item.storagePath.slice(0, 500),
+  };
+}
+
 function normalizeRemoteEvidenceSource(value: unknown): EvidenceSource | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<EvidenceSource>;
@@ -234,6 +258,8 @@ function normalizeRemoteMessage(value: unknown): RemoteChatMessage | null {
   if (attachments.length) message.attachments = attachments;
   const citationSources = Array.isArray(item.citationSources) ? item.citationSources.map(normalizeRemoteEvidenceSource).filter((source): source is EvidenceSource => Boolean(source)).slice(0, 8) : [];
   if (citationSources.length) message.citationSources = citationSources;
+  const artifact = normalizeRemoteArtifact(item.artifact);
+  if (artifact) message.artifact = artifact;
   return message;
 }
 
@@ -247,6 +273,7 @@ function normalizeRemoteSession(value: unknown): RemoteChatSession | null {
     id: item.id,
     title: item.title.slice(0, 180),
     modeId: item.modeId,
+    agentMode: item.agentMode === "agentic" ? "agentic" : "chat",
     updatedAt: timestampToMillis(item.updatedAt),
     messages,
   };
@@ -301,6 +328,7 @@ export async function saveKoasisSession(userId: string, session: RemoteChatSessi
     id: session.id,
     title: session.title.slice(0, 180),
     modeId: session.modeId,
+    agentMode: session.agentMode === "agentic" ? "agentic" : "chat",
     updatedAt: serverTimestamp(),
     messages,
   }, { merge: true });

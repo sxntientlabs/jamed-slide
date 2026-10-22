@@ -17,6 +17,9 @@ export type AgentChatMessage = {
   attachments?: AgentChatAttachment[];
 };
 
+/** The lightweight in-app conversation or the tool-capable Agent runtime. */
+export type AgentMode = "chat" | "agentic";
+
 export type AgentWorkspaceContext = {
   rotation?: string;
   unit?: string;
@@ -30,8 +33,10 @@ export type AgentWorkspaceContext = {
   sourceMode?: "workspace" | "attachments" | "sources";
   evidenceSources?: EvidenceSource[];
   sessionTitle?: string;
+  sessionId?: string;
   modelId?: string;
   reasoningEffort?: KoasisReasoningLevel;
+  agentMode?: AgentMode;
   /** Explicit user consent for a Computer action in this request. */
   computerApproved?: boolean;
 };
@@ -50,6 +55,7 @@ export type AgentComputerActivity = {
   message: string;
   action?: string;
   screenshotDataUrl?: string;
+  screenshotBase64?: string;
   requestId?: string;
 };
 
@@ -66,11 +72,21 @@ type AgentChatStreamEvent = {
   activity?: AgentComputerActivityKind;
   action?: string;
   screenshotDataUrl?: string;
+  screenshotBase64?: string;
   durationMs?: number;
+  agentMode?: AgentMode;
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired?: boolean;
   harness?: AgentHarnessDescriptor;
 };
+
+function normalizeScreenshotDataUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const candidate = value.trim();
+  if (/^data:image\/(?:png|jpe?g|webp);base64,/i.test(candidate)) return candidate;
+  if (candidate.length >= 128 && /^[A-Za-z0-9+/]+={0,2}$/.test(candidate)) return `data:image/png;base64,${candidate}`;
+  return undefined;
+}
 
 export type AgentRunPhase = "accepted" | "preparing" | "generating" | "finalizing";
 
@@ -95,9 +111,11 @@ export type AgentChatResult = {
   requestId: string;
   agentId: string;
   durationMs?: number;
+  agentMode?: AgentMode;
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired: boolean;
   harness?: AgentHarnessDescriptor;
+  lastComputerScreenshotDataUrl?: string;
 };
 
 export class AgentChatError extends Error {
@@ -122,7 +140,12 @@ type AgentChatOptions = {
 function userFacingAgentError(message: string | undefined, fallback: string): string {
   const value = message?.trim();
   if (!value || /\b(?:agent|ai)\s+backend\b|firebase|postgres|\.env|api\s*key|server-side|instabox/i.test(value)) return fallback;
-  return value;
+  return value.replace(/\bRakazo\b/gi, "Agent");
+}
+
+function userFacingAgentText(message: string | undefined, fallback: string): string {
+  const value = message?.trim();
+  return (value || fallback).replace(/\bRakazo\b/gi, "Agent");
 }
 
 async function readError(response: Response): Promise<AgentChatError> {
@@ -175,9 +198,11 @@ export async function sendAgentChat(
   let resolvedRequestId = requestId;
   let resolvedAgentId = agentId;
   let durationMs: number | undefined;
+  let agentMode: AgentMode | undefined;
   let sourcePolicy: AgentSourcePolicy | undefined;
   let reviewRequired = true;
   let harness: AgentHarnessDescriptor | undefined;
+  let lastComputerScreenshotDataUrl: string | undefined;
 
   const consumeLine = (rawLine: string) => {
     const line = rawLine.trim();
@@ -194,18 +219,18 @@ export async function sendAgentChat(
       if (event.agentId) resolvedAgentId = event.agentId;
       if (event.sourcePolicy) sourcePolicy = event.sourcePolicy;
       if (typeof event.reviewRequired === "boolean") reviewRequired = event.reviewRequired;
+      if (event.agentMode === "chat" || event.agentMode === "agentic") agentMode = event.agentMode;
       if (event.harness && (event.harness.mode === "embedded" || event.harness.mode === "remote")) harness = event.harness;
     }
     if (event.type === "status" && event.phase) {
-      options.onStatus?.({ phase: event.phase, message: event.message || "Agent sedang bekerja", requestId: resolvedRequestId });
+      options.onStatus?.({ phase: event.phase, message: userFacingAgentText(event.message, "Agent sedang bekerja"), requestId: resolvedRequestId });
     }
     if (event.type === "computer_activity" && event.activity && event.message) {
-      const screenshotDataUrl = typeof event.screenshotDataUrl === "string" && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(event.screenshotDataUrl)
-        ? event.screenshotDataUrl
-        : undefined;
+      const screenshotDataUrl = normalizeScreenshotDataUrl(event.screenshotDataUrl || event.screenshotBase64);
+      if (screenshotDataUrl) lastComputerScreenshotDataUrl = screenshotDataUrl;
       options.onComputerActivity?.({
         kind: event.activity,
-        message: event.message,
+        message: userFacingAgentText(event.message, "Agent menggunakan Computer"),
         ...(event.action ? { action: event.action } : {}),
         ...(screenshotDataUrl ? { screenshotDataUrl } : {}),
         requestId: resolvedRequestId,
@@ -229,5 +254,5 @@ export async function sendAgentChat(
   }
   if (buffer.trim()) consumeLine(buffer);
   if (!content.trim()) throw new AgentChatError("Koasis belum menerima jawaban. Coba lagi.");
-  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, sourcePolicy, reviewRequired, harness };
+  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, agentMode, sourcePolicy, reviewRequired, harness, lastComputerScreenshotDataUrl };
 }

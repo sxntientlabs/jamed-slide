@@ -5,6 +5,7 @@ const SEARCH_INTENT_TERMS = /\b(?:cari|carikan|telusuri|search|find|bandingkan|c
 const KNOWLEDGE_OPENERS = /^\s*(?:apa|apakah|jelaskan|terangkan|bagaimana|mengapa|kenapa|kapan|berapa|what|whether|explain|how|why|when|which|does|should|can)\b/i;
 const FORMAT_ONLY_OPENERS = /^\s*(?:buat|bikin|susun|tulis|rapikan|ubah|terjemahkan|format|ringkas|rangkum|generate|draft)\b/i;
 const FORMAT_ONLY_TERMS = /\b(?:pesan|email|chat|handover|template|outline|notulen|catatan|tabel|slide|ppt|presentasi|checklist|jadwal|rencana kerja)\b/i;
+const EVIDENCE_WORKFLOW_TERMS = /\b(?:clinical prebrief|prebrief|evidence brief|critical appraisal|case presentation|presentasi kasus|guideline review|review guideline|clinical review|review klinis)\b/i;
 
 /**
  * Classifies prompts that need an evidence lookup before the model can safely
@@ -22,6 +23,9 @@ export function promptNeedsEvidence(prompt: string, agentId: AgentId): boolean {
   const isSearchRequest = SEARCH_INTENT_TERMS.test(normalized);
 
   if (hasResearchTerm || isKnowledgeQuestion || isSearchRequest) return true;
-  if (agentNeedsExternalSource(agentId)) return normalized.length >= 20;
-  return false;
+  // Source-required specialists still need an automatic lookup for their
+  // named evidence workflows, but not for arbitrary instructions such as
+  // "jawab hanya dengan..." or a Computer action. This prevents a slow and
+  // noisy search preflight from hijacking unrelated work.
+  return agentNeedsExternalSource(agentId) && EVIDENCE_WORKFLOW_TERMS.test(normalized);
 }

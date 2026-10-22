@@ -7,8 +7,11 @@ import { randomUUID } from "node:crypto";
  */
 export const COMPUTER_AGENT_INTERNAL_TOKEN = randomUUID();
 
-export const COMPUTER_AGENT_MAX_ROUNDS = 8;
-export const COMPUTER_AGENT_MAX_ACTIONS = 12;
+// Computer tasks often need a screenshot -> action -> verification cycle for
+// every page transition. Keep the guard finite, but do not cut off ordinary
+// multi-step work after only a handful of cycles.
+export const COMPUTER_AGENT_MAX_ROUNDS = 16;
+export const COMPUTER_AGENT_MAX_ACTIONS = 32;
 
 export const COMPUTER_AGENT_TOOLS = [
   {
@@ -110,6 +113,41 @@ export const COMPUTER_AGENT_TOOLS = [
 const COMPUTER_INTENT_PATTERN = /\b(computer|desktop|browser|machine|browsing eksternal|gunakan internet|pakai internet|klik|click|ketik|type|scroll|buka situs|buka website|open browser|screenshot layar)\b|https?:\/\/|\b(?:drive|docs|slides)\.google\.com\b/i;
 const COMPUTER_ACTION_PATTERN = /\b(?:buka|open|edit|ubah|perbaiki|tinjau|review|cek|akses|unggah|upload|download|unduh|salin|isi|ketik|klik|click)\b[^.?!]{0,90}\b(?:link|dokumen|document|slide|slides|file|situs|website|browser|drive|docs|sheet|sheets)\b/i;
 const COMPUTER_NEGATION_PATTERN = /\b(jangan|tanpa|tidak perlu|gausah|nggak usah|jangan gunakan|do not|don't)\b[^.?!]{0,80}\b(?:computer|desktop|browser|machine|https?:\/\/|drive\.google\.com|docs\.google\.com|slides\.google\.com)\b/i;
+const SIMPLE_NAVIGATION_STOP_PATTERN = /\b(?:edit|ubah|perbaiki|tinjau|review|cek|cari|search|find|klik|click|ketik|type|isi|unggah|upload|download|unduh|salin|screenshot|baca|read|ambil|take|dan|lalu|kemudian|then|after)\b/i;
+
+function normalizeNavigationUrl(value: string): string | null {
+  const candidate = value.trim().replace(/[),.;!?]+$/g, "");
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the safe, deterministic subset of Computer requests that does not
+ * need an LLM planning round. This deliberately handles navigation only; any
+ * request that combines navigation with reading, editing, clicking, or other
+ * work continues through the full bounded Computer tool loop.
+ */
+export function simpleComputerNavigationUrl(message: string): string | null {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized || !/^(?:tolong |please |silakan |could you )?(?:buka|open|akses|kunjungi|go to|navigate to)\b/i.test(normalized)) return null;
+  if (SIMPLE_NAVIGATION_STOP_PATTERN.test(normalized)) return null;
+  if (normalized.split(/\s+/).length > 18) return null;
+
+  const explicitUrl = normalized.match(/https?:\/\/[^\s<>"']+/i)?.[0];
+  if (explicitUrl) return normalizeNavigationUrl(explicitUrl);
+
+  const lower = normalized.toLowerCase();
+  if (/\b(?:google )?docs?\b|\bgoogle document\b|\bdokumen google\b/.test(lower)) return "https://docs.google.com/document/u/0/";
+  if (/\b(?:google )?drive\b/.test(lower)) return "https://drive.google.com/drive/my-drive";
+  if (/\b(?:google )?slides?\b|\bpresentasi google\b/.test(lower)) return "https://slides.google.com/";
+  if (/\b(?:google )?sheets?\b|\bspreadsheet google\b/.test(lower)) return "https://docs.google.com/spreadsheets/u/0/";
+  return null;
+}
 
 export function computerIntentDetected(message: string): boolean {
   return (COMPUTER_INTENT_PATTERN.test(message) || COMPUTER_ACTION_PATTERN.test(message)) && !COMPUTER_NEGATION_PATTERN.test(message);

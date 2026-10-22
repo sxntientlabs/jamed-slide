@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { extractDocxText } from "./docxParser";
-import { createChatArtifact, parseChatArtifactContent } from "./chatArtifacts";
+import { createChatArtifact, createImageChatArtifact, inferChatArtifactKind, parseChatArtifactContent } from "./chatArtifacts";
 import { parsePptx } from "./pptxParser";
 
 const prompt = "Buat materi ringkas tentang keselamatan pasien dan handover";
@@ -39,4 +39,20 @@ test("chat PPTX output is a valid parseable editable deck", async () => {
   expect(parsed.slides[0]?.text).toContain("materi ringkas");
   expect(parsed.slides[1]?.text).toContain("Identifikasi fakta");
   expect(parsed.slides[2]?.text).toContain("Handover");
+});
+
+test("Docs links do not get mistaken for DOCX when the requested output is a screenshot", () => {
+  const prompt = "Buka docs ini di computer lalu screenshot dan kirim ke saya https://docs.google.com/document/d/abc";
+  expect(inferChatArtifactKind(prompt, "docx")).toBe("image");
+  expect(inferChatArtifactKind("Buka Google Docs ini lalu kirim screenshotnya sebagai bukti", "docx")).toBe("image");
+  expect(inferChatArtifactKind("Buka https://docs.google.com/document/d/abc untuk saya baca")).toBeUndefined();
+  expect(inferChatArtifactKind("Buat file DOCX editable dari ringkasan ini")).toBe("docx");
+});
+
+test("Computer screenshot becomes an image artifact with the matching extension", async () => {
+  const artifact = await createImageChatArtifact("data:image/png;base64,aGVsbG8=");
+  expect(artifact.kind).toBe("image");
+  expect(artifact.mimeType).toBe("image/png");
+  expect(artifact.fileName.endsWith(".png")).toBe(true);
+  expect(artifact.blob.size).toBeGreaterThan(0);
 });

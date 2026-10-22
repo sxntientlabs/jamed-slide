@@ -72,7 +72,7 @@ Provisioning dan lifecycle memakai advisory lock PostgreSQL per user supaya requ
 - URL desktop dibuat ulang setiap session dan stream sebelumnya dicabut.
 - Screenshot, password, isi ketikan, dan command tidak disimpan ke database.
 - Command shell arbitrary belum diekspos ke browser; aksi yang tersedia dibatasi pada desktop control.
-- Agent hanya mendapat tool Computer ketika pesan user secara eksplisit meminta browser/desktop/computer. Tool memakai session kontrol server-side terpisah, maksimal 12 aksi per permintaan, lalu session dicabut otomatis.
+- Agent hanya mendapat tool Computer ketika pesan user secara eksplisit meminta browser/desktop/computer. Tool memakai session kontrol server-side terpisah, maksimal 32 aksi dalam 16 putaran per permintaan, lalu session dicabut otomatis.
 - `INSTABOX_ALLOW_AGENT_CONTROL` adalah sakelar terpisah dari provisioning. Biarkan `false` bila agent hanya boleh menjawab teks; ubah ke `true` setelah kebijakan kontrol, quota, dan review disetujui.
 - Machine tidak dihapus otomatis dari flow user. Penghapusan perlu workflow admin terpisah karena bersifat irreversibel.
 

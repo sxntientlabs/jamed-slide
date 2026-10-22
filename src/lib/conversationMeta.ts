@@ -218,6 +218,12 @@ export function buildUniqueFollowUpQuestions(input: FollowUpQuestionInput): stri
   const sources = (input.sources || []).filter((source) => source.title && source.url).slice(0, 8);
   const topic = questionTopic(prompt, answer, sources);
   const headings = extractHeadings(answer);
+  const substantivePrompt = /\?|\b(?:apa|apakah|jelaskan|terangkan|bagaimana|mengapa|kenapa|kapan|berapa|what|whether|explain|how|why|when|which|evidence|referensi|sumber|citation|jurnal|journal|paper|artikel|guideline|research|riset|bandingkan|compare|review|tinjau|analisis|diagnosis|terapi|treatment|study|belajar)\b/i.test(prompt);
+  const simpleConversation = /^(?:halo|hai|hi|hello|permisi|terima kasih|thanks|makasih|oke|ok|siap|perkenalkan(?: diri)?(?: anda| kamu)?|kenalkan(?: diri)?(?: anda| kamu)?|siapa kamu|siapa anda|what can you do|introduce yourself)[.!?\s]*$/i.test(prompt);
+  // Follow-ups are useful for a substantive discussion, not for greetings,
+  // acknowledgements, or an agent self-introduction. Without this gate every
+  // short chat response receives generic clinical-looking questions.
+  if (simpleConversation || (!sources.length && !substantivePrompt && headings.length < 2)) return [];
   const sourceQuestionSeed = questionHash(`${prompt}\n${answer}\n${sources.map((source) => source.id).join("|")}`);
   const questions: string[] = [];
 

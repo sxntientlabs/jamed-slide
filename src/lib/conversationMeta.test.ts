@@ -60,4 +60,12 @@ describe("conversation metadata", () => {
     expect(first.join(" ").toLocaleLowerCase()).toContain("pneumonia");
     expect(second.join(" ").toLocaleLowerCase()).toContain("hematoma");
   });
+
+  test("does not attach research follow-ups to a simple introduction", () => {
+    expect(buildUniqueFollowUpQuestions({
+      prompt: "perkenalkan diri anda",
+      answer: "Saya Evidence Desk. Saya membantu menilai sumber yang tersedia.",
+      agentLabel: "Evidence Desk",
+    })).toEqual([]);
+  });
 });

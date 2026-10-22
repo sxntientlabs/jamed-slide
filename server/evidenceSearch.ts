@@ -100,10 +100,13 @@ type ProviderResult = {
 
 type JsonRecord = Record<string, unknown>;
 
-const PROVIDER_ORDER: EvidenceProviderId[] = ["pubmed", "europepmc", "openalex", "crossref", "web"];
+// OpenAlex is the discovery index of record. PubMed and Europe PMC remain
+// verification/enrichment sources for biomedical identifiers and full text.
+const PROVIDER_ORDER: EvidenceProviderId[] = ["openalex", "pubmed", "europepmc", "crossref", "web"];
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_PROVIDER_PAGE_SIZE = 12;
 const MAX_QUERY_VARIANTS = 3;
+const EXCLUDED_PUBLICATION_TYPES = /\b(?:book|book[- ]chapter|dataset|dissertation|editorial[- ]material|monograph|posted[- ]content|reference[- ]entry|thesis)\b/i;
 
 const TERM_EXPANSIONS: Record<string, string[]> = {
   asma: ["asthma", "asthma exacerbation", "reactive airway disease"],
@@ -673,10 +676,25 @@ async function searchEuropePmc(options: FederatedEvidenceSearchOptions, plan: Ev
   return { ...result, records: await enrichEuropePmcFigures(result.records, options) };
 }
 
+function reconstructOpenAlexAbstract(value: unknown): string | undefined {
+  const invertedIndex = asRecord(value);
+  const words: Array<{ position: number; word: string }> = [];
+  for (const [word, rawPositions] of Object.entries(invertedIndex)) {
+    for (const rawPosition of arrayValue(rawPositions)) {
+      const position = numberValue(rawPosition);
+      if (position !== undefined && position >= 0 && position < 20_000) words.push({ position, word });
+    }
+  }
+  if (!words.length) return undefined;
+  words.sort((left, right) => left.position - right.position);
+  return words.map((entry) => entry.word).join(" ").slice(0, 4_000).trim() || undefined;
+}
+
 async function searchOpenAlexVariant(options: FederatedEvidenceSearchOptions, query: string): Promise<ProviderResult> {
   const fetchImpl = options.fetchImpl || fetch;
   const url = new URL("https://api.openalex.org/works");
   url.searchParams.set("search", query);
+  url.searchParams.set("filter", "type:article");
   url.searchParams.set("per-page", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
   if (options.openAlexEmail) url.searchParams.set("mailto", options.openAlexEmail);
   const payload = await requestJson(fetchImpl, url, { headers: { Accept: "application/json" } }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
@@ -687,17 +705,18 @@ async function searchOpenAlexVariant(options: FederatedEvidenceSearchOptions, qu
     const bestOaLocation = asRecord(record.best_oa_location);
     const doi = normalizeDoi(record.doi);
     const isRetracted = record.is_retracted === true;
+    const abstract = reconstructOpenAlexAbstract(record.abstract_inverted_index);
     return createProviderRecord("openalex", stringValue(record.id) || `result-${index + 1}`, index + 1, {
       title: stripMarkup(record.title),
       authors: arrayValue(record.authorships).slice(0, 8).map((value) => stringValue(asRecord(asRecord(value).author).display_name)).filter((value): value is string => Boolean(value)).join(", "),
       journal: stringValue(source.display_name),
       year: parseDateYear(record.publication_year),
       doi,
-      abstract: undefined,
+      abstract,
       isOpenAccess: asRecord(record.open_access).is_oa === true,
       fullTextUrl: safeUrl(bestOaLocation.pdf_url) || safeUrl(bestOaLocation.landing_page_url),
       citedByCount: numberValue(record.cited_by_count),
-      publicationTypes: uniqueStrings([stringValue(record.type)]),
+      publicationTypes: uniqueStrings([stringValue(record.type), stringValue(record.type_crossref), stringValue(record.type_institutional)]),
       retractionStatus: isRetracted ? "retracted" : "unknown",
       url: safeUrl(record.doi) || safeUrl(record.primary_location && asRecord(record.primary_location).landing_page_url) || safeUrl(record.id) || "https://openalex.org/",
     });
@@ -900,6 +919,10 @@ function evidenceRecordId(record: ProviderRecord): string {
   return record.doi ? `doi:${record.doi}` : record.pmid ? `pmid:${record.pmid}` : record.pmcid ? `pmcid:${record.pmcid}` : `${record.providerId}:${record.providerRecordId}`;
 }
 
+function isExcludedPublication(record: ProviderRecord): boolean {
+  return EXCLUDED_PUBLICATION_TYPES.test(record.publicationTypes.join(" "));
+}
+
 function relevanceScore(record: ProviderRecord, query: string, expandedTerms: string[], allProviderCount: number): { score: number; reasons: string[] } {
   const queryTokens = searchSignalTokens(query, expandedTerms);
   const directQueryTokens = searchSignalTokens(query, []);
@@ -916,7 +939,15 @@ function relevanceScore(record: ProviderRecord, query: string, expandedTerms: st
   const providerCoverage = allProviderCount ? 1 / allProviderCount : 1;
   const rrf = 1 / (60 + Math.max(1, record.rank));
   const publicationText = record.publicationTypes.join(" ").toLowerCase();
-  const evidenceTypeBonus = /(systematic review|meta-analysis|randomized|randomised|clinical trial|guideline)/i.test(`${record.title} ${publicationText}`) ? 0.18 : 0;
+  const evidenceText = `${record.title} ${record.abstract || ""} ${publicationText}`;
+  const evidenceTypeBonus = /systematic review|meta-analysis/i.test(evidenceText)
+    ? 0.22
+    : /randomized|randomised|clinical trial/i.test(evidenceText)
+      ? 0.2
+      : /guideline|clinical practice/i.test(evidenceText)
+        ? 0.18
+        : 0;
+  const retractionPenalty = record.retractionStatus === "retracted" ? 0.9 : record.retractionStatus === "corrected" ? 0.12 : 0;
   const reasons: string[] = [];
   if (directTitleCoverage >= 0.25) reasons.push("istilah inti query muncul pada judul");
   else if (directBodyCoverage >= 0.25) reasons.push("istilah inti query muncul pada metadata/abstract");
@@ -926,7 +957,7 @@ function relevanceScore(record: ProviderRecord, query: string, expandedTerms: st
   if (record.isOpenAccess) reasons.push("memiliki penanda open access");
   if (evidenceTypeBonus) reasons.push("tipe publikasi relevan untuk evidence");
   if (record.retractionStatus === "retracted") reasons.push("perlu perhatian: status retraction terdeteksi");
-  const score = rrf + directTitleCoverage * 0.52 + directBodyCoverage * 0.2 + titleCoverage * 0.5 + bodyCoverage * 0.18 + providerCoverage * 0.08 + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus;
+  const score = rrf + directTitleCoverage * 0.52 + directBodyCoverage * 0.2 + titleCoverage * 0.5 + bodyCoverage * 0.18 + providerCoverage * 0.08 + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus - retractionPenalty;
   return { score: Number(score.toFixed(6)), reasons: reasons.length ? reasons : ["hasil federated search"] };
 }
 
@@ -936,12 +967,28 @@ function directTopicGroups(query: string): string[][] {
     .map((token) => uniqueStrings([token, ...(TERM_EXPANSIONS[token] || [])]).flatMap(tokenize));
 }
 
+function hasSemanticTopicTerm(searchableText: Set<string>, token: string): boolean {
+  return uniqueStrings([token, ...(TERM_EXPANSIONS[token] || [])]).some((term) => {
+    const termTokens = tokenize(term);
+    return termTokens.length > 0 && termTokens.every((candidate) => searchableText.has(candidate));
+  });
+}
+
+function directTopicMatchCount(searchableText: Set<string>, query: string): number {
+  return tokenize(query)
+    .filter((token) => !SEARCH_STOPWORDS.has(token) && !GENERIC_CLINICAL_TOKENS.has(token))
+    .filter((token) => hasSemanticTopicTerm(searchableText, token))
+    .length;
+}
+
 function hasSearchSignal(record: FederatedEvidenceRecord, query: string): boolean {
   const queryGroups = searchSignalGroups(query);
   if (!queryGroups.length) return false;
   const searchableText = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
   const topicGroups = directTopicGroups(query);
-  if (topicGroups.length && !topicGroups.some((group) => group.some((token) => searchableText.has(token)))) return false;
+  const topicMatchCount = directTopicMatchCount(searchableText, query);
+  const requiredTopicMatches = topicGroups.length > 1 ? 2 : topicGroups.length;
+  if (requiredTopicMatches && topicMatchCount < requiredTopicMatches) return false;
   const matchedGroups = queryGroups.filter((group) => group.some((token) => searchableText.has(token))).length;
   // Provider metadata is inconsistent: title-only records and translated
   // terminology often contain only one of the intent groups. The topic guard
@@ -953,7 +1000,7 @@ function hasSearchSignal(record: FederatedEvidenceRecord, query: string): boolea
 function hasBroadSearchSignal(record: FederatedEvidenceRecord, query: string): boolean {
   const searchableText = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
   const topicGroups = directTopicGroups(query);
-  if (topicGroups.length) return topicGroups.some((group) => group.some((token) => searchableText.has(token)));
+  if (topicGroups.length) return directTopicMatchCount(searchableText, query) >= 1;
   return searchSignalGroups(query).some((group) => group.some((token) => searchableText.has(token)));
 }
 
@@ -996,11 +1043,14 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
   });
   const successfulProviders = providerStates.filter((state) => state.status !== "error");
   if (!successfulProviders.length) throw new EvidenceSearchUnavailableError("Semua sumber evidence gagal dihubungi. Coba lagi beberapa saat.");
-  const deduplicated = deduplicateProviderRecords(providerRecords);
+  const excludedRecords = providerRecords.filter(isExcludedPublication);
+  const eligibleProviderRecords = providerRecords.filter((record) => !isExcludedPublication(record));
+  if (excludedRecords.length) warnings.push(`${excludedRecords.length} kandidat non-jurnal (misalnya tesis, buku, atau dataset) disisihkan dari daftar evidence utama.`);
+  const deduplicated = deduplicateProviderRecords(eligibleProviderRecords);
   const rankedResults: FederatedEvidenceRecord[] = deduplicated
     .map((record) => {
-      const score = relevanceScore(record, plan.originalQuery, plan.expandedTerms, new Set(providerRecords.filter((item) => evidenceRecordId(item) === evidenceRecordId(record)).map((item) => item.providerId)).size || 1);
-      const sourceIds = uniqueStrings(providerRecords.filter((item) => identifierKeys(item).some((key) => identifierKeys(record).includes(key))).map((item) => item.providerId)) as EvidenceProviderId[];
+      const score = relevanceScore(record, plan.originalQuery, plan.expandedTerms, new Set(eligibleProviderRecords.filter((item) => evidenceRecordId(item) === evidenceRecordId(record)).map((item) => item.providerId)).size || 1);
+      const sourceIds = uniqueStrings(eligibleProviderRecords.filter((item) => identifierKeys(item).some((key) => identifierKeys(record).includes(key))).map((item) => item.providerId)) as EvidenceProviderId[];
       return {
         id: evidenceRecordId(record),
         source: record.providerId,

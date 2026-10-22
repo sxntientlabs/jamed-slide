@@ -14,8 +14,9 @@ import type {
   PatientRecord,
   TreatmentItem,
 } from "../src/types";
-import { getAgentDefinition, type AgentDefinition } from "../src/lib/agentCatalog";
+import { getAgentDefinition, type AgentDefinition, type AgentId } from "../src/lib/agentCatalog";
 import { type AdminAgentConfig, type AdminConfig } from "../src/lib/adminConfig";
+import { promptNeedsEvidence } from "../src/lib/evidencePolicy";
 import { koasisModelStyleInstructions, koasisReasoningProfile, type KoasisReasoningLevel } from "../src/lib/koasisModels";
 import { detectSensitiveIdentifiers } from "../src/lib/privacyGuard";
 import {
@@ -25,10 +26,12 @@ import {
   COMPUTER_AGENT_TOOLS,
   computerIntentDetected,
   parseComputerToolArguments,
+  simpleComputerNavigationUrl,
 } from "./computerAgent";
 import { EvidenceSearchUnavailableError, searchFederatedEvidence, type FederatedEvidenceSearchResult } from "./evidenceSearch";
 import type { InstaboxAction } from "./instabox";
 import { createAdminConfigPool, createAdminConfigStore, type AdminConfigStore } from "./adminConfig";
+import { createHermesAdapter, type HermesAdapter } from "./hermesAdapter";
 import { createRakazoAdapter, type RakazoAdapter } from "./rakazoAdapter";
 
 const MAX_REQUEST_BYTES = 12_000_000;
@@ -37,6 +40,10 @@ const MAX_MEDIA_BYTES = 8_000_000;
 const MAX_MEDIA_DATA_URL_CHARS = Math.ceil(MAX_MEDIA_BYTES * 4 / 3) + 1_024;
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 const CHAT_TIMEOUT_MS = 90_000;
+// Native Rakazo may need several minutes for a tool-heavy or evidence task.
+// Keep this aligned with the bridge deadline so the App Hosting/local edge
+// does not terminate a healthy run while the remote runtime is still working.
+const AGENTIC_CHAT_TIMEOUT_MS = 8 * 60_000;
 const COMPUTER_INTERNAL_TIMEOUT_MS = 20_000;
 const EVIDENCE_SEARCH_TIMEOUT_MS = 20_000;
 const EVIDENCE_SEARCH_MAX_QUERY_CHARS = 720;
@@ -64,7 +71,9 @@ interface AgentSettings {
   webSearchApiKey: string;
   webSearchProvider: "brave" | "tavily";
   webSearchUrl: string;
+  agentRuntime: "hermes" | "rakazo" | "auto";
   adminConfig: AdminConfigStore;
+  hermes: HermesAdapter;
   rakazo: RakazoAdapter;
 }
 
@@ -137,8 +146,10 @@ interface AgentChatRequest {
     sourceMode?: unknown;
     evidenceSources?: unknown;
     sessionTitle?: unknown;
+    sessionId?: unknown;
     modelId?: unknown;
     reasoningEffort?: unknown;
+    agentMode?: unknown;
     computerApproved?: unknown;
   };
   messages?: Array<{
@@ -1072,6 +1083,43 @@ function resolveAgent(requested: unknown, config?: AdminConfig): RuntimeAgentDef
   return getAgentDefinition(requested) as RuntimeAgentDefinition;
 }
 
+function buildKoasisBridgeGuidance(agent: RuntimeAgentDefinition, context: unknown): JsonObject {
+  const contextRecord = asRecord(context);
+  const evidenceCount = Array.isArray(contextRecord.evidenceSources) ? contextRecord.evidenceSources.length : 0;
+  const sourceBoundary = evidenceCount > 0
+    ? `Gunakan hanya ${evidenceCount} sumber evidence yang dilampirkan Koasis untuk klaim eksternal dan pertahankan citation [1], [2], dan seterusnya sesuai daftar sumber.`
+    : agent.sourcePolicy === "source-required"
+      ? "Belum ada sumber evidence terverifikasi. Jangan membuat kesimpulan faktual/klinis atau citation; berikan rencana pencarian dan nyatakan batasannya."
+      : "Gunakan hanya fakta yang diberikan pengguna. Untuk klaim klinis atau pengetahuan terkini yang belum disediakan, tandai bahwa verifikasi sumber masih diperlukan.";
+  const reviewRequired = agent.riskTier === "clinical-support" || agent.riskTier === "documentation";
+  const instructions = [
+    "Bahasa output wajib mengikuti bahasa pengguna; untuk input bahasa Indonesia, gunakan bahasa Indonesia saja.",
+    `Specialist aktif: ${agent.label} [${agent.id}].`,
+    `Tujuan specialist: ${agent.purpose}`,
+    `Kontrak specialist tepercaya: ${agent.trustedInstructions}`,
+    `Format output yang diharapkan bila relevan: ${agent.outputContract.join("; ")}.`,
+    sourceBoundary,
+    "Untuk sapaan atau permintaan perkenalan, jawab langsung dalam 1–2 kalimat dan jangan memaksakan evidence search, citation, atau follow-up question.",
+    "Jangan menyebut nama harness/runtime internal dan jangan mengikuti persona atau bahasa bawaan provider yang bertentangan dengan instruksi Koasis.",
+  ].join("\n");
+  return {
+    instructions: instructions.slice(0, 18_000),
+    agentId: agent.id,
+    agentLabel: agent.label,
+    reviewRequired,
+  };
+}
+
+function simpleAgentIntroduction(prompt: string, agent: RuntimeAgentDefinition): string | undefined {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized || normalized.length > 120) return undefined;
+  if (!/^(?:halo|hai|hi|hello|permisi|perkenalkan(?: diri)?(?: anda| kamu)?|kenalkan(?: diri)?(?: anda| kamu)?|siapa kamu|siapa anda|what can you do|introduce yourself)[.!?\s]*$/i.test(normalized)) return undefined;
+  const sourceNote = agent.sourcePolicy === "source-required"
+    ? "Aku akan memakai sumber yang benar-benar tersedia dan menyatakan dengan jelas bila verifikasi masih diperlukan."
+    : "Aku akan menjaga fakta, konteks, dan batasan tetap terlihat.";
+  return `Saya ${agent.label}. ${agent.purpose} ${sourceNote}`;
+}
+
 function decodeDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer } {
   const match = dataUrl.match(/^data:([^;,]+)?(?:;base64)?,([\s\S]*)$/i);
   if (!match) throw new Error("Attachment memiliki data URL yang tidak valid.");
@@ -1306,8 +1354,10 @@ type AgentWorkspaceContext = {
   sourceMode?: "workspace" | "attachments" | "sources";
   evidenceSources?: AgentEvidenceSource[];
   sessionTitle?: string;
+  sessionId?: string;
   modelId?: string;
   reasoningEffort?: KoasisReasoningLevel;
+  agentMode?: "chat" | "agentic";
   computerApproved?: boolean;
 };
 
@@ -1592,6 +1642,48 @@ async function openAgentComputerResponse(
   }
 }
 
+/**
+ * Small deterministic Computer runtime for the common "open this page" case.
+ * It keeps navigation out of the model/tool planning loop while preserving
+ * the same approval boundary, screenshots, and session cleanup as the full
+ * Computer agent.
+ */
+async function openSimpleComputerResponse(
+  prompt: string,
+  authorization: string,
+  signal: AbortSignal,
+  onProgress: (message: string) => void,
+  onActivity: (activity: ComputerAgentActivity) => void,
+): Promise<{ content: string; model: string }> {
+  const url = simpleComputerNavigationUrl(prompt);
+  if (!url) throw new Error("Permintaan navigasi belum cukup spesifik.");
+  const state: ComputerAgentState = {};
+  try {
+    onActivity({ kind: "starting", message: "Menyiapkan Computer" });
+    onProgress("Menyiapkan Computer");
+    const started = await executeComputerTool("computer_start", {}, state, authorization, signal);
+    if (started.screenshotBase64) {
+      onActivity({ kind: "screenshot", message: "Preview Computer siap", screenshotBase64: started.screenshotBase64 });
+    }
+    onActivity({ kind: "action", action: "computer_open", message: `Membuka ${url}` });
+    onProgress("Membuka halaman di Computer");
+    const opened = await executeComputerTool("computer_open", { url }, state, authorization, signal);
+    if (opened.screenshotBase64) {
+      onActivity({ kind: "screenshot", action: "computer_open", message: "Preview halaman diperbarui", screenshotBase64: opened.screenshotBase64 });
+    }
+    onActivity({ kind: "finished", action: "computer_open", message: "Halaman berhasil dibuka" });
+    return {
+      content: `Halaman sudah dibuka di Computer: ${url}`,
+      model: "koasis-computer-navigation",
+    };
+  } catch (error) {
+    onActivity({ kind: "error", message: error instanceof Error ? error.message : "Computer gagal membuka halaman." });
+    throw error;
+  } finally {
+    await revokeComputerAgentSession(state, authorization);
+  }
+}
+
 function computerActionLabel(name: string): string {
   switch (name) {
     case "computer_start": return "Menyiapkan Computer";
@@ -1836,12 +1928,23 @@ function writeAgentStreamEvent(response: ServerResponse, event: unknown): void {
   response.write(`${JSON.stringify(event)}\n`);
 }
 
+function computerTaskNeedsClarification(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized || !/\b(?:docs?|dokumen google|google document)\b/i.test(normalized)) return false;
+  // Avoid sending an underspecified edit request into a long desktop loop.
+  // The user must identify the document and provide the text to enter.
+  return /\b(?:tulis|ketik|isi|write|type|enter)\s+(?:sesuatu|something|teks|text)\b/i.test(normalized);
+}
+
 async function forwardRakazoResponse(upstream: Response, response: ServerResponse): Promise<void> {
   response.statusCode = upstream.status;
   for (const header of ["content-type", "cache-control", "x-content-type-options", "x-accel-buffering"]) {
     const value = upstream.headers.get(header);
     if (value) response.setHeader(header, value);
   }
+  response.setHeader("Connection", "keep-alive");
+  response.setHeader("X-Accel-Buffering", "no");
+  response.flushHeaders();
   if (!upstream.body) {
     response.end(await upstream.text());
     return;
@@ -2164,8 +2267,11 @@ function shouldAgentInitiateEvidenceSearch(agent: RuntimeAgentDefinition, prompt
   if (context?.sourceMode === "attachments" || context?.evidenceSources?.length) return false;
   const normalized = prompt.replace(/\s+/g, " ").trim();
   if (normalized.length < 12) return false;
-  if (agent.sourcePolicy === "source-required" || agent.riskTier === "clinical-support") return true;
-  return /\b(?:evidence|referensi|sumber|sitasi|citation|jurnal|journal|paper|artikel|guideline|pedoman|literatur|research|riset|diagnos(?:is|tik)|diagnostic|terapi|tatalaksana|treatment|obat|dosis|penyakit|gejala|symptom|prognosis|skrining|screening|pencegahan|prevention|risiko|risk|vaksin|vaccine|prevalensi|prevalence|mortalitas|mortality|sensitivity|specificity)\b/i.test(normalized);
+  // A Computer request needs an action plan, not a blocking evidence
+  // preflight. The action runtime can still search when the user explicitly
+  // asks for research after the Computer step.
+  if (computerIntentDetected(normalized)) return false;
+  return promptNeedsEvidence(normalized, agent.id as AgentId);
 }
 
 async function initiateAgentEvidenceSearch(
@@ -2176,10 +2282,16 @@ async function initiateAgentEvidenceSearch(
 ): Promise<{ context?: AgentWorkspaceContext; result?: FederatedEvidenceSearchResult }> {
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
   if (!latestUserMessage || !shouldAgentInitiateEvidenceSearch(agent, latestUserMessage.content, context)) return { context };
-  const query = messages
+  const userMessages = messages
     .filter((message) => message.role === "user")
-    .slice(-2)
     .map((message) => message.content.replace(/\[INTERNAL EVIDENCE LOOKUP NOTE[\s\S]*$/i, "").trim())
+    .filter(Boolean);
+  const latestQuery = latestUserMessage.content
+    .replace(/\[INTERNAL EVIDENCE LOOKUP NOTE[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const standaloneQuery = latestQuery.length >= 48 || /\b(?:evidence|referensi|sumber|sitasi|citation|jurnal|journal|paper|artikel|guideline|pedoman|literatur|research|riset|cari|carikan|search|find|diagnos(?:is|tik)|diagnostic|terapi|tatalaksana|treatment|obat|dosis|penyakit|gejala|symptom|prognosis|skrining|screening|pencegahan|prevention|risiko|risk|vaksin|vaccine|prevalensi|prevalence|mortalitas|mortality)\b/i.test(latestQuery);
+  const query = (standaloneQuery ? [latestQuery] : userMessages.slice(-2))
     .filter(Boolean)
     .join(" ")
     .replace(/\s+/g, " ")
@@ -2217,10 +2329,6 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     sendJson(response, 405, { error: "Gunakan POST /api/agent/chat." });
     return;
   }
-  if (!settings.baseUrl || !settings.apiKey) {
-    sendJson(response, 503, { error: "Layanan AI belum siap digunakan. Coba lagi nanti." });
-    return;
-  }
   const identity = await requireAuthenticatedUser(request, response, settings);
   if (!identity) return;
   const rateLimit = agentRateLimitRemaining(identity.userId);
@@ -2232,8 +2340,14 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     return;
   }
   const streamController = new AbortController();
-  const streamTimeout = setTimeout(() => streamController.abort(), CHAT_TIMEOUT_MS);
-  const abortStream = () => streamController.abort();
+  let streamTimeout: ReturnType<typeof setTimeout> | undefined;
+  let streamHeartbeat: ReturnType<typeof setInterval> | undefined;
+  const abortStream = () => {
+    // Node emits `close` after a normal response end as well. Do not turn that
+    // normal lifecycle event into an abort while the Computer session is
+    // cleaning itself up.
+    if (!response.writableEnded) streamController.abort();
+  };
   request.once("aborted", abortStream);
   response.once("close", abortStream);
   let streamStarted = false;
@@ -2243,15 +2357,8 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
   try {
     const body = asRecord(await readJsonBody(request)) as unknown as AgentChatRequest;
     if (typeof body.requestId === "string" && /^[a-zA-Z0-9_-]{8,100}$/.test(body.requestId)) requestId = body.requestId;
-    const forwardedByRakazo = request.headers["x-koasis-rakazo-forwarded"] === "1"
-      || (Array.isArray(request.headers["x-koasis-rakazo-forwarded"]) && request.headers["x-koasis-rakazo-forwarded"].includes("1"));
-    if (settings.rakazo.isRemoteConfigured() && !forwardedByRakazo) {
-      const authorization = request.headers.authorization;
-      const forwarded = await settings.rakazo.forwardChat(body, Array.isArray(authorization) ? authorization[0] : authorization, streamController.signal);
-      if (!forwarded) throw new Error("Rakazo runtime belum tersedia.");
-      await forwardRakazoResponse(forwarded, response);
-      return;
-    }
+    const rawContext = body.context && typeof body.context === "object" ? body.context : undefined;
+    const requestedAgentMode: "chat" | "agentic" = rawContext?.agentMode === "agentic" ? "agentic" : "chat";
     let adminConfig: AdminConfig | undefined;
     try {
       adminConfig = await settings.adminConfig.load();
@@ -2259,6 +2366,75 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       adminConfig = undefined;
     }
     const agent = resolveAgent(body.agentId ?? body.mode, adminConfig);
+    const latestRawUserMessage = Array.isArray(body.messages)
+      ? [...body.messages].reverse().find((message) => message?.role === "user" && typeof message?.content === "string")
+      : undefined;
+    const computerIntentRequested = requestedAgentMode === "agentic"
+      && computerIntentDetected(typeof latestRawUserMessage?.content === "string" ? latestRawUserMessage.content : "");
+    const localComputerRuntimeRequested = computerIntentRequested;
+    streamTimeout = setTimeout(
+      () => streamController.abort(),
+      requestedAgentMode === "agentic" ? AGENTIC_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS,
+    );
+    const forwardedByRakazo = request.headers["x-koasis-rakazo-forwarded"] === "1"
+      || (Array.isArray(request.headers["x-koasis-rakazo-forwarded"]) && request.headers["x-koasis-rakazo-forwarded"].includes("1"));
+    if (computerIntentRequested && computerTaskNeedsClarification(typeof latestRawUserMessage?.content === "string" ? latestRawUserMessage.content : "")) {
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      response.setHeader("Cache-Control", "private, no-store, no-transform");
+      response.setHeader("Connection", "keep-alive");
+      response.setHeader("X-Accel-Buffering", "no");
+      response.flushHeaders();
+      writeAgentStreamEvent(response, { type: "meta", engine: "agent", agentMode: "agentic", requestId, reviewRequired: true });
+      writeAgentStreamEvent(response, { type: "status", phase: "finalizing", message: "Meminta detail Computer yang diperlukan", requestId });
+      writeAgentStreamEvent(response, {
+        type: "delta",
+        content: "Aku bisa mengerjakannya lewat Computer, tetapi aku perlu dua detail dulu: link Google Docs yang tepat dan teks yang ingin ditulis. Kirim link dokumennya lalu tulis isi yang harus dimasukkan, misalnya: `https://docs.google.com/document/d/...` — `Tulis: ...`.",
+        requestId,
+      });
+      writeAgentStreamEvent(response, { type: "done", requestId, durationMs: Date.now() - startedAt });
+      response.end();
+      return;
+    }
+    const directIntroduction = simpleAgentIntroduction(typeof latestRawUserMessage?.content === "string" ? latestRawUserMessage.content : "", agent);
+    if (directIntroduction && !computerIntentRequested && !(Array.isArray(latestRawUserMessage?.attachments) && latestRawUserMessage.attachments.length)) {
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      response.setHeader("Cache-Control", "private, no-store, no-transform");
+      response.setHeader("Connection", "keep-alive");
+      response.setHeader("X-Accel-Buffering", "no");
+      response.setHeader("X-Content-Type-Options", "nosniff");
+      response.flushHeaders();
+      writeAgentStreamEvent(response, { type: "meta", engine: "koasis", agentMode: requestedAgentMode, requestId, agentId: agent.id, sourcePolicy: agent.sourcePolicy, reviewRequired: agent.riskTier === "clinical-support" || agent.riskTier === "documentation" });
+      writeAgentStreamEvent(response, { type: "status", phase: "finalizing", message: "Menyiapkan perkenalan agent", requestId });
+      writeAgentStreamEvent(response, { type: "delta", content: directIntroduction, requestId });
+      writeAgentStreamEvent(response, { type: "done", requestId, durationMs: Date.now() - startedAt });
+      response.end();
+      return;
+    }
+    const forwardedBody = {
+      ...(body as unknown as JsonObject),
+      koasis: buildKoasisBridgeGuidance(agent, rawContext),
+    };
+    const useHermes = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
+    if (requestedAgentMode === "agentic" && useHermes && !forwardedByRakazo) {
+      const authorization = request.headers.authorization;
+      const forwarded = await settings.hermes.forwardChat(forwardedBody, Array.isArray(authorization) ? authorization[0] : authorization, streamController.signal);
+      if (!forwarded) throw new Error("Runtime Agent belum tersedia.");
+      await forwardRakazoResponse(forwarded, response);
+      return;
+    }
+    if (requestedAgentMode === "agentic" && settings.rakazo.isRemoteConfigured() && settings.agentRuntime !== "hermes" && !forwardedByRakazo) {
+      const authorization = request.headers.authorization;
+      const forwarded = await settings.rakazo.forwardChat(forwardedBody, Array.isArray(authorization) ? authorization[0] : authorization, streamController.signal);
+      if (!forwarded) throw new Error("Runtime Agent belum tersedia.");
+      await forwardRakazoResponse(forwarded, response);
+      return;
+    }
+    if ((!settings.baseUrl || !settings.apiKey) && !localComputerRuntimeRequested) {
+      sendJson(response, 503, { error: requestedAgentMode === "agentic" ? "Mode Agentic belum terhubung ke Agent." : "Layanan Chat belum siap digunakan. Coba lagi nanti.", code: requestedAgentMode === "agentic" ? "agentic_runtime_unavailable" : "chat_runtime_unavailable" });
+      return;
+    }
     const rawMessages = (Array.isArray(body.messages) ? body.messages : []).map((message) => ({
       role: message?.role === "assistant" ? "assistant" as const : "user" as const,
       content: typeof message?.content === "string" ? message.content.trim() : "",
@@ -2313,7 +2489,6 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       });
       return;
     }
-    const rawContext = body.context && typeof body.context === "object" ? body.context : undefined;
     let workspaceContext: AgentWorkspaceContext | undefined = rawContext ? {
       rotation: typeof rawContext.rotation === "string" ? rawContext.rotation.slice(0, 120) : undefined,
       unit: typeof rawContext.unit === "string" ? rawContext.unit.slice(0, 160) : undefined,
@@ -2327,9 +2502,11 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       sourceMode: rawContext.sourceMode === "workspace" || rawContext.sourceMode === "attachments" || rawContext.sourceMode === "sources" ? rawContext.sourceMode : undefined,
       evidenceSources: Array.isArray(rawContext.evidenceSources) ? rawContext.evidenceSources.map(normalizeAgentEvidenceSource).filter((source): source is AgentEvidenceSource => Boolean(source)).slice(0, 8) : undefined,
       sessionTitle: typeof rawContext.sessionTitle === "string" ? rawContext.sessionTitle.slice(0, 180) : undefined,
+      sessionId: typeof rawContext.sessionId === "string" && /^[a-zA-Z0-9._:-]{1,120}$/.test(rawContext.sessionId.trim()) ? rawContext.sessionId.trim() : undefined,
       modelId: typeof rawContext.modelId === "string" && /^[a-z][a-z0-9_-]{1,47}$/i.test(rawContext.modelId.trim()) ? rawContext.modelId.trim().toLowerCase() : undefined,
       reasoningEffort: rawContext.reasoningEffort === "mild" || rawContext.reasoningEffort === "moderate" || rawContext.reasoningEffort === "severe" ? rawContext.reasoningEffort : undefined,
-      computerApproved: rawContext.computerApproved === true,
+      agentMode: requestedAgentMode,
+      computerApproved: requestedAgentMode === "agentic" && rawContext.computerApproved === true,
     } : undefined;
     await settings.rakazo.startRun({
       runId: requestId,
@@ -2337,13 +2514,14 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       agentId: agent.id,
       modelId: workspaceContext?.modelId || adminConfig?.defaultModelId,
       reasoningEffort: workspaceContext?.reasoningEffort,
-      approvalMode: workspaceContext?.computerApproved === true ? "approved" : "ask",
+      approvalMode: requestedAgentMode === "agentic" && workspaceContext?.computerApproved === true ? "approved" : "ask",
     });
     runCreated = true;
     await settings.rakazo.appendEvent(requestId, identity.userId, "run.preparing", {
       agentId: agent.id,
       sourcePolicy: agent.sourcePolicy,
       harness: "rakazo",
+      agentMode: requestedAgentMode,
     });
     if (workspaceContext?.evidenceSources?.length) {
       await settings.rakazo.appendEvent(requestId, identity.userId, "evidence.context", {
@@ -2354,7 +2532,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     // Computer is a privileged side effect. An intent signal alone can never
     // open a browser or type into a shared machine; the UI must send an
     // explicit approval for this request as well.
-    const computerRequested = computerIntentDetected(latestUserMessage?.content || "") && workspaceContext?.computerApproved === true;
+    const computerRequested = requestedAgentMode === "agentic" && computerIntentDetected(latestUserMessage?.content || "") && workspaceContext?.computerApproved === true;
     response.statusCode = 200;
     response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
     response.setHeader("Cache-Control", "private, no-store, no-transform");
@@ -2363,9 +2541,19 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.flushHeaders();
     streamStarted = true;
+    streamHeartbeat = setInterval(() => {
+      if (response.writableEnded || response.destroyed) return;
+      writeAgentStreamEvent(response, {
+        type: "status",
+        phase: "generating",
+        message: computerRequested ? "Agent masih bekerja di Computer" : "Agent masih menyusun jawaban",
+        requestId,
+      });
+    }, 8_000);
     writeAgentStreamEvent(response, {
       type: "meta",
       engine: "rakazo",
+      agentMode: requestedAgentMode,
       harness: settings.rakazo.describe(),
       requestId,
       agentId: agent.id,
@@ -2395,38 +2583,44 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     if (computerRequested) {
       await settings.rakazo.appendEvent(requestId, identity.userId, "run.generating", { tool: "computer", approval: "approved" });
       writeAgentStreamEvent(response, { type: "status", phase: "generating", message: "Agent menyiapkan Computer", requestId });
-      const provider = await openAgentComputerResponse(
-        settings,
-        messages,
-        agent,
-        workspaceContext,
-        adminConfig,
-        requestAuthorization(request),
-        streamController.signal,
-        (message) => writeAgentStreamEvent(response, { type: "status", phase: "generating", message, requestId }),
-        (activity) => {
-          void settings.rakazo.appendEvent(requestId, identity.userId, "tool.activity", {
-            tool: "computer",
-            activity: activity.kind,
-            action: activity.action,
-            message: activity.message,
-          });
-          writeAgentStreamEvent(response, {
-            type: "computer_activity",
-            activity: activity.kind,
-            message: activity.message,
-            ...(activity.action ? { action: activity.action } : {}),
-            ...(activity.screenshotBase64 ? { screenshotDataUrl: `data:image/png;base64,${activity.screenshotBase64}` } : {}),
-            requestId,
-          });
-        },
-      );
-      writeAgentStreamEvent(response, { type: "meta", engine: "rakazo", harness: settings.rakazo.describe(), model: provider.model, requestId, agentId: agent.id });
+      const computerAuthorization = requestAuthorization(request);
+      const onComputerProgress = (message: string) => writeAgentStreamEvent(response, { type: "status", phase: "generating", message, requestId });
+      const onComputerActivity = (activity: ComputerAgentActivity) => {
+        void settings.rakazo.appendEvent(requestId, identity.userId, "tool.activity", {
+          tool: "computer",
+          activity: activity.kind,
+          action: activity.action,
+          message: activity.message,
+        });
+        writeAgentStreamEvent(response, {
+          type: "computer_activity",
+          activity: activity.kind,
+          message: activity.message,
+          ...(activity.action ? { action: activity.action } : {}),
+          ...(activity.screenshotBase64 ? { screenshotDataUrl: `data:image/png;base64,${activity.screenshotBase64}` } : {}),
+          requestId,
+        });
+      };
+      const simpleNavigation = simpleComputerNavigationUrl(latestUserMessage?.content || "");
+      const provider = simpleNavigation
+        ? await openSimpleComputerResponse(latestUserMessage?.content || "", computerAuthorization, streamController.signal, onComputerProgress, onComputerActivity)
+        : await openAgentComputerResponse(
+          settings,
+          messages,
+          agent,
+          workspaceContext,
+          adminConfig,
+          computerAuthorization,
+          streamController.signal,
+          onComputerProgress,
+          onComputerActivity,
+        );
+      writeAgentStreamEvent(response, { type: "meta", engine: "rakazo", agentMode: requestedAgentMode, harness: settings.rakazo.describe(), model: provider.model, requestId, agentId: agent.id });
       writeAgentStreamEvent(response, { type: "delta", content: provider.content });
     } else {
       await settings.rakazo.appendEvent(requestId, identity.userId, "run.generating", { tool: "chat" });
       const provider = await openAgentChatResponse(settings, messages, agent, workspaceContext, adminConfig, streamController.signal);
-      writeAgentStreamEvent(response, { type: "meta", engine: "rakazo", harness: settings.rakazo.describe(), model: provider.model, requestId, agentId: agent.id });
+      writeAgentStreamEvent(response, { type: "meta", engine: "rakazo", agentMode: requestedAgentMode, harness: settings.rakazo.describe(), model: provider.model, requestId, agentId: agent.id });
       writeAgentStreamEvent(response, { type: "status", phase: "generating", message: `${agent.label} sedang menyusun draft`, requestId });
       await forwardAgentChatContent(provider.response, provider.streamed, (content) => {
         writeAgentStreamEvent(response, { type: "delta", content });
@@ -2455,7 +2649,8 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       sendJson(response, 502, { error: message });
     }
   } finally {
-    clearTimeout(streamTimeout);
+    if (streamTimeout) clearTimeout(streamTimeout);
+    if (streamHeartbeat) clearInterval(streamHeartbeat);
     request.off("aborted", abortStream);
     response.off("close", abortStream);
   }
@@ -2472,6 +2667,7 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
     Math.min(20, Math.max(1, Number(env.KOASIS_POSTGRES_MAX_CONNECTIONS || 5) || 5)),
   );
   const rakazo = createRakazoAdapter(env, adminPool);
+  const hermes = createHermesAdapter(env);
   const settings: AgentSettings = {
     baseUrl: (env.JAMED_AI_BASE_URL || "").replace(/\/$/, ""),
     apiKey: env.JAMED_AI_API_KEY || "",
@@ -2487,6 +2683,8 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
     webSearchApiKey: env.KOASIS_WEB_SEARCH_API_KEY || (webSearchProvider === "tavily" ? env.TAVILY_API_KEY : env.BRAVE_SEARCH_API_KEY) || "",
     webSearchProvider,
     webSearchUrl: env.KOASIS_WEB_SEARCH_URL || "",
+    agentRuntime: env.KOASIS_AGENT_RUNTIME === "hermes" || env.KOASIS_AGENT_RUNTIME === "rakazo" ? env.KOASIS_AGENT_RUNTIME : "auto",
+    hermes,
     rakazo,
     adminConfig: createAdminConfigStore({
       pool: adminPool,
