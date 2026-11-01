@@ -2341,16 +2341,7 @@ export function AgenticChat() {
           preset.id,
           requestOptions(token),
         );
-        let response: AgentChatResult;
-        try {
-          response = await sendRequest(authToken);
-        } catch (error) {
-          // A Firebase token can be revoked while the tab remains open. A
-          // single forced refresh prevents that stale session from looking
-          // like a silent Agentic failure; other errors are not retried.
-          if (!(error instanceof AgentChatError && error.code === "unauthorized")) throw error;
-          response = await sendRequest(await getAgentAuthToken(user as AgentAuthUserLike, true));
-        }
+        const response: AgentChatResult = await sendRequest(authToken);
         let artifact: ChatArtifact | undefined;
         let artifactError: string | undefined;
         let artifactRemote: RemoteChatArtifact | undefined;
