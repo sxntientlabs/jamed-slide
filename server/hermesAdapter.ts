@@ -282,6 +282,7 @@ async function runHermesStream(
     headers: { Accept: "text/event-stream", Authorization: `Bearer ${apiKey}` },
     signal,
   });
+  console.info("[koasis-hermes] event stream connected", { requestId, runId, status: eventResponse.status });
   if (!eventResponse.ok || !eventResponse.body) {
     const statusResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
       headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
@@ -318,6 +319,7 @@ async function runHermesStream(
     } else if (type === "run.failed" || type === "run.cancelled" || type === "run.interrupted") {
       terminal = true;
       const error = stringValue(parsed.data.error, 600) || (type === "run.cancelled" ? "Pekerjaan dibatalkan." : "Agent gagal menyelesaikan pekerjaan.");
+      console.error("[koasis-hermes] run ended unsuccessfully", { requestId, runId, type, error });
       write({ type: "error", error, code: type.replace("run.", ""), requestId });
     }
   };
@@ -338,7 +340,7 @@ async function runHermesStream(
   } finally {
     reader.releaseLock();
   }
-  if (!terminal) {
+    if (!terminal) {
     const statusResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
       headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
       signal,
@@ -349,7 +351,11 @@ async function runHermesStream(
     const merged = appendFinalOutput(accumulated, runOutput(status));
     if (merged.delta) write({ type: "delta", content: merged.delta, requestId });
     if (status.status === "completed") write({ type: "done", requestId });
-    else write({ type: "error", error: stringValue(status.error, 600) || "Stream Agent terputus sebelum selesai.", code: "stream_incomplete", requestId });
+    else {
+      const error = stringValue(status.error, 600) || "Stream Agent terputus sebelum selesai.";
+      console.error("[koasis-hermes] stream incomplete", { requestId, runId, status: status.status, error });
+      write({ type: "error", error, code: "stream_incomplete", requestId });
+    }
   }
 }
 
@@ -414,7 +420,11 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
           write({ type: "status", phase: "accepted", message: "Agent menerima tugas", requestId });
           void runHermesStream(baseUrl, apiKey, runId, requestId, signal, write)
             .catch((error) => {
-              if (!signal.aborted) controller.enqueue(encoder.encode(`${JSON.stringify({ type: "error", error: error instanceof Error ? error.message : "Hermes gagal memproses tugas.", code: "hermes_stream_error", requestId })}\n`));
+              if (!signal.aborted) {
+                const message = error instanceof Error ? error.message : "Hermes gagal memproses tugas.";
+                console.error("[koasis-hermes] stream error", { requestId, runId, error: message });
+                controller.enqueue(encoder.encode(`${JSON.stringify({ type: "error", error: message, code: "hermes_stream_error", requestId })}\n`));
+              }
             })
             .finally(() => controller.close());
         },
