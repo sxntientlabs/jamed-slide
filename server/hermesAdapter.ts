@@ -126,6 +126,8 @@ function jsonResponse(status: number, body: JsonRecord): Response {
 function eventDataText(data: JsonRecord): string {
   const direct = stringValue(data.text, 24_000);
   if (direct) return direct;
+  const stringDelta = stringValue(data.delta, 24_000);
+  if (stringDelta) return stringDelta;
   const delta = asRecord(data.delta);
   return stringValue(delta.text, 24_000) || stringValue(data.content, 24_000);
 }
@@ -259,7 +261,10 @@ function parseSseBlock(block: string): { event: string; data: JsonRecord } | nul
   }
   if (!dataLines.length) return null;
   try {
-    return { event, data: asRecord(JSON.parse(dataLines.join("\n"))) };
+  const data = asRecord(JSON.parse(dataLines.join("\n")));
+  // Hermes emits the event name inside the JSON payload when the SSE block
+  // does not include a separate `event:` line.
+  return { event: stringValue(data.event, 120) || event, data };
   } catch {
     return null;
   }
@@ -323,6 +328,10 @@ async function runHermesStream(
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() || "";
       blocks.forEach(processBlock);
+      if (terminal) {
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
       if (done) break;
     }
     if (buffer.trim()) processBlock(buffer);

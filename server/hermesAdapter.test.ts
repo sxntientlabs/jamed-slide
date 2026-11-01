@@ -67,6 +67,35 @@ describe("Hermes adapter", () => {
     }));
   });
 
+  test("accepts Hermes SSE blocks whose event name and delta live in JSON", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run_json_events", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        "id: 0",
+        'data: {"event":"message.delta","run_id":"run_json_events","delta":"READY"}',
+        "",
+        "id: 1",
+        'data: {"event":"run.completed","run_id":"run_json_events","output":"READY"}',
+        "",
+        ": stream closed",
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-json-events",
+      messages: [{ role: "user", content: "uji" }],
+      context: { agentMode: "agentic" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.map((line) => line.type)).toEqual(["meta", "status", "delta", "status", "done"]);
+    expect(lines.find((line) => line.type === "delta")).toMatchObject({ content: "READY" });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   test("forwards screenshots nested in a provider attachment envelope", async () => {
     const screenshot = "a".repeat(160);
     vi.spyOn(globalThis, "fetch")
