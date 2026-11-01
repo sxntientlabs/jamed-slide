@@ -53,6 +53,12 @@ const AGENT_RATE_LIMIT = 24;
 const execFile = promisify(execFileCallback);
 
 const agentRateBuckets = new Map<string, { count: number; resetAt: number }>();
+let lastAgentRequestDiagnostic: {
+  at: number;
+  stage: "received" | "authenticated" | "auth_rejected" | "forwarding" | "completed" | "failed";
+  mode?: "chat" | "agentic";
+  authHeaderPresent: boolean;
+} | undefined;
 
 type Next = (error?: unknown) => void;
 
@@ -2042,7 +2048,13 @@ async function handleRakazoHealth(request: IncomingMessage, response: ServerResp
     return;
   }
   response.setHeader("Cache-Control", "no-store");
-  sendJson(response, 200, { ok: true, harness: settings.rakazo.describe() });
+  sendJson(response, 200, {
+    ok: true,
+    harness: settings.rakazo.describe(),
+    runtime: settings.agentRuntime,
+    hermes: settings.hermes.describe(),
+    lastAgentRequest: lastAgentRequestDiagnostic,
+  });
 }
 
 async function handleRakazoRun(request: IncomingMessage, response: ServerResponse, settings: AgentSettings): Promise<void> {
@@ -2329,8 +2341,16 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     sendJson(response, 405, { error: "Gunakan POST /api/agent/chat." });
     return;
   }
+  lastAgentRequestDiagnostic = {
+    at: Date.now(),
+    stage: "received",
+    authHeaderPresent: Boolean(request.headers.authorization),
+  };
   const identity = await requireAuthenticatedUser(request, response, settings);
-  if (!identity) return;
+  if (!identity) {
+    lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "auth_rejected" };
+    return;
+  }
   const rateLimit = agentRateLimitRemaining(identity.userId);
   response.setHeader("X-RateLimit-Limit", String(AGENT_RATE_LIMIT));
   response.setHeader("X-RateLimit-Remaining", String(rateLimit.remaining));
@@ -2359,6 +2379,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     if (typeof body.requestId === "string" && /^[a-zA-Z0-9_-]{8,100}$/.test(body.requestId)) requestId = body.requestId;
     const rawContext = body.context && typeof body.context === "object" ? body.context : undefined;
     const requestedAgentMode: "chat" | "agentic" = rawContext?.agentMode === "agentic" ? "agentic" : "chat";
+    lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "authenticated", mode: requestedAgentMode };
     let adminConfig: AdminConfig | undefined;
     try {
       adminConfig = await settings.adminConfig.load();
@@ -2418,10 +2439,12 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     };
     const useHermes = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
     if (requestedAgentMode === "agentic" && useHermes && !forwardedByRakazo) {
+      lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "forwarding", mode: requestedAgentMode };
       const authorization = request.headers.authorization;
       const forwarded = await settings.hermes.forwardChat(forwardedBody, Array.isArray(authorization) ? authorization[0] : authorization, streamController.signal);
       if (!forwarded) throw new Error("Runtime Agent belum tersedia.");
       await forwardRakazoResponse(forwarded, response);
+      lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "completed", mode: requestedAgentMode };
       return;
     }
     if (requestedAgentMode === "agentic" && settings.rakazo.isRemoteConfigured() && settings.agentRuntime !== "hermes" && !forwardedByRakazo) {
@@ -2429,6 +2452,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       const forwarded = await settings.rakazo.forwardChat(forwardedBody, Array.isArray(authorization) ? authorization[0] : authorization, streamController.signal);
       if (!forwarded) throw new Error("Runtime Agent belum tersedia.");
       await forwardRakazoResponse(forwarded, response);
+      lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "completed", mode: requestedAgentMode };
       return;
     }
     if ((!settings.baseUrl || !settings.apiKey) && !localComputerRuntimeRequested) {
@@ -2630,6 +2654,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     writeAgentStreamEvent(response, { type: "status", phase: "finalizing", message: "Menandai batas review", requestId });
     writeAgentStreamEvent(response, { type: "done", requestId, durationMs: Date.now() - startedAt });
     await settings.rakazo.finishRun(requestId, identity.userId, "completed");
+    lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "completed", mode: requestedAgentMode };
     response.end();
   } catch (error) {
     if (streamController.signal.aborted && (response.destroyed || request.destroyed)) return;
@@ -2642,6 +2667,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     if (runCreated) {
       await settings.rakazo.finishRun(requestId, identity.userId, "failed", { code: errorCode, message });
     }
+    lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "failed" };
     if (streamStarted) {
       writeAgentStreamEvent(response, { type: "error", error: message, requestId, code: errorCode });
       response.end();
