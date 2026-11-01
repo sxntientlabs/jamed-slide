@@ -58,13 +58,6 @@ let lastAgentRequestDiagnostic: {
   stage: "received" | "authenticated" | "auth_rejected" | "forwarding" | "completed" | "failed";
   mode?: "chat" | "agentic";
   authHeaderPresent: boolean;
-  authReason?: string;
-} | undefined;
-let lastEvidenceRequestDiagnostic: {
-  at: number;
-  stage: "received" | "authenticated" | "auth_rejected" | "completed" | "failed";
-  authHeaderPresent: boolean;
-  authReason?: string;
 } | undefined;
 
 type Next = (error?: unknown) => void;
@@ -926,12 +919,6 @@ function safeErrorMessage(responseText: string, status: number): string {
 
 let firebaseCertificates: Record<string, string> = {};
 let firebaseCertificatesExpireAt = 0;
-let lastFirebaseAuthDiagnostic: {
-  reason: string;
-  audienceMatches?: boolean;
-  issuerMatches?: boolean;
-  tokenExpired?: boolean;
-} | undefined;
 
 function decodeJwtPart(value: string): JsonObject {
   try {
@@ -958,40 +945,20 @@ async function loadFirebaseCertificates(forceRefresh = false): Promise<Record<st
 
 async function verifyFirebaseIdToken(token: string, projectId: string): Promise<{ userId: string } | null> {
   const parts = token.split(".");
-  if (parts.length !== 3) {
-    lastFirebaseAuthDiagnostic = { reason: "malformed_token" };
-    return null;
-  }
-  if (!projectId) {
-    lastFirebaseAuthDiagnostic = { reason: "missing_project_configuration" };
-    return null;
-  }
+  if (parts.length !== 3 || !projectId) return null;
   const header = decodeJwtPart(parts[0]);
   const payload = decodeJwtPart(parts[1]);
   const algorithm = typeof header.alg === "string" ? header.alg : "";
   const keyId = typeof header.kid === "string" ? header.kid : "";
-  if (algorithm !== "RS256") {
-    lastFirebaseAuthDiagnostic = { reason: "unsupported_algorithm" };
-    return null;
-  }
-  if (!keyId) {
-    lastFirebaseAuthDiagnostic = { reason: "missing_key_id" };
-    return null;
-  }
+  if (algorithm !== "RS256" || !keyId) return null;
   let certificates = await loadFirebaseCertificates();
   if (!certificates[keyId]) certificates = await loadFirebaseCertificates(true);
   const certificate = certificates[keyId];
-  if (!certificate) {
-    lastFirebaseAuthDiagnostic = { reason: "unknown_signing_key" };
-    return null;
-  }
+  if (!certificate) return null;
   const verifier = createVerify("RSA-SHA256");
   verifier.update(`${parts[0]}.${parts[1]}`);
   verifier.end();
-  if (!verifier.verify(certificate, Buffer.from(parts[2], "base64url"))) {
-    lastFirebaseAuthDiagnostic = { reason: "invalid_signature" };
-    return null;
-  }
+  if (!verifier.verify(certificate, Buffer.from(parts[2], "base64url"))) return null;
   const nowSeconds = Math.floor(Date.now() / 1_000);
   const audience = typeof payload.aud === "string" ? payload.aud : "";
   const issuer = typeof payload.iss === "string" ? payload.iss : "";
@@ -999,26 +966,8 @@ async function verifyFirebaseIdToken(token: string, projectId: string): Promise<
   const expiresAt = typeof payload.exp === "number" ? payload.exp : 0;
   const issuedAt = typeof payload.iat === "number" ? payload.iat : 0;
   const authTime = typeof payload.auth_time === "number" ? payload.auth_time : 0;
-  const audienceMatches = audience === projectId;
-  const issuerMatches = issuer === `https://securetoken.google.com/${projectId}`;
-  const tokenExpired = expiresAt <= nowSeconds;
-  if (!audienceMatches || !issuerMatches) {
-    lastFirebaseAuthDiagnostic = { reason: "claims_mismatch", audienceMatches, issuerMatches, tokenExpired };
-    return null;
-  }
-  if (!subject || subject.length > 128) {
-    lastFirebaseAuthDiagnostic = { reason: "invalid_subject", audienceMatches, issuerMatches, tokenExpired };
-    return null;
-  }
-  if (tokenExpired) {
-    lastFirebaseAuthDiagnostic = { reason: "expired_token", audienceMatches, issuerMatches, tokenExpired };
-    return null;
-  }
-  if (issuedAt > nowSeconds + 300 || authTime > nowSeconds + 300) {
-    lastFirebaseAuthDiagnostic = { reason: "token_from_future", audienceMatches, issuerMatches, tokenExpired };
-    return null;
-  }
-  lastFirebaseAuthDiagnostic = { reason: "valid", audienceMatches, issuerMatches, tokenExpired };
+  if (audience !== projectId || issuer !== `https://securetoken.google.com/${projectId}`) return null;
+  if (!subject || subject.length > 128 || expiresAt <= nowSeconds || issuedAt > nowSeconds + 300 || authTime > nowSeconds + 300) return null;
   return { userId: subject };
 }
 
@@ -2105,7 +2054,6 @@ async function handleRakazoHealth(request: IncomingMessage, response: ServerResp
     runtime: settings.agentRuntime,
     hermes: settings.hermes.describe(),
     lastAgentRequest: lastAgentRequestDiagnostic,
-    lastEvidenceRequest: lastEvidenceRequestDiagnostic,
   });
 }
 
@@ -2147,22 +2095,8 @@ async function handleEvidenceSearch(request: IncomingMessage, response: ServerRe
     sendJson(response, 405, { error: "Gunakan POST /api/evidence/search." });
     return;
   }
-  lastEvidenceRequestDiagnostic = {
-    at: Date.now(),
-    stage: "received",
-    authHeaderPresent: Boolean(request.headers.authorization),
-  };
   const identity = await requireAuthenticatedUser(request, response, settings);
-  if (!identity) {
-    lastEvidenceRequestDiagnostic = {
-      ...lastEvidenceRequestDiagnostic,
-      at: Date.now(),
-      stage: "auth_rejected",
-      authReason: lastFirebaseAuthDiagnostic?.reason,
-    };
-    return;
-  }
-  lastEvidenceRequestDiagnostic = { ...lastEvidenceRequestDiagnostic, at: Date.now(), stage: "authenticated" };
+  if (!identity) return;
   const rateLimit = agentRateLimitRemaining(identity.userId, "evidence-search");
   response.setHeader("X-RateLimit-Limit", String(AGENT_RATE_LIMIT));
   response.setHeader("X-RateLimit-Remaining", String(rateLimit.remaining));
@@ -2210,10 +2144,8 @@ async function handleEvidenceSearch(request: IncomingMessage, response: ServerRe
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     response.setHeader("Cache-Control", "private, no-store, no-transform");
     response.setHeader("X-Content-Type-Options", "nosniff");
-    lastEvidenceRequestDiagnostic = { ...lastEvidenceRequestDiagnostic, at: Date.now(), stage: "completed" };
     response.end(JSON.stringify(result));
   } catch (error) {
-    lastEvidenceRequestDiagnostic = { ...lastEvidenceRequestDiagnostic, at: Date.now(), stage: "failed" };
     const message = error instanceof EvidenceSearchUnavailableError
       ? error.message
       : "Sumber ilmiah sementara tidak tersedia. Coba lagi atau buka sumber asli secara manual.";
@@ -2420,7 +2352,6 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       ...lastAgentRequestDiagnostic,
       at: Date.now(),
       stage: "auth_rejected",
-      authReason: lastFirebaseAuthDiagnostic?.reason,
     };
     return;
   }
