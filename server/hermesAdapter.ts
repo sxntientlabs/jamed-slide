@@ -73,9 +73,12 @@ function textMessage(value: unknown): JsonRecord | null {
 }
 
 function buildInstructions(body: JsonRecord, context: JsonRecord): string {
+  const agentMode = context.agentMode === "chat" ? "chat" : "agentic";
   const instructions = [
     "Kamu adalah Agent di dalam Koasis, workspace klinis dan produktivitas.",
-    "Gunakan tools yang tersedia secara proaktif bila memang membantu menyelesaikan tugas; jangan berhenti hanya karena tugas membutuhkan beberapa langkah.",
+    agentMode === "chat"
+      ? "Mode Chat aktif: jawab langsung dan ringkas sesuai permintaan pengguna. Jangan menjalankan Computer atau tool eksternal secara proaktif; gunakan hanya konteks yang dikirim Koasis dan jelaskan jika tindakan lanjutan memerlukan Mode Agentic."
+      : "Mode Agentic aktif: pecah tugas menjadi langkah yang diperlukan dan gunakan tools yang tersedia secara proaktif bila memang membantu menyelesaikan tugas.",
     "Jawab dalam bahasa pengguna. Jika pengguna menulis bahasa Indonesia, jawab hanya dalam bahasa Indonesia; jangan menggunakan bahasa Vietnam atau persona bawaan provider.",
     "Untuk sapaan atau permintaan perkenalan, jawab langsung dan singkat. Jangan memaksakan pencarian evidence, citation, atau follow-up question jika permintaan tidak membutuhkan itu.",
     "Jangan mengarang sumber, hasil tool, atau tindakan yang belum selesai.",
@@ -379,6 +382,8 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
     forwardChat: async (rawBody, _authorization, signal) => {
       if (!baseUrl || !apiKey) return null;
       const body = asRecord(rawBody);
+      const context = asRecord(body.context);
+      const agentMode = context.agentMode === "chat" ? "chat" : "agentic";
       let created: JsonRecord;
       let createResponse: Response;
       try {
@@ -406,7 +411,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const write: StreamWriter = (event) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-          write({ type: "meta", engine: "hermes", agentMode: "agentic", model, requestId, harness: {
+          write({ type: "meta", engine: "hermes", agentMode, model, requestId, harness: {
             name: HERMES_ADAPTER_NAME,
             version: HERMES_ADAPTER_VERSION,
             mode: "remote",

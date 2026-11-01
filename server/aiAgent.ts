@@ -2442,7 +2442,10 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       koasis: buildKoasisBridgeGuidance(agent, rawContext),
     };
     const useHermes = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
-    if (requestedAgentMode === "agentic" && useHermes && !forwardedByRakazo) {
+    const useHermesForChatFallback = requestedAgentMode === "chat"
+      && (!settings.baseUrl || !settings.apiKey)
+      && useHermes;
+    if ((requestedAgentMode === "agentic" || useHermesForChatFallback) && useHermes && !forwardedByRakazo) {
       lastAgentRequestDiagnostic = { ...lastAgentRequestDiagnostic, at: Date.now(), stage: "forwarding", mode: requestedAgentMode };
       const authorization = request.headers.authorization;
       const forwarded = await settings.hermes.forwardChat(forwardedBody, Array.isArray(authorization) ? authorization[0] : authorization, streamController.signal);

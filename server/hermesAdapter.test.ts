@@ -96,6 +96,30 @@ describe("Hermes adapter", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  test("preserves Chat mode when the app uses Hermes as its configured fallback", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run_chat", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        'data: {"event":"message.delta","delta":"READY"}',
+        "",
+        'data: {"event":"run.completed","output":"READY"}',
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-chat",
+      messages: [{ role: "user", content: "Balas READY saja." }],
+      context: { agentMode: "chat" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.find((line) => line.type === "meta")).toMatchObject({ engine: "hermes", agentMode: "chat" });
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)).instructions).toContain("Mode Chat aktif");
+  });
+
   test("forwards screenshots nested in a provider attachment envelope", async () => {
     const screenshot = "a".repeat(160);
     vi.spyOn(globalThis, "fetch")
