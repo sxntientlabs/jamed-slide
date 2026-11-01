@@ -53,13 +53,30 @@ type ChatArtifact = GeneratedChatArtifact & { url: string };
 
 type AgentAuthUserLike = {
   getIdToken: (forceRefresh?: boolean) => Promise<string>;
+  accessToken?: string | null;
   stsTokenManager?: {
+    accessToken?: string;
+    expirationTime?: number;
+  };
+  _stsTokenManager?: {
     accessToken?: string;
     expirationTime?: number;
   };
 };
 
+function readCachedAgentToken(user: AgentAuthUserLike): string | undefined {
+  const cached = user.stsTokenManager || user._stsTokenManager;
+  const accessToken = cached?.accessToken?.trim() || user.accessToken?.trim();
+  const expirationTime = cached?.expirationTime || 0;
+  if (accessToken && expirationTime > Date.now() + 15_000) return accessToken;
+  return undefined;
+}
+
 async function getAgentAuthToken(user: AgentAuthUserLike, forceRefresh = false): Promise<string> {
+  if (!forceRefresh) {
+    const cached = readCachedAgentToken(user);
+    if (cached) return cached;
+  }
   const tokenPromise = user.getIdToken(forceRefresh);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -70,10 +87,10 @@ async function getAgentAuthToken(user: AgentAuthUserLike, forceRefresh = false):
       }),
     ]);
   } catch (error) {
-    const cached = user.stsTokenManager;
-    const accessToken = cached?.accessToken?.trim();
-    const expirationTime = cached?.expirationTime || 0;
-    if (!forceRefresh && accessToken && expirationTime > Date.now() + 30_000) return accessToken;
+    if (!forceRefresh) {
+      const cached = readCachedAgentToken(user);
+      if (cached) return cached;
+    }
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
