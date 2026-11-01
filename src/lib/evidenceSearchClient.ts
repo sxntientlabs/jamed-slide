@@ -1,5 +1,7 @@
 import { koasisApiUrl } from "./koasisApi";
 
+const EVIDENCE_REQUEST_TIMEOUT_MS = 15_000;
+
 export type EvidenceProviderId = "pubmed" | "europepmc" | "openalex" | "crossref" | "web";
 
 export type EvidenceProviderState = {
@@ -89,29 +91,39 @@ export async function searchEvidenceSources(
   query: string,
   options: EvidenceSearchOptions = {},
 ): Promise<EvidenceSearchResult> {
-  const response = await fetch(koasisApiUrl("/api/evidence/search"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}),
-    },
-    body: JSON.stringify({ query, limit: options.limit ?? 5 }),
-    signal: options.signal,
-  });
-
-  if (!response.ok) {
-    try {
-      const payload = await response.json() as { error?: string; code?: string };
-      throw new EvidenceSearchError(payload.error || `Pencarian sumber gagal (HTTP ${response.status}).`, payload.code);
-    } catch (error) {
-      if (error instanceof EvidenceSearchError) throw error;
-      throw new EvidenceSearchError(`Pencarian sumber gagal (HTTP ${response.status}).`);
-    }
-  }
-
+  const requestController = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const abortFromCaller = () => requestController.abort();
+  if (options.signal?.aborted) requestController.abort();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  timeout = setTimeout(() => requestController.abort(), EVIDENCE_REQUEST_TIMEOUT_MS);
   try {
-    return await response.json() as EvidenceSearchResult;
-  } catch {
-    throw new EvidenceSearchError("Respons pencarian sumber tidak valid.");
+    const response = await fetch(koasisApiUrl("/api/evidence/search"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}),
+      },
+      body: JSON.stringify({ query, limit: options.limit ?? 5 }),
+      signal: requestController.signal,
+    });
+    if (!response.ok) {
+      try {
+        const payload = await response.json() as { error?: string; code?: string };
+        throw new EvidenceSearchError(payload.error || `Pencarian sumber gagal (HTTP ${response.status}).`, payload.code);
+      } catch (error) {
+        if (error instanceof EvidenceSearchError) throw error;
+        throw new EvidenceSearchError(`Pencarian sumber gagal (HTTP ${response.status}).`);
+      }
+    }
+
+    try {
+      return await response.json() as EvidenceSearchResult;
+    } catch {
+      throw new EvidenceSearchError("Respons pencarian sumber tidak valid.");
+    }
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
