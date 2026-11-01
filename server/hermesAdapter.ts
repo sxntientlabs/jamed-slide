@@ -6,7 +6,7 @@
  */
 
 export const HERMES_ADAPTER_NAME = "hermes-agent";
-export const HERMES_ADAPTER_VERSION = "0.1.0";
+export const HERMES_ADAPTER_VERSION = "0.2.0";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -349,6 +349,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
   const apiKey = (env.KOASIS_HERMES_API_KEY || env.HERMES_API_KEY || "").trim();
   const model = (env.KOASIS_HERMES_MODEL || "hermes-agent").trim() || "hermes-agent";
   const provider = (env.KOASIS_HERMES_PROVIDER || "").trim() || undefined;
+  const persistenceConfigured = /^(1|true|yes)$/i.test((env.KOASIS_HERMES_PERSISTENCE || "").trim());
 
   return {
     describe: () => ({
@@ -356,7 +357,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
       version: HERMES_ADAPTER_VERSION,
       mode: baseUrl && apiKey ? "remote" : "embedded",
       remoteConfigured: Boolean(baseUrl && apiKey),
-      persistenceConfigured: false,
+      persistenceConfigured,
       capabilities: [...CAPABILITIES],
     }),
     isRemoteConfigured: () => Boolean(baseUrl && apiKey),
@@ -395,7 +396,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
             version: HERMES_ADAPTER_VERSION,
             mode: "remote",
             remoteConfigured: true,
-            persistenceConfigured: false,
+            persistenceConfigured,
             capabilities: [...CAPABILITIES],
           },
             agentId: stringValue(asRecord(body.koasis).agentId, 80) || stringValue(body.agentId, 80) || "koasis",

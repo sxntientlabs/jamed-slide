@@ -10,6 +10,15 @@ describe("Hermes adapter", () => {
     await expect(adapter.forwardChat({}, undefined, new AbortController().signal)).resolves.toBeNull();
   });
 
+  test("reports persistent Agent state when the private runtime has a volume", () => {
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+      KOASIS_HERMES_PERSISTENCE: "true",
+    });
+    expect(adapter.describe()).toMatchObject({ mode: "remote", remoteConfigured: true, persistenceConfigured: true });
+  });
+
   test("starts a run and translates Hermes SSE into Koasis NDJSON", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run_123", status: "started" }), { status: 202 }))
