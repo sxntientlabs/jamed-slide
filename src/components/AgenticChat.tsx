@@ -51,6 +51,35 @@ type ModelOption = Omit<KoasisModelDefinition, "id"> & { id: string };
 
 type ChatArtifact = GeneratedChatArtifact & { url: string };
 
+type AgentAuthUserLike = {
+  getIdToken: (forceRefresh?: boolean) => Promise<string>;
+  stsTokenManager?: {
+    accessToken?: string;
+    expirationTime?: number;
+  };
+};
+
+async function getAgentAuthToken(user: AgentAuthUserLike, forceRefresh = false): Promise<string> {
+  const tokenPromise = user.getIdToken(forceRefresh);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      tokenPromise,
+      new Promise<string>((_, reject) => {
+        timeout = setTimeout(() => reject(new AgentChatError("Sesi login belum siap. Silakan muat ulang halaman atau masuk kembali.", "auth_unavailable")), 8_000);
+      }),
+    ]);
+  } catch (error) {
+    const cached = user.stsTokenManager;
+    const accessToken = cached?.accessToken?.trim();
+    const expirationTime = cached?.expirationTime || 0;
+    if (!forceRefresh && accessToken && expirationTime > Date.now() + 30_000) return accessToken;
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function KoasisModelSelector({ activeModel, models, selectedModelId, open, rootRef, onToggle, onSelect }: { activeModel: ModelOption; models: ModelOption[]; selectedModelId: string; open: boolean; rootRef: RefObject<HTMLDivElement>; onToggle: () => void; onSelect: (modelId: string) => void }) {
   return <div className="koasis-model-selector-wrap" ref={rootRef}>
     <button type="button" className="koasis-thread-title koasis-model-trigger" title="Pilih model" aria-label="Pilih model" aria-expanded={open} aria-haspopup="menu" onClick={onToggle}>
@@ -2213,7 +2242,8 @@ export function AgenticChat() {
       let requestEvidenceSources = initialEvidenceSources;
       let evidenceLookupNote = "";
       try {
-        const authToken = await user.getIdToken();
+        trackRunStatus({ phase: "preparing", message: "Memverifikasi sesi Koasis" });
+        const authToken = await getAgentAuthToken(user as AgentAuthUserLike);
         if (!requestEvidenceSources.length && requestSourceMode !== "attachments" && shouldAutoSearchEvidence(requestPrompt, preset.id)) {
           trackRunStatus({ phase: "preparing", message: "Mencari sumber evidence yang relevan" });
           try {
@@ -2302,7 +2332,7 @@ export function AgenticChat() {
           // single forced refresh prevents that stale session from looking
           // like a silent Agentic failure; other errors are not retried.
           if (!(error instanceof AgentChatError && error.code === "unauthorized")) throw error;
-          response = await sendRequest(await user.getIdToken(true));
+          response = await sendRequest(await getAgentAuthToken(user as AgentAuthUserLike, true));
         }
         let artifact: ChatArtifact | undefined;
         let artifactError: string | undefined;
