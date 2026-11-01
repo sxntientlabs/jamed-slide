@@ -2344,7 +2344,18 @@ export function AgenticChat() {
           preset.id,
           requestOptions(token),
         );
-        const response: AgentChatResult = await sendRequest(authToken);
+        let response: AgentChatResult;
+        try {
+          response = await sendRequest(authToken);
+        } catch (error) {
+          // Firebase may keep a revoked or stale ID token in the local user
+          // object even after the UI has restored the session. Refresh once
+          // with a hard timeout, then retry the same request exactly once.
+          // This keeps auth recovery bounded and avoids an endless spinner.
+          if (!(error instanceof AgentChatError) || error.code !== "unauthorized") throw error;
+          const refreshedToken = await getAgentAuthToken(user as AgentAuthUserLike, true);
+          response = await sendRequest(refreshedToken);
+        }
         let artifact: ChatArtifact | undefined;
         let artifactError: string | undefined;
         let artifactRemote: RemoteChatArtifact | undefined;
