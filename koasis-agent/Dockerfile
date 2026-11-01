@@ -44,9 +44,9 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 
 ENV PATH="/opt/hermes-source/.venv/bin:${PATH}"
 
-COPY SOUL.md /opt/koasis-agent/SOUL.md
-COPY entrypoint.sh /opt/koasis-agent/entrypoint.sh
-COPY skills /opt/koasis-agent/skills
+COPY koasis-agent/SOUL.md /opt/koasis-agent/SOUL.md
+COPY koasis-agent/entrypoint.sh /opt/koasis-agent/entrypoint.sh
+COPY koasis-agent/skills /opt/koasis-agent/skills
 
 RUN chmod 0755 /opt/koasis-agent/entrypoint.sh \
     && mkdir -p /opt/data
