@@ -69,7 +69,10 @@ function readCachedAgentToken(user: AgentAuthUserLike): string | undefined {
   const accessToken = cached?.accessToken?.trim() || user.accessToken?.trim();
   const expirationTime = cached?.expirationTime || 0;
   if (accessToken && (!expirationTime || expirationTime > Date.now() + 15_000)) return accessToken;
-  return undefined;
+  // A stale token is still safe to send to our own API: the server is the
+  // authority and will reject it immediately. This prevents a broken Firebase
+  // refresh request from blocking the Agentic composer indefinitely.
+  return accessToken || undefined;
 }
 
 async function getAgentAuthToken(user: AgentAuthUserLike, forceRefresh = false): Promise<string> {
