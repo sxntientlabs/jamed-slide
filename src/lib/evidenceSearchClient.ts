@@ -98,7 +98,7 @@ export async function searchEvidenceSources(
   else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   timeout = setTimeout(() => requestController.abort(), EVIDENCE_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(koasisApiUrl("/api/evidence/search"), {
+    const response = await fetch(koasisApiUrl("/koasis-service/evidence/search"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

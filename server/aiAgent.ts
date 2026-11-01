@@ -2822,21 +2822,27 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
     name: "koasis-ai-agent",
     configureServer(server) {
       server.middlewares.use("/api/rakazo/health", rakazoHealthMiddleware);
+      server.middlewares.use("/koasis-service/health", rakazoHealthMiddleware);
       server.middlewares.use("/api/rakazo/runs", rakazoRunMiddleware);
       server.middlewares.use("/api/clinical/extract", middleware);
       server.middlewares.use("/api/template/analyze", templateMiddleware);
       server.middlewares.use("/api/presentation/review", presentationReviewMiddleware);
       server.middlewares.use("/api/evidence/search", evidenceSearchMiddleware);
+      server.middlewares.use("/koasis-service/evidence/search", evidenceSearchMiddleware);
       server.middlewares.use("/api/agent/chat", agentChatMiddleware);
+      server.middlewares.use("/koasis-service/agent/chat", agentChatMiddleware);
     },
     configurePreviewServer(server) {
       server.middlewares.use("/api/rakazo/health", rakazoHealthMiddleware);
+      server.middlewares.use("/koasis-service/health", rakazoHealthMiddleware);
       server.middlewares.use("/api/rakazo/runs", rakazoRunMiddleware);
       server.middlewares.use("/api/clinical/extract", middleware);
       server.middlewares.use("/api/template/analyze", templateMiddleware);
       server.middlewares.use("/api/presentation/review", presentationReviewMiddleware);
       server.middlewares.use("/api/evidence/search", evidenceSearchMiddleware);
+      server.middlewares.use("/koasis-service/evidence/search", evidenceSearchMiddleware);
       server.middlewares.use("/api/agent/chat", agentChatMiddleware);
+      server.middlewares.use("/koasis-service/agent/chat", agentChatMiddleware);
     },
   };
 }

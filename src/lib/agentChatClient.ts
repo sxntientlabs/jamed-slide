@@ -172,7 +172,7 @@ export async function sendAgentChat(
 ): Promise<AgentChatResult> {
   const requestId = createRequestId();
   options.onStatus?.({ phase: "accepted", message: "Permintaan diterima", requestId });
-  const response = await fetch(koasisApiUrl("/api/agent/chat"), {
+  const response = await fetch(koasisApiUrl("/koasis-service/agent/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}) },
     body: JSON.stringify({ messages, agentId, requestId, context: options.context }),

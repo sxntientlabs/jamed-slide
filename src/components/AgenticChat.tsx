@@ -2346,7 +2346,7 @@ export function AgenticChat() {
           preset.id,
           requestOptions(token),
         );
-        console.info("[Koasis agent] request start", { path: koasisApiUrl("/api/agent/chat"), mode: requestAgentMode });
+        console.info("[Koasis agent] request start", { path: koasisApiUrl("/koasis-service/agent/chat"), mode: requestAgentMode });
         let response: AgentChatResult;
         try {
           response = await sendRequest(authToken);
