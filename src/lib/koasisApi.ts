@@ -5,13 +5,19 @@ const configuredComputerApiBase = String(import.meta.env.VITE_KOASIS_COMPUTER_AP
   .trim()
   .replace(/\/+$/, "");
 
+function deploymentBasePath(): string {
+  const baseUrl = String(import.meta.env.BASE_URL || "/").trim();
+  if (!baseUrl || baseUrl === "/") return "";
+  return `/${baseUrl.replace(/^\/+|\/+$/g, "")}`;
+}
+
 /**
  * Resolve API routes against the configured backend while keeping local
  * development on the same-origin Vite server by default.
  */
 export function koasisApiUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return configuredApiBase ? `${configuredApiBase}${normalizedPath}` : normalizedPath;
+  return configuredApiBase ? `${configuredApiBase}${normalizedPath}` : `${deploymentBasePath()}${normalizedPath}`;
 }
 
 /**
@@ -21,5 +27,5 @@ export function koasisApiUrl(path: string): string {
  */
 export function koasisComputerApiUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return configuredComputerApiBase ? `${configuredComputerApiBase}${normalizedPath}` : normalizedPath;
+  return configuredComputerApiBase ? `${configuredComputerApiBase}${normalizedPath}` : `${deploymentBasePath()}${normalizedPath}`;
 }
