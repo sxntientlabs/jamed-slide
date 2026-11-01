@@ -68,7 +68,7 @@ function readCachedAgentToken(user: AgentAuthUserLike): string | undefined {
   const cached = user.stsTokenManager || user._stsTokenManager;
   const accessToken = cached?.accessToken?.trim() || user.accessToken?.trim();
   const expirationTime = cached?.expirationTime || 0;
-  if (accessToken && expirationTime > Date.now() + 15_000) return accessToken;
+  if (accessToken && (!expirationTime || expirationTime > Date.now() + 15_000)) return accessToken;
   return undefined;
 }
 
@@ -77,9 +77,9 @@ async function getAgentAuthToken(user: AgentAuthUserLike, forceRefresh = false):
     const cached = readCachedAgentToken(user);
     if (cached) return cached;
   }
-  const tokenPromise = user.getIdToken(forceRefresh);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
+    const tokenPromise = Promise.resolve().then(() => user.getIdToken(forceRefresh));
     return await Promise.race([
       tokenPromise,
       new Promise<string>((_, reject) => {
