@@ -149,6 +149,9 @@ function userFacingAgentText(message: string | undefined, fallback: string): str
 }
 
 async function readError(response: Response): Promise<AgentChatError> {
+  if (response.status === 401) {
+    return new AgentChatError("Sesi login Koasis sudah kedaluwarsa. Silakan masuk kembali lalu coba lagi.", "unauthorized");
+  }
   try {
     const payload = await response.json() as AgentChatResponse;
     return new AgentChatError(userFacingAgentError(payload.error, "Koasis belum bisa memproses permintaan ini. Coba lagi."), payload.code);

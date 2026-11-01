@@ -2407,10 +2407,12 @@ export function AgenticChat() {
       } catch (error) {
         if (controller.signal.aborted) return;
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
+        const authUnavailable = error instanceof AgentChatError && (error.code === "auth_unavailable" || error.code === "unauthorized");
         if (privacyBlocked) {
           setPrivacyReview({ prompt, attachments: messageAttachments, findings: detectSensitiveIdentifiers(prompt) });
           updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-        } else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        } else if (authUnavailable) updateAssistant(assistantId, "Sesi login Koasis perlu diperbarui sebelum Agent dapat bekerja. Silakan masuk kembali, lalu kirim ulang permintaan ini.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+        else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
         else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
         notifyTaskComplete(`${preset.label} selesai dengan catatan`, "Task berhenti dengan catatan. Buka Koasis untuk melihat detail dan mencoba lagi.");
       } finally {
