@@ -60,6 +60,12 @@ let lastAgentRequestDiagnostic: {
   authHeaderPresent: boolean;
   authReason?: string;
 } | undefined;
+let lastEvidenceRequestDiagnostic: {
+  at: number;
+  stage: "received" | "authenticated" | "auth_rejected" | "completed" | "failed";
+  authHeaderPresent: boolean;
+  authReason?: string;
+} | undefined;
 
 type Next = (error?: unknown) => void;
 
@@ -2099,6 +2105,7 @@ async function handleRakazoHealth(request: IncomingMessage, response: ServerResp
     runtime: settings.agentRuntime,
     hermes: settings.hermes.describe(),
     lastAgentRequest: lastAgentRequestDiagnostic,
+    lastEvidenceRequest: lastEvidenceRequestDiagnostic,
   });
 }
 
@@ -2140,8 +2147,22 @@ async function handleEvidenceSearch(request: IncomingMessage, response: ServerRe
     sendJson(response, 405, { error: "Gunakan POST /api/evidence/search." });
     return;
   }
+  lastEvidenceRequestDiagnostic = {
+    at: Date.now(),
+    stage: "received",
+    authHeaderPresent: Boolean(request.headers.authorization),
+  };
   const identity = await requireAuthenticatedUser(request, response, settings);
-  if (!identity) return;
+  if (!identity) {
+    lastEvidenceRequestDiagnostic = {
+      ...lastEvidenceRequestDiagnostic,
+      at: Date.now(),
+      stage: "auth_rejected",
+      authReason: lastFirebaseAuthDiagnostic?.reason,
+    };
+    return;
+  }
+  lastEvidenceRequestDiagnostic = { ...lastEvidenceRequestDiagnostic, at: Date.now(), stage: "authenticated" };
   const rateLimit = agentRateLimitRemaining(identity.userId, "evidence-search");
   response.setHeader("X-RateLimit-Limit", String(AGENT_RATE_LIMIT));
   response.setHeader("X-RateLimit-Remaining", String(rateLimit.remaining));
@@ -2189,8 +2210,10 @@ async function handleEvidenceSearch(request: IncomingMessage, response: ServerRe
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     response.setHeader("Cache-Control", "private, no-store, no-transform");
     response.setHeader("X-Content-Type-Options", "nosniff");
+    lastEvidenceRequestDiagnostic = { ...lastEvidenceRequestDiagnostic, at: Date.now(), stage: "completed" };
     response.end(JSON.stringify(result));
   } catch (error) {
+    lastEvidenceRequestDiagnostic = { ...lastEvidenceRequestDiagnostic, at: Date.now(), stage: "failed" };
     const message = error instanceof EvidenceSearchUnavailableError
       ? error.message
       : "Sumber ilmiah sementara tidak tersedia. Coba lagi atau buka sumber asli secara manual.";
