@@ -6,7 +6,14 @@ import { createKoasisCorsPlugin } from "./server/koasisCors";
 import { createPresentationRendererPlugin } from "./server/presentationRenderer";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
+  // Dokploy injects runtime variables into the process rather than into a
+  // Vite .env file. Merge both sources so server plugins receive the same
+  // configuration in local, App Hosting, and Dokploy deployments.
+  const runtimeEnv = Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+  const env = { ...loadEnv(mode, process.cwd(), ""), ...runtimeEnv };
+  const enablePresentationRenderer = env.KOASIS_ENABLE_PRESENTATION_RENDERER === "true";
   const allowedPreviewHosts = env.JAMED_ALLOWED_HOSTS === "*"
     ? true
     : (env.JAMED_ALLOWED_HOSTS || "localhost,127.0.0.1")
@@ -14,7 +21,13 @@ export default defineConfig(({ mode }) => {
         .map((host) => host.trim())
         .filter(Boolean);
   return {
-    plugins: [react(), createKoasisCorsPlugin(env), createAiAgentPlugin(env), createKoasisBackendPlugin(env), createPresentationRendererPlugin(env)],
+    plugins: [
+      react(),
+      createKoasisCorsPlugin(env),
+      createAiAgentPlugin(env),
+      createKoasisBackendPlugin(env),
+      ...(enablePresentationRenderer ? [createPresentationRendererPlugin(env)] : []),
+    ],
     server: {
       port: 4173,
     },

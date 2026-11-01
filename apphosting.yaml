@@ -16,6 +16,10 @@ outputFiles:
       - .
 
 env:
+  - variable: KOASIS_ENABLE_PRESENTATION_RENDERER
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: JAMED_ALLOWED_HOSTS
     value: "*"
     availability:

@@ -5,7 +5,7 @@ Arsitektur production Koasis dibagi berdasarkan beban kerja:
 - Firebase App Hosting: frontend React dan API ringan same-origin (`/api/*`).
 - Firebase Auth + Firestore: state workspace, preferensi, riwayat chat, dan metadata milik user yang sedang login.
 - Firebase Storage: attachment dan file yang memang perlu dipersistenkan. Firestore hanya menyimpan metadata dan `storagePath`, bukan data URL atau binary.
-- Dokploy/VPS: Computer API yang membutuhkan PostgreSQL privat, pekerjaan berat yang lebih murah dijalankan sendiri, terutama PPTX renderer dan AI gateway/service bila dipakai.
+- Dokploy/VPS: Computer API yang membutuhkan PostgreSQL privat dan AI gateway/service bila dipakai. PPTX renderer tidak termasuk stack Agentic saat ini.
 - PostgreSQL VPS: data relasional server-side. Browser tidak pernah menerima URL atau kredensial PostgreSQL.
 
 Alur production yang diharapkan:
@@ -14,7 +14,7 @@ Alur production yang diharapkan:
 Browser -> Firebase App Hosting (frontend + API ringan)
                     |-> Firebase Auth / Firestore / Storage
                     |-> Dokploy Koasis App /koasis-app/api/computer/*
-                    |-> Dokploy renderer atau AI service melalui HTTPS
+                    |-> Dokploy AI service melalui HTTPS
 Dokploy Koasis App -> PostgreSQL internal + InstaBox API
 ```
 
@@ -64,9 +64,8 @@ Jika ingin menguji build aplikasi langsung di Dokploy, barulah isi `VITE_KOASIS_
 Service production yang perlu tetap hidup di Dokploy:
 
 1. Koasis App dengan domain `https://server.eltexlabs.com/koasis-app`, untuk Computer API, mapping machine/session, dan akses PostgreSQL privat.
-2. PPTX renderer dengan domain `https://server.eltexlabs.com/koasis-renderer`.
-3. AI gateway/service apabila inference memang dijalankan di VPS.
-4. PostgreSQL internal tanpa port publik.
+2. AI gateway/service apabila inference memang dijalankan di VPS.
+3. PostgreSQL internal tanpa port publik.
 
 Koasis App tidak perlu melayani frontend publik. App Hosting tetap menjadi origin utama aplikasi; service Dokploy hanya menerima request backend yang memang membutuhkan database atau pekerjaan berat.
 
