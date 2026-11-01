@@ -11,6 +11,7 @@ import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoni
 import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentChatResult, type AgentComputerActivity, type AgentMode, type AgentRunStatus } from "../lib/agentChatClient";
 import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "../lib/evidenceCitations";
 import { searchEvidenceSources, type EvidenceQueryPlan, type EvidenceSource } from "../lib/evidenceSearchClient";
+import { koasisApiUrl } from "../lib/koasisApi";
 import { ComputerClientError, getComputerStatus, openComputerSession, revokeComputerSession, selectComputerMachine, type ComputerMachine, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
 import { loadPublicAdminCatalog } from "../lib/adminApi";
@@ -2264,6 +2265,7 @@ export function AgenticChat() {
       try {
         trackRunStatus({ phase: "preparing", message: "Memverifikasi sesi Koasis" });
         const authToken = await getAgentAuthToken(user as AgentAuthUserLike);
+        console.info("[Koasis agent] auth token ready", { hasToken: Boolean(authToken), mode: requestAgentMode });
         if (!requestEvidenceSources.length && requestSourceMode !== "attachments" && shouldAutoSearchEvidence(requestPrompt, preset.id)) {
           trackRunStatus({ phase: "preparing", message: "Mencari sumber evidence yang relevan" });
           try {
@@ -2344,6 +2346,7 @@ export function AgenticChat() {
           preset.id,
           requestOptions(token),
         );
+        console.info("[Koasis agent] request start", { path: koasisApiUrl("/api/agent/chat"), mode: requestAgentMode });
         let response: AgentChatResult;
         try {
           response = await sendRequest(authToken);
@@ -2411,6 +2414,10 @@ export function AgenticChat() {
         notifyTaskComplete(`${preset.label} selesai`, artifactError ? "Jawaban selesai, tetapi file output perlu diperiksa." : "Jawaban dan output task sudah siap direview.");
       } catch (error) {
         if (controller.signal.aborted) return;
+        console.warn("[Koasis agent] request failed", {
+          code: error instanceof AgentChatError ? error.code : undefined,
+          name: error instanceof Error ? error.name : typeof error,
+        });
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
         const authUnavailable = error instanceof AgentChatError && (error.code === "auth_unavailable" || error.code === "unauthorized");
         if (privacyBlocked) {
