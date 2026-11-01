@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => {
   );
   const env = { ...loadEnv(mode, process.cwd(), ""), ...runtimeEnv };
   const enablePresentationRenderer = env.KOASIS_ENABLE_PRESENTATION_RENDERER === "true";
+  const configuredBasePath = (env.VITE_KOASIS_BASE_PATH || env.KOASIS_BASE_PATH || "/").trim() || "/";
+  const base = configuredBasePath === "/"
+    ? "/"
+    : `/${configuredBasePath.replace(/^\/+|\/+$/g, "")}/`;
   const allowedPreviewHosts = env.JAMED_ALLOWED_HOSTS === "*"
     ? true
     : (env.JAMED_ALLOWED_HOSTS || "localhost,127.0.0.1")
@@ -21,6 +25,7 @@ export default defineConfig(({ mode }) => {
         .map((host) => host.trim())
         .filter(Boolean);
   return {
+    base,
     plugins: [
       react(),
       createKoasisCorsPlugin(env),
