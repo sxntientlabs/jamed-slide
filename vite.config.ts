@@ -5,7 +5,7 @@ import { createKoasisBackendPlugin } from "./server/koasisBackend";
 import { createKoasisCorsPlugin } from "./server/koasisCors";
 import { createPresentationRendererPlugin } from "./server/presentationRenderer";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // Dokploy injects runtime variables into the process rather than into a
   // Vite .env file. Merge both sources so server plugins receive the same
   // configuration in local, App Hosting, and Dokploy deployments.
@@ -25,7 +25,10 @@ export default defineConfig(({ mode }) => {
         .map((host) => host.trim())
         .filter(Boolean);
   return {
-    base,
+    // The public Dokploy route carries /koasis-app, while Strip Path removes
+    // it before Vite preview receives the request. Keep the prefix in the
+    // static bundle but serve the preview process from the stripped root.
+    base: command === "build" ? base : "/",
     plugins: [
       react(),
       createKoasisCorsPlugin(env),
