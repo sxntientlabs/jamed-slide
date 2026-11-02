@@ -2,12 +2,13 @@ import { lazy, Suspense } from "react";
 import { AgenticChat } from "./components/AgenticChat";
 import { AdminPage } from "./components/AdminPage";
 import { AuthGate } from "./components/AuthGate";
+import { koasisAssetUrl } from "./lib/koasisAssets";
 import "./styles.css";
 
 const LegacyLaporanJaga = lazy(() => import("./App"));
 
 function RouteLoading() {
-  return <main className="auth-shell auth-loading-shell"><div className="auth-loading-card" role="status" aria-live="polite"><img src="/koasis-favicon.png" alt="Koasis" className="auth-loading-mark" /><span className="auth-loading-orbit" aria-hidden="true" /><p>Menyiapkan workspace…</p></div></main>;
+  return <main className="auth-shell auth-loading-shell"><div className="auth-loading-card" role="status" aria-live="polite"><img src={koasisAssetUrl("koasis-favicon.png")} alt="Koasis" className="auth-loading-mark" /><span className="auth-loading-orbit" aria-hidden="true" /><p>Menyiapkan workspace…</p></div></main>;
 }
 
 export default function RootApp() {

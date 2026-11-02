@@ -11,6 +11,7 @@ import {
   signOutCurrentAccount,
   type FirebaseUser,
 } from "../lib/firebase";
+import { koasisAssetUrl } from "../lib/koasisAssets";
 
 interface AuthContextValue {
   user: FirebaseUser;
@@ -34,7 +35,7 @@ function AuthLoadingScreen() {
   return (
     <main className="auth-shell auth-loading-shell">
       <div className="auth-loading-card" role="status" aria-live="polite">
-        <img src="/koasis-favicon.png" alt="Koasis" className="auth-loading-mark" />
+        <img src={koasisAssetUrl("koasis-favicon.png")} alt="Koasis" className="auth-loading-mark" />
         <span className="auth-loading-orbit" aria-hidden="true" />
         <p>Menyiapkan workspace Koasis…</p>
       </div>
@@ -46,7 +47,7 @@ function FirebaseSetupScreen() {
   return (
     <main className="auth-shell auth-setup-shell">
       <section className="auth-brand-panel">
-        <img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" className="auth-wordmark" />
+        <img src={koasisAssetUrl("koasis-wordmark.png")} alt="Koasis — Your Clinical Oasis" className="auth-wordmark" />
         <div className="auth-brand-copy">
           <span className="eyebrow">Workspace belum siap</span>
           <h1>Koasis sedang menyiapkan workspace kamu.</h1>
@@ -168,7 +169,7 @@ function LoginScreen() {
   return (
     <main className="auth-shell">
       <section className="auth-brand-panel">
-        <img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" className="auth-wordmark" />
+        <img src={koasisAssetUrl("koasis-wordmark.png")} alt="Koasis — Your Clinical Oasis" className="auth-wordmark" />
         <div className="auth-brand-copy">
           <span className="eyebrow">Your clinical oasis</span>
           <div className="auth-typing-title">

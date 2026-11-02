@@ -44,6 +44,7 @@ import { analyzeTemplateWithAi, applyTemplateAnalysis, buildLocalTemplateAnalysi
 import { getTemplateProfile } from "./lib/templateProfiles";
 import { loadWorkspaceMetadata, saveWorkspaceMetadata, type FirebaseUser, type WorkspaceMetadata } from "./lib/firebase";
 import { slideInclusion, slideIsIncluded } from "./lib/templateSlides";
+import { koasisAssetUrl } from "./lib/koasisAssets";
 import "./styles.css";
 
 type View = "dashboard" | "new-shift" | "template" | "inbox" | "review" | "generate" | "preview";
@@ -534,7 +535,7 @@ function Dashboard({ shift, template, patients, onCreate, onNavigate }: { shift:
             <p>Upload template departemen, masukkan catatan pasien, lalu review setiap fakta sebelum diekspor ke PowerPoint.</p>
             <button className="button button-light" onClick={onCreate}><Plus size={16} /> Buat laporan baru <ArrowRight size={16} /></button>
           </div>
-          <div className="hero-mark"><img src="/koasis-favicon.png" alt="" /></div>
+          <div className="hero-mark"><img src={koasisAssetUrl("koasis-favicon.png")} alt="" /></div>
         </div>
         <div className="workflow-card">
           <div className="card-heading"><div><span className="eyebrow">Cara kerja</span><h3>Dari catatan ke deck</h3></div><KoasisIcon name="workflow" size={20} /></div>
@@ -964,7 +965,7 @@ function ProtectedPreviewFrame({ source, alt, compact = false, paid = false }: {
   return (
     <div className={`protected-preview-frame ${compact ? "compact" : ""} ${paid ? "paid" : ""}`} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
       <img src={source} alt={alt} draggable={false} />
-      {!paid && <><div className="preview-watermark-grid" aria-hidden="true">{Array.from({ length: compact ? 4 : 9 }, (_, index) => index % 3 === 1 ? <span className="preview-watermark-logo" key={index}><img src="/koasis-favicon.png" alt="" /></span> : <span className="preview-watermark-copy" key={index}>KOASIS PREVIEW</span>)}</div><span className="preview-protected-badge"><KoasisIcon name="security" size={compact ? 9 : 11} /> Preview</span></>}
+      {!paid && <><div className="preview-watermark-grid" aria-hidden="true">{Array.from({ length: compact ? 4 : 9 }, (_, index) => index % 3 === 1 ? <span className="preview-watermark-logo" key={index}><img src={koasisAssetUrl("koasis-favicon.png")} alt="" /></span> : <span className="preview-watermark-copy" key={index}>KOASIS PREVIEW</span>)}</div><span className="preview-protected-badge"><KoasisIcon name="security" size={compact ? 9 : 11} /> Preview</span></>}
     </div>
   );
 }
@@ -1548,13 +1549,13 @@ function AuthenticatedApp() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}>
-        <div className="brand"><img className="brand-lockup" src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div>
+        <div className="brand"><img className="brand-lockup" src={koasisAssetUrl("koasis-wordmark.png")} alt="Koasis — Your Clinical Oasis" /></div>
         <nav className="main-nav"><span className="nav-label">Ruang kerja</span><button className="nav-item legacy-agent-link" onClick={() => window.location.assign("/")}><KoasisIcon name="spark" size={17} /><span>Agent Chat</span><small>NEW</small></button>{NAV_ITEMS.map(({ id, label, icon, hint }) => <button className={`nav-item ${view === id ? "active" : ""}`} onClick={() => navTo(id)} key={id}><KoasisIcon name={icon} size={17} /><span>{label}</span>{hint && <small>{hint}</small>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-utilities"><button className="nav-item" onClick={() => setUtilityPanel("settings")}><KoasisIcon name="settings" size={17} /><span>Pengaturan</span></button><button className="nav-item" onClick={() => setUtilityPanel("help")}><KoasisIcon name="help" size={17} /><span>Bantuan</span></button></div><div className="sidebar-user"><div className="user-avatar">{userInitial(user)}</div><div><strong>{accountLabel}</strong><span>{user.email || "Akun Koasis"}</span></div><button className="icon-button" aria-label="Keluar dari akun" title="Keluar" onClick={() => { void signOut(); }}><LogOut size={15} /></button></div></div>
       </aside>
       {mobileNavOpen && <button className="sidebar-scrim" aria-label="Tutup menu navigasi" onClick={() => setMobileNavOpen(false)} />}
       <main className="main-content">
-        <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button><div className="topbar-brand-mobile"><img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div></div></header>
+        <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label={mobileNavOpen ? "Tutup menu" : "Buka menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? <X size={19} /> : <Menu size={19} />}</button><div className="topbar-brand-mobile"><img src={koasisAssetUrl("koasis-wordmark.png")} alt="Koasis — Your Clinical Oasis" /></div><div className="breadcrumbs"><span>Koasis</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div></div></header>
         {view === "dashboard" && <Dashboard shift={shift} template={template} patients={patients} onCreate={() => navTo("new-shift")} onNavigate={navTo} />}
         {view === "new-shift" && <NewShiftPage shift={shift} setShift={updateShift} template={template} builtInTemplates={builtInTemplates} builtInLoading={builtInLoading} onBuiltInTemplate={handleBuiltInTemplate} onTemplate={handleTemplate} onChangeTemplate={changeTemplate} onContinue={() => navTo("inbox")} busy={templateBusy} error={error} />}
         {view === "template" && <TemplatePage template={template} setTemplate={setTemplate} onContinue={(allowUnvalidated) => { setAllowUnvalidatedTemplate(allowUnvalidated); navTo("generate"); }} onTemplateChange={() => setAllowUnvalidatedTemplate(false)} onBack={() => navTo("review")} />}

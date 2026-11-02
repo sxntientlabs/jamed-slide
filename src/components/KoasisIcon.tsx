@@ -1,4 +1,5 @@
 import type { CSSProperties, HTMLAttributes } from "react";
+import { koasisAssetUrl } from "../lib/koasisAssets";
 
 export type KoasisIconName =
   | "overview"
@@ -74,7 +75,7 @@ export function KoasisIcon({ name, size = 18, className, style, ...spanProps }: 
     ...style,
     width: size,
     height: size,
-    backgroundImage: `url("/koasis-icons/${asset}.png")`,
+    backgroundImage: `url("${koasisAssetUrl(`koasis-icons/${asset}.png`)}")`,
   };
 
   return (

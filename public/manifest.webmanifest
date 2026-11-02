@@ -3,13 +3,14 @@
   "short_name": "Koasis",
   "description": "Your Clinical Oasis — workspace agentic untuk laporan klinis.",
   "lang": "id",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#F4F9FF",
   "theme_color": "#0072FB",
   "icons": [
     {
-      "src": "/koasis-favicon.png",
+      "src": "koasis-favicon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

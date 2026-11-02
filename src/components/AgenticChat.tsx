@@ -23,6 +23,7 @@ import { buildConversationTitle, buildUniqueFollowUpQuestions } from "../lib/con
 import { createChatArtifact, createImageChatArtifact, inferChatArtifactKind, type ChatArtifactKind, type GeneratedChatArtifact } from "../lib/chatArtifacts";
 import { extractDocxText } from "../lib/docxParser";
 import { parsePptx } from "../lib/pptxParser";
+import { koasisAssetUrl } from "../lib/koasisAssets";
 
 type ThemeMode = "light" | "dark";
 type SourceMode = "workspace" | "attachments" | "sources";
@@ -103,7 +104,7 @@ async function getAgentAuthToken(user: AgentAuthUserLike, forceRefresh = false):
 function KoasisModelSelector({ activeModel, models, selectedModelId, open, rootRef, onToggle, onSelect }: { activeModel: ModelOption; models: ModelOption[]; selectedModelId: string; open: boolean; rootRef: RefObject<HTMLDivElement>; onToggle: () => void; onSelect: (modelId: string) => void }) {
   return <div className="koasis-model-selector-wrap" ref={rootRef}>
     <button type="button" className="koasis-thread-title koasis-model-trigger" title="Pilih model" aria-label="Pilih model" aria-expanded={open} aria-haspopup="menu" onClick={onToggle}>
-      <span className="koasis-thread-title-mark"><img className="koasis-model-neuron" src="/brand-icons/neuron.svg" alt="" aria-hidden="true" /></span>
+      <span className="koasis-thread-title-mark"><img className="koasis-model-neuron" src={koasisAssetUrl("brand-icons/neuron.svg")} alt="" aria-hidden="true" /></span>
       <span className="koasis-model-trigger-copy"><strong>{activeModel.label}</strong><small>{activeModel.tier}</small></span>
       <ChevronDown size={12} aria-hidden="true" />
     </button>
@@ -547,14 +548,14 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
 
 function HomeStudioKicker({ visual, label }: { visual: HomeStudioVisual; label: string }) {
   const icons = visual === "sources"
-    ? ["/brand-icons/pubmed.svg", "/brand-icons/scopus.svg", "/brand-icons/cochrane.svg"]
+    ? ["brand-icons/pubmed.svg", "brand-icons/scopus.svg", "brand-icons/cochrane.svg"]
     : visual === "apps"
-      ? ["/brand-icons/google-docs.svg", "/brand-icons/google-slides.svg", "/brand-icons/google-sheets.svg"]
+      ? ["brand-icons/google-docs.svg", "brand-icons/google-slides.svg", "brand-icons/google-sheets.svg"]
       : [];
 
   return <span className="koasis-manus-card-kicker">
     <span className={`koasis-studio-kicker-icons ${visual === "learn" ? "single" : ""}`} aria-hidden="true">
-      {visual === "learn" ? <BookOpen size={16} strokeWidth={1.8} /> : icons.map((src) => <img key={src} src={src} alt="" />)}
+      {visual === "learn" ? <BookOpen size={16} strokeWidth={1.8} /> : icons.map((src) => <img key={src} src={koasisAssetUrl(src)} alt="" />)}
     </span>
     {label}
   </span>;
@@ -562,8 +563,8 @@ function HomeStudioKicker({ visual, label }: { visual: HomeStudioVisual; label: 
 
 function HomeStudioArt({ visual }: { visual: HomeStudioVisual }) {
   if (visual === "sources") return <span className="koasis-manus-studio-art koasis-manus-studio-art-medical" aria-hidden="true">
-    <img src="/brand-icons/syringe-outline.svg" alt="" />
-    <img src="/brand-icons/stethoscope-outline.svg" alt="" />
+    <img src={koasisAssetUrl("brand-icons/syringe-outline.svg")} alt="" />
+    <img src={koasisAssetUrl("brand-icons/stethoscope-outline.svg")} alt="" />
   </span>;
   return <span className="koasis-manus-studio-art" aria-hidden="true"><i /><i /><i /></span>;
 }
@@ -675,7 +676,7 @@ const AGENT_STARTERS: Record<string, AgentStarter[]> = {
 };
 
 function KoasisMark({ className = "" }: { className?: string }) {
-  return <img className={`koasis-mark ${className}`.trim()} src="/koasis-favicon.png" alt="" aria-hidden="true" />;
+  return <img className={`koasis-mark ${className}`.trim()} src={koasisAssetUrl("koasis-favicon.png")} alt="" aria-hidden="true" />;
 }
 
 function currentTime(): string {
@@ -1123,7 +1124,7 @@ function HomeSurface({ workspace, tasks, onAction, onOpenWorkspace }: { workspac
   const completed = tasks.filter((task) => task.done).length;
   return <div className="koasis-home-surface koasis-manus-home">
     <section className="koasis-manus-home-hero">
-      <div className="koasis-manus-home-lockup"><img src="/koasis-wordmark.png" alt="Koasis" /></div>
+      <div className="koasis-manus-home-lockup"><img src={koasisAssetUrl("koasis-wordmark.png")} alt="Koasis" /></div>
       <h1>What can I help you make?</h1>
       <p>Koasis is an agentic workspace for turning ideas, information, and unfinished work into something useful.</p>
     </section>
@@ -2152,7 +2153,7 @@ export function AgenticChat() {
     try {
       const notification = new Notification(title, {
         body,
-        icon: "/koasis-favicon.png",
+        icon: koasisAssetUrl("koasis-favicon.png"),
         tag: "koasis-task-complete",
       });
       notification.onclick = () => {
@@ -2704,7 +2705,7 @@ export function AgenticChat() {
   return <div data-theme={themeMode} className={`agentic-shell koasis-shell manus-shell theme-${themeMode} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${workspacePanelOpen ? "workspace-panel-open" : "workspace-panel-closed"}`}>
     {mobileSidebarOpen && <button type="button" className="agentic-sidebar-scrim" aria-label="Tutup sidebar" onClick={() => setMobileSidebarOpen(false)} />}
     <aside className={`agentic-sidebar koasis-sidebar ${mobileSidebarOpen ? "mobile-open" : ""}`}>
-      <div className="agentic-sidebar-top koasis-sidebar-top"><button type="button" className={`agentic-sidebar-brand koasis-sidebar-brand ${sidebarCollapsed ? "collapsed-toggle" : ""}`} aria-label={sidebarCollapsed ? "Buka sidebar" : "Koasis"} title={sidebarCollapsed ? "Buka sidebar" : undefined} onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); }}><KoasisMark className="agentic-sidebar-mark" /><div className="koasis-sidebar-wordmark"><img src="/koasis-wordmark.png" alt="Koasis — Your Clinical Oasis" /></div></button><div className="manus-sidebar-top-actions"><button type="button" className="manus-sidebar-search-trigger" aria-label="Search" title="Search" onClick={() => setSidebarSearchOpen((current) => !current)}><Search size={16} /><kbd>⌘ K</kbd></button><button type="button" className="agentic-sidebar-collapse koasis-sidebar-collapse" aria-label="Ciutkan sidebar" title="Ciutkan sidebar" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={17} /></button></div></div>
+      <div className="agentic-sidebar-top koasis-sidebar-top"><button type="button" className={`agentic-sidebar-brand koasis-sidebar-brand ${sidebarCollapsed ? "collapsed-toggle" : ""}`} aria-label={sidebarCollapsed ? "Buka sidebar" : "Koasis"} title={sidebarCollapsed ? "Buka sidebar" : undefined} onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); }}><KoasisMark className="agentic-sidebar-mark" /><div className="koasis-sidebar-wordmark"><img src={koasisAssetUrl("koasis-wordmark.png")} alt="Koasis — Your Clinical Oasis" /></div></button><div className="manus-sidebar-top-actions"><button type="button" className="manus-sidebar-search-trigger" aria-label="Search" title="Search" onClick={() => setSidebarSearchOpen((current) => !current)}><Search size={16} /><kbd>⌘ K</kbd></button><button type="button" className="agentic-sidebar-collapse koasis-sidebar-collapse" aria-label="Ciutkan sidebar" title="Ciutkan sidebar" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={17} /></button></div></div>
       <button type="button" className={`agentic-new-chat koasis-new-chat ${manusPage === "home" && showHome ? "active" : ""}`} onClick={() => startNewChat()} title="New task"><SquarePen size={16} /><span>New task</span></button>
       {sidebarSearchOpen && <div className="manus-sidebar-search-field"><Search size={14} /><input autoFocus aria-label="Search tasks" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search tasks" /></div>}
 
