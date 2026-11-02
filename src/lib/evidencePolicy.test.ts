@@ -15,6 +15,12 @@ describe("promptNeedsEvidence", () => {
     expect(promptNeedsEvidence("Buat outline presentasi dari catatan ini", "presentation")).toBe(false);
   });
 
+  it("does not search literature for Koasis session and UI questions", () => {
+    expect(promptNeedsEvidence("Model apa yang sedang aktif di Koasis untuk sesi ini?", "koasis")).toBe(false);
+    expect(promptNeedsEvidence("Reasoning effort apa yang dipakai di chat ini?", "koasis")).toBe(false);
+    expect(promptNeedsEvidence("Apakah model pembelajaran ini efektif untuk pneumonia?", "koasis")).toBe(true);
+  });
+
   it("requires a source for substantive source-required specialist work", () => {
     expect(promptNeedsEvidence("Buat clinical prebrief pneumonia komunitas", "prebrief")).toBe(true);
     expect(promptNeedsEvidence("Tolong bantu", "prebrief")).toBe(false);

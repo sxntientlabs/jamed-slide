@@ -6,6 +6,8 @@ const KNOWLEDGE_OPENERS = /^\s*(?:apa|apakah|jelaskan|terangkan|bagaimana|mengap
 const FORMAT_ONLY_OPENERS = /^\s*(?:buat|bikin|susun|tulis|rapikan|ubah|terjemahkan|format|ringkas|rangkum|generate|draft)\b/i;
 const FORMAT_ONLY_TERMS = /\b(?:pesan|email|chat|handover|template|outline|notulen|catatan|tabel|slide|ppt|presentasi|checklist|jadwal|rencana kerja)\b/i;
 const EVIDENCE_WORKFLOW_TERMS = /\b(?:clinical prebrief|prebrief|evidence brief|critical appraisal|case presentation|presentasi kasus|guideline review|review guideline|clinical review|review klinis)\b/i;
+const KOASIS_META_TERMS = /\b(?:model|versi|reasoning|effort|mode|sesi|session|status|pengaturan|setting|konfigurasi|computer|agent|assistant|ui|antarmuka|aplikasi)\b/i;
+const KOASIS_META_CONTEXT = /\b(?:koasis|sesi ini|session ini|yang aktif|sedang aktif|yang dipakai|digunakan di sini|di aplikasi ini|di ui|di chat|percakapan ini)\b/i;
 
 /**
  * Classifies prompts that need an evidence lookup before the model can safely
@@ -17,6 +19,10 @@ export function promptNeedsEvidence(prompt: string, agentId: AgentId): boolean {
   if (!normalized) return false;
 
   const hasResearchTerm = RESEARCH_TERMS.test(normalized);
+  // Questions about the Koasis UI/session are answered from trusted app
+  // context. Sending them to literature search produces convincing-looking
+  // but unrelated papers (for example, searching "model aktif di Koasis").
+  if (!hasResearchTerm && KOASIS_META_TERMS.test(normalized) && KOASIS_META_CONTEXT.test(normalized)) return false;
   const isFormatOnly = FORMAT_ONLY_OPENERS.test(normalized) && FORMAT_ONLY_TERMS.test(normalized) && !hasResearchTerm;
   if (isFormatOnly) return false;
   const isKnowledgeQuestion = normalized.includes("?") || KNOWLEDGE_OPENERS.test(normalized);
