@@ -6,7 +6,7 @@
  */
 
 export const HERMES_ADAPTER_NAME = "hermes-agent";
-export const HERMES_ADAPTER_VERSION = "0.2.0";
+export const HERMES_ADAPTER_VERSION = "0.3.0";
 
 const KOASIS_MODEL_LABELS: Record<string, string> = {
   cito: "Cito 6.7",
@@ -29,13 +29,44 @@ export type HermesAdapter = {
   describe: () => HermesRuntimeDescription;
   isRemoteConfigured: () => boolean;
   forwardChat: (body: unknown, _authorization: string | undefined, signal: AbortSignal) => Promise<Response | null>;
+  control: (requestId: string, ownerKey: string, action: HermesControlAction, signal: AbortSignal) => Promise<HermesControlResult>;
+};
+
+export type HermesControlAction =
+  | { action: "approval"; choice: "once" | "session" | "always" | "deny"; approvalRequestId?: string }
+  | { action: "clarify"; answer: string }
+  | { action: "steer"; message: string }
+  | { action: "stop" };
+
+export type HermesControlResult = {
+  status: number;
+  body: JsonRecord;
 };
 
 const CAPABILITIES = [
   "chat",
   "streaming",
   "runs-api",
+  "chat-completions-api",
   "tool-events",
+  "tool-approval",
+  "run-control",
+  "clarification",
+  "web-search",
+  "web-extract",
+  "browser-automation",
+  "terminal",
+  "file-operations",
+  "vision",
+  "image-generation",
+  "skills",
+  "memory",
+  "session-search",
+  "code-execution",
+  "delegation",
+  "cron",
+  "connections",
+  "image-input",
   "session-continuity",
   "computer-approval",
   "computer-activity-preview",
@@ -52,6 +83,14 @@ function asRecord(value: unknown): JsonRecord {
 
 function stringValue(value: unknown, maximum = 4_000): string {
   return typeof value === "string" ? value.trim().slice(0, maximum) : "";
+}
+
+// Streaming deltas are not independent prose values. A provider is allowed
+// to put the separator at the beginning of the next token (for example,
+// "Aku" followed by " Study"). Do not trim these values one chunk at a time:
+// doing so silently turns a correctly spaced stream into "AkuStudy".
+function streamTextValue(value: unknown, maximum = 24_000): string {
+  return typeof value === "string" ? value.slice(0, maximum) : "";
 }
 
 function safeSessionId(value: unknown): string | undefined {
@@ -83,6 +122,47 @@ function textMessage(value: unknown): JsonRecord | null {
   return role && content ? { role, content } : null;
 }
 
+function attachmentRecords(value: unknown): JsonRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => asRecord(item))
+    .filter((item) => typeof item.dataUrl === "string" && item.dataUrl.trim())
+    .slice(0, 6);
+}
+
+function chatCompletionContent(value: unknown): string | JsonRecord[] {
+  const record = asRecord(value);
+  const text = stringValue(record.content, 12_000);
+  const parts: JsonRecord[] = text ? [{ type: "text", text }] : [];
+  for (const attachment of attachmentRecords(record.attachments)) {
+    if (stringValue(attachment.kind, 30) !== "image") continue;
+    const dataUrl = stringValue(attachment.dataUrl, 12_000_000);
+    if (dataUrl) parts.push({ type: "image_url", image_url: { url: dataUrl, detail: "auto" } });
+  }
+  return parts.length === 1 && parts[0]?.type === "text" ? text : parts;
+}
+
+function buildChatCompletionPayload(body: JsonRecord, model: string, provider: string | undefined): JsonRecord {
+  const context = asRecord(body.context);
+  const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+  const messages = rawMessages
+    .map((message) => {
+      const record = asRecord(message);
+      const role = record.role === "assistant" ? "assistant" : "user";
+      const content = chatCompletionContent(record);
+      return { role, content };
+    })
+    .filter((message) => typeof message.content === "string" ? Boolean(message.content.trim()) : message.content.length > 0);
+  const payload: JsonRecord = {
+    model,
+    stream: true,
+    messages: [{ role: "system", content: buildInstructions(body, context) }, ...messages],
+    ...(provider ? { provider } : {}),
+    ...(reasoningEffort(context.reasoningEffort) ? { model_options: { reasoning_effort: reasoningEffort(context.reasoningEffort) } } : {}),
+  };
+  return payload;
+}
+
 function buildInstructions(body: JsonRecord, context: JsonRecord): string {
   const agentMode = context.agentMode === "chat" ? "chat" : "agentic";
   const instructions = [
@@ -91,6 +171,7 @@ function buildInstructions(body: JsonRecord, context: JsonRecord): string {
       ? "Mode Chat aktif: jawab langsung dan ringkas sesuai permintaan pengguna. Jangan menjalankan Computer atau tool eksternal secara proaktif; gunakan hanya konteks yang dikirim Koasis dan jelaskan jika tindakan lanjutan memerlukan Mode Agentic."
       : "Mode Agentic aktif: pecah tugas menjadi langkah yang diperlukan dan gunakan tools yang tersedia secara proaktif bila memang membantu menyelesaikan tugas.",
     "Jawab dalam bahasa pengguna. Jika pengguna menulis bahasa Indonesia, jawab hanya dalam bahasa Indonesia; jangan menggunakan bahasa Vietnam atau persona bawaan provider.",
+    "Untuk teks yang terlihat pengguna, pertahankan spasi normal antarkata, spasi setelah tanda baca, dan pemisahan paragraf; jangan menggabungkan kata.",
     "Untuk sapaan atau permintaan perkenalan, jawab langsung dan singkat. Jangan memaksakan pencarian evidence, citation, atau follow-up question jika permintaan tidak membutuhkan itu.",
     "Jangan mengarang sumber, hasil tool, atau tindakan yang belum selesai.",
     "Untuk tindakan Computer, gunakan hanya jika computerApproved bernilai true; jika belum disetujui, jelaskan kebutuhan dan minta persetujuan.",
@@ -140,17 +221,21 @@ function jsonResponse(status: number, body: JsonRecord): Response {
 }
 
 function eventDataText(data: JsonRecord): string {
-  const direct = stringValue(data.text, 24_000);
+  const direct = streamTextValue(data.text);
   if (direct) return direct;
-  const stringDelta = stringValue(data.delta, 24_000);
+  const stringDelta = streamTextValue(data.delta);
   if (stringDelta) return stringDelta;
   const delta = asRecord(data.delta);
-  return stringValue(delta.text, 24_000) || stringValue(data.content, 24_000);
+  return streamTextValue(delta.text) || streamTextValue(delta.content) || streamTextValue(data.content);
 }
 
 function toolLabel(value: unknown): string {
   const tool = stringValue(value, 120);
   return tool || "tool";
+}
+
+function eventToolName(data: JsonRecord): string {
+  return toolLabel(data.tool || data.tool_name || data.name || data.function_name || data.functionName);
 }
 
 function isComputerTool(value: unknown): boolean {
@@ -204,9 +289,9 @@ function runOutput(data: JsonRecord): string {
         const record = asRecord(item);
         if (record.type === "message") {
           const content = Array.isArray(record.content) ? record.content : [];
-          return content.map((part) => stringValue(asRecord(part).text, 24_000)).filter(Boolean).join("");
+          return content.map((part) => streamTextValue(asRecord(part).text)).join("");
         }
-        return stringValue(record.text, 24_000);
+        return streamTextValue(record.text);
       })
       .filter(Boolean)
       .join("\n\n")
@@ -240,11 +325,13 @@ function writeMergedOutput(merged: { delta: string; replacement?: string }, requ
 
 type StreamWriter = (event: JsonRecord) => void;
 
-function mapHermesEvent(eventName: string, data: JsonRecord, requestId: string, accumulated: string, write: StreamWriter): string {
+function mapHermesEvent(eventName: string, data: JsonRecord, requestId: string, accumulated: string, write: StreamWriter, runId?: string): string {
   const type = stringValue(data.type, 120) || eventName;
   const image = screenshotDataUrl(data);
   const isToolCompletion = type === "tool.completed" || type === "tool.complete" || type === "tool.failed";
-  if (image && !isToolCompletion) write({ type: "computer_activity", activity: "screenshot", action: toolLabel(data.tool) === "tool" ? "computer_screenshot" : toolLabel(data.tool), message: "Screenshot Computer siap", screenshotDataUrl: image, requestId });
+  const tool = eventToolName(data);
+  if (image && !isToolCompletion && isComputerTool(tool)) write({ type: "computer_activity", activity: "screenshot", action: tool, message: "Screenshot Computer siap", screenshotDataUrl: image, requestId });
+  if (image && type === "run.completed" && !isComputerTool(tool)) write({ type: "artifact", artifact: { kind: "image", dataUrl: image, title: "Output gambar dari Agent" }, requestId });
   if (type === "message.delta") {
     const text = eventDataText(data);
     if (text) {
@@ -258,21 +345,37 @@ function mapHermesEvent(eventName: string, data: JsonRecord, requestId: string, 
     if (text && data.already_streamed !== true) write({ type: "status", phase: "generating", message: text.slice(0, 480), requestId });
     return accumulated;
   }
+  if (type === "assistant.commentary") {
+    const text = eventDataText(data);
+    if (text && data.already_streamed !== true) write({ type: "status", phase: "generating", message: text.slice(0, 480), requestId });
+    return accumulated;
+  }
+  if (type === "reasoning.available") {
+    write({ type: "status", phase: "generating", message: "Agent sedang menimbang langkah berikutnya", requestId });
+    return accumulated;
+  }
   if (type === "tool.started" || type === "tool.start" || type === "tool.generating") {
-    const tool = toolLabel(data.tool);
     write({ type: "status", phase: "generating", message: `Agent menjalankan ${tool}`, requestId });
     if (isComputerTool(tool)) write({ type: "computer_activity", activity: "action", action: tool, message: `Agent menggunakan Computer: ${tool}`, requestId });
+    else write({ type: "tool_activity", activity: "started", tool, message: `Agent menjalankan ${tool}`, requestId });
     return accumulated;
   }
   if (type === "tool.completed" || type === "tool.complete" || type === "tool.failed") {
-    const tool = toolLabel(data.tool);
     const failed = data.error === true || type === "tool.failed";
     write({ type: "status", phase: "generating", message: failed ? `${tool} menemui kendala` : `${tool} selesai`, requestId });
     if (isComputerTool(tool)) write({ type: "computer_activity", activity: failed ? "error" : "screenshot", action: tool, message: failed ? `Computer: ${tool} gagal` : `Computer: ${tool} selesai`, ...(image ? { screenshotDataUrl: image } : {}), requestId });
+    else write({ type: "tool_activity", activity: failed ? "failed" : "completed", tool, message: failed ? `${tool} menemui kendala` : `${tool} selesai`, requestId });
+    if (!isComputerTool(tool) && image) write({ type: "artifact", artifact: { kind: "image", dataUrl: image, title: "Output gambar dari Agent" }, requestId });
     return accumulated;
   }
   if (type === "approval.request" || type === "run.waiting_for_approval") {
     write({ type: "status", phase: "generating", message: "Agent menunggu persetujuan untuk melanjutkan", requestId });
+    write({ type: "approval_request", runId: stringValue(data.run_id, 180) || runId, approval: data, choices: Array.isArray(data.choices) ? data.choices : ["once", "deny"], requestId });
+    return accumulated;
+  }
+  if (type === "clarify.request" || type === "run.waiting_for_clarification" || type === "clarification.request") {
+    write({ type: "status", phase: "generating", message: "Agent membutuhkan klarifikasi sebelum melanjutkan", requestId });
+    write({ type: "clarify_request", runId: stringValue(data.run_id, 180) || runId, question: stringValue(data.question || data.prompt || data.text || data.message, 4_000), choices: Array.isArray(data.choices) ? data.choices : [], requestId });
     return accumulated;
   }
   if (type === "subagent.start" || type === "subagent.complete") {
@@ -292,10 +395,10 @@ function parseSseBlock(block: string): { event: string; data: JsonRecord } | nul
   }
   if (!dataLines.length) return null;
   try {
-  const data = asRecord(JSON.parse(dataLines.join("\n")));
-  // Hermes emits the event name inside the JSON payload when the SSE block
-  // does not include a separate `event:` line.
-  return { event: stringValue(data.event, 120) || event, data };
+    const data = asRecord(JSON.parse(dataLines.join("\n")));
+    // Hermes emits the event name inside the JSON payload when the SSE block
+    // does not include a separate `event:` line.
+    return { event: stringValue(data.event, 120) || event, data };
   } catch {
     return null;
   }
@@ -338,7 +441,7 @@ async function runHermesStream(
   const processBlock = (block: string) => {
     const parsed = parseSseBlock(block);
     if (!parsed) return;
-    accumulated = mapHermesEvent(parsed.event, parsed.data, requestId, accumulated, write);
+    accumulated = mapHermesEvent(parsed.event, parsed.data, requestId, accumulated, write, runId);
     const type = stringValue(parsed.data.type, 120) || parsed.event;
     if (type === "run.completed") {
       const merged = appendFinalOutput(accumulated, runOutput(parsed.data));
@@ -371,7 +474,7 @@ async function runHermesStream(
   } finally {
     reader.releaseLock();
   }
-    if (!terminal) {
+  if (!terminal) {
     const statusResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
       headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
       signal,
@@ -390,12 +493,132 @@ async function runHermesStream(
   }
 }
 
+async function translateChatCompletionStream(
+  response: Response,
+  requestId: string,
+  signal: AbortSignal,
+  write: StreamWriter,
+): Promise<void> {
+  if (!response.body) throw new Error("Stream Agent tidak memiliki body.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let accumulated = "";
+  let terminal = false;
+  const finish = (error?: string) => {
+    if (terminal) return;
+    terminal = true;
+    if (error) write({ type: "error", error, code: "hermes_stream_error", requestId });
+    else {
+      write({ type: "status", phase: "finalizing", message: "Agent menyelesaikan pekerjaan", requestId });
+      write({ type: "done", requestId });
+    }
+  };
+  const processBlock = (block: string) => {
+    if (/data:\s*\[DONE\]/i.test(block)) {
+      finish();
+      return;
+    }
+    const parsed = parseSseBlock(block);
+    if (!parsed) return;
+    const event = parsed.event;
+    const data = parsed.data;
+    if (event === "hermes.tool.progress") {
+      const progressType = stringValue(data.status, 40).toLowerCase() === "running" ? "tool.started" : "tool.completed";
+      accumulated = mapHermesEvent(progressType, { ...data, type: progressType }, requestId, accumulated, write, stringValue(data.run_id, 180) || undefined);
+      return;
+    }
+    if (event === "hermes.status") {
+      const message = stringValue(data.text || data.message, 600);
+      if (message) write({ type: "status", phase: "generating", message, requestId });
+      return;
+    }
+    if (event === "approval.request") {
+      accumulated = mapHermesEvent("approval.request", { ...data, type: "approval.request" }, requestId, accumulated, write, stringValue(data.run_id, 180) || undefined);
+      return;
+    }
+    if (event === "clarify.request" || event === "clarification.request") {
+      accumulated = mapHermesEvent("clarify.request", { ...data, type: "clarify.request" }, requestId, accumulated, write, stringValue(data.run_id, 180) || undefined);
+      return;
+    }
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    const first = asRecord(choices[0]);
+    const delta = asRecord(first.delta);
+    if (delta.reasoning_content) write({ type: "status", phase: "generating", message: "Agent sedang menimbang langkah berikutnya", requestId });
+    const text = streamTextValue(delta.content);
+    if (text) {
+      accumulated += text;
+      write({ type: "delta", content: text, requestId });
+    }
+    const finishReason = stringValue(first.finish_reason, 80);
+    if (finishReason && finishReason !== "stop" && finishReason !== "length") finish(`Agent mengakhiri stream dengan status ${finishReason}.`);
+    if (data.error) finish(stringValue(asRecord(data.error).message || data.error, 600) || "Agent gagal menyelesaikan pekerjaan.");
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() || "";
+      blocks.forEach(processBlock);
+      if (terminal) {
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) processBlock(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+  if (!terminal) finish(accumulated ? undefined : "Stream Agent terputus sebelum menghasilkan jawaban.");
+}
+
 export function createHermesAdapter(env: Record<string, string>): HermesAdapter {
   const baseUrl = cleanUrl(env.KOASIS_HERMES_API_URL || env.HERMES_API_URL);
   const apiKey = (env.KOASIS_HERMES_API_KEY || env.HERMES_API_KEY || "").trim();
   const model = (env.KOASIS_HERMES_MODEL || "hermes-agent").trim() || "hermes-agent";
   const provider = (env.KOASIS_HERMES_PROVIDER || "").trim() || undefined;
   const persistenceConfigured = /^(1|true|yes)$/i.test((env.KOASIS_HERMES_PERSISTENCE || "").trim());
+  const activeRuns = new Map<string, { runId: string; ownerKey: string }>();
+
+  const rememberRun = (requestId: string, runId: string, ownerKey: string) => {
+    activeRuns.set(requestId, { runId, ownerKey });
+    const timer = setTimeout(() => activeRuns.delete(requestId), 15 * 60_000);
+    if (typeof timer === "object" && "unref" in timer && typeof timer.unref === "function") timer.unref();
+  };
+
+  const control = async (requestId: string, ownerKey: string, action: HermesControlAction, signal: AbortSignal): Promise<HermesControlResult> => {
+    if (!baseUrl || !apiKey) return { status: 503, body: { error: "Agent belum terhubung.", code: "hermes_unavailable" } };
+    const activeRun = activeRuns.get(requestId);
+    if (!activeRun || activeRun.ownerKey !== ownerKey) return { status: 404, body: { error: "Run Agent tidak ditemukan atau sudah berakhir.", code: "hermes_run_not_found" } };
+    const runId = activeRun.runId;
+    const path = action.action === "approval"
+      ? `/v1/runs/${encodeURIComponent(runId)}/approval`
+      : action.action === "clarify"
+        ? `/v1/runs/${encodeURIComponent(runId)}/clarify`
+        : action.action === "steer"
+          ? `/v1/runs/${encodeURIComponent(runId)}/steer`
+          : `/v1/runs/${encodeURIComponent(runId)}/stop`;
+    const payload = action.action === "approval"
+      ? { choice: action.choice, ...(action.approvalRequestId ? { request_id: action.approvalRequestId } : {}) }
+      : action.action === "clarify" ? { answer: action.answer }
+        : action.action === "steer" ? { message: action.message } : {};
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(payload),
+        signal,
+      });
+      const body = asRecord(await response.json().catch(() => ({})));
+      if (action.action === "stop" || action.action === "approval" && action.choice === "deny") activeRuns.delete(requestId);
+      return { status: response.status, body };
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return { status: 502, body: { error: "Agent belum dapat menerima kontrol dari Koasis.", code: "hermes_control_unreachable" } };
+    }
+  };
 
   return {
     describe: () => ({
@@ -407,13 +630,60 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
       capabilities: [...CAPABILITIES],
     }),
     isRemoteConfigured: () => Boolean(baseUrl && apiKey),
+    control,
     forwardChat: async (rawBody, _authorization, signal) => {
       if (!baseUrl || !apiKey) return null;
       const body = asRecord(rawBody);
       const context = asRecord(body.context);
       const agentMode = context.agentMode === "chat" ? "chat" : "agentic";
+      const koasis = asRecord(body.koasis);
+      const sessionKey = stringValue(koasis.sessionKey, 180);
+      const sessionId = safeSessionId(context.sessionId);
+      const latestMessage = Array.isArray(body.messages) ? asRecord(body.messages.at(-1)) : {};
+      const hasImageInput = attachmentRecords(latestMessage.attachments).some((item) => stringValue(item.kind, 30) === "image");
+      const requestId = stringValue(body.requestId, 180) || `koasis-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const useChatCompletions = hasImageInput;
       let created: JsonRecord;
       let createResponse: Response;
+      if (useChatCompletions) {
+        try {
+          createResponse = await fetch(`${baseUrl}/v1/chat/completions`, {
+            method: "POST",
+            headers: {
+              Accept: "text/event-stream",
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+              "Idempotency-Key": safeIdempotencyKey(requestId),
+              ...(sessionKey ? { "X-Hermes-Session-Key": sessionKey } : {}),
+              ...(sessionId ? { "X-Hermes-Session-Id": sessionId } : {}),
+            },
+            body: JSON.stringify(buildChatCompletionPayload(body, model, provider)),
+            signal,
+          });
+          if (!createResponse.ok || !createResponse.body) {
+            const details = asRecord(await createResponse.json().catch(() => ({})));
+            return jsonResponse(createResponse.status, { error: stringValue(details.error) || `Hermes menolak input gambar (HTTP ${createResponse.status}).`, code: "hermes_multimodal_rejected" });
+          }
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              const write: StreamWriter = (event) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+              write({ type: "meta", engine: "hermes", agentMode, model, requestId, harness: { name: HERMES_ADAPTER_NAME, version: HERMES_ADAPTER_VERSION, mode: "remote", remoteConfigured: true, persistenceConfigured, capabilities: [...CAPABILITIES] }, agentId: stringValue(koasis.agentId, 80) || stringValue(body.agentId, 80) || "koasis", reviewRequired: koasis.reviewRequired === true });
+              write({ type: "status", phase: "accepted", message: "Agent menerima tugas multimodal", requestId });
+              void translateChatCompletionStream(createResponse, requestId, signal, write)
+                .catch((error) => {
+                  if (!signal.aborted) controller.enqueue(encoder.encode(`${JSON.stringify({ type: "error", error: error instanceof Error ? error.message : "Agent gagal memproses input gambar.", code: "hermes_stream_error", requestId })}\n`));
+                })
+            .finally(() => { activeRuns.delete(requestId); controller.close(); });
+            },
+          });
+          activeRuns.set(requestId, { runId: requestId, ownerKey: sessionKey });
+          return new Response(stream, { status: 200, headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "private, no-store, no-transform", "X-Content-Type-Options": "nosniff", "X-Accel-Buffering": "no" } });
+        } catch (error) {
+          if (signal.aborted) throw error;
+          return jsonResponse(502, { error: "Agent belum dapat dijangkau untuk input gambar.", code: "hermes_unreachable" });
+        }
+      }
       try {
         createResponse = await fetch(`${baseUrl}/v1/runs`, {
           method: "POST",
@@ -422,6 +692,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
             "Idempotency-Key": safeIdempotencyKey(body.requestId),
+            ...(sessionKey ? { "X-Hermes-Session-Key": sessionKey } : {}),
           },
           body: JSON.stringify(buildRunPayload(body, model, provider)),
           signal,
@@ -434,7 +705,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
       }
       const runId = stringValue(created.run_id, 180);
       if (!runId) return jsonResponse(502, { error: "Hermes tidak mengembalikan run ID.", code: "hermes_invalid_response" });
-      const requestId = stringValue(body.requestId, 180) || runId;
+      rememberRun(requestId, runId, sessionKey);
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -459,7 +730,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
                 controller.enqueue(encoder.encode(`${JSON.stringify({ type: "error", error: message, code: "hermes_stream_error", requestId })}\n`));
               }
             })
-            .finally(() => controller.close());
+            .finally(() => { activeRuns.delete(requestId); controller.close(); });
         },
       });
       return new Response(stream, {

@@ -125,6 +125,14 @@ export function openComputerSession(viewOnly = true, options: ComputerClientOpti
   return request<ComputerSession>("/api/computer/session", { method: "POST", body: JSON.stringify({ viewOnly, ...(machineId ? { machineId } : {}) }) }, options);
 }
 
+export function refreshComputerSession(sessionId: string, options: ComputerClientOptions = {}): Promise<ComputerSession> {
+  return request<ComputerSession>("/api/computer/refresh", { method: "POST", body: JSON.stringify({ sessionId }) }, options);
+}
+
+export function heartbeatComputerSession(sessionId: string, options: ComputerClientOptions = {}): Promise<{ sessionId: string; machine: ComputerMachine; expiresAt: string }> {
+  return request<{ sessionId: string; machine: ComputerMachine; expiresAt: string }>("/api/computer/heartbeat", { method: "POST", body: JSON.stringify({ sessionId }) }, options);
+}
+
 export function revokeComputerSession(options: ComputerClientOptions = {}, sessionId?: string): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/computer/revoke", { method: "POST", body: JSON.stringify(sessionId ? { sessionId } : {}) }, options);
 }

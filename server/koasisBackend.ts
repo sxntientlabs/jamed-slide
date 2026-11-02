@@ -12,6 +12,8 @@ type Next = (error?: unknown) => void;
 const MAX_EVENT_BODY_BYTES = 128 * 1024;
 const EVENT_TYPE_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,79}$/;
 const COMPUTER_RATE_WINDOW_MS = 60_000;
+const COMPUTER_USER_SESSION_TTL_MS = 10 * 60_000;
+const COMPUTER_AGENT_SESSION_TTL_MS = 60 * 60_000;
 const computerRateBuckets = new Map<string, { count: number; resetAt: number }>();
 const ADMIN_LOGIN_RATE_WINDOW_MS = 60_000;
 const ADMIN_LOGIN_RATE_LIMIT = 8;
@@ -666,7 +668,7 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
           const readyStream = includeStream ? await instabox.createStream(selectedMachine.id, viewOnly, 600) : null;
           return { machine: readyMachine, stream: readyStream };
         }));
-        const expiresAt = stream?.expiresAt || new Date(Date.now() + 10 * 60_000).toISOString();
+        const expiresAt = stream?.expiresAt || new Date(Date.now() + (agentSession ? COMPUTER_AGENT_SESSION_TTL_MS : COMPUTER_USER_SESSION_TTL_MS)).toISOString();
         const sessionId = randomUUID();
         if (!agentSession) {
           await client.query(
@@ -688,6 +690,100 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
         expiresAt: result.expiresAt,
         viewOnly,
       });
+    } catch (error) {
+      const mapped = computerError(error);
+      sendJson(response, mapped.status, { error: mapped.message, code: mapped.code });
+    }
+  };
+
+  const handleComputerRefresh = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Gunakan POST /api/computer/refresh." });
+      return;
+    }
+    const userId = await requireUser(request, response, settings.firebaseProjectId);
+    if (!userId) return;
+    const rate = consumeComputerRate(userId, "refresh", 12);
+    if (!rate.allowed) {
+      response.setHeader("Retry-After", String(rate.retryAfterSeconds));
+      sendJson(response, 429, { error: "Terlalu banyak perpanjangan sesi. Coba lagi sebentar.", code: "computer_rate_limited" });
+      return;
+    }
+    if (!instabox.configured || !pool) {
+      sendJson(response, 503, { error: "Komputer belum siap digunakan. Coba lagi nanti.", code: "computer_configuration" });
+      return;
+    }
+    try {
+      const body = await readJsonBody(request);
+      const sessionId = isUuid(body.sessionId) ? body.sessionId : null;
+      if (!sessionId) {
+        sendJson(response, 400, { error: "sessionId tidak valid.", code: "invalid_computer_session" });
+        return;
+      }
+      const activePool = await ensureSchema();
+      const result = await withComputerUserLock(activePool, userId, async (client) => {
+        const session = await client.query<{ id: string; instabox_machine_id: string; view_only: boolean }>(
+          "SELECT id, instabox_machine_id, view_only FROM koasis_computer_sessions WHERE id = $1 AND user_id = $2 AND source = 'user' AND status = 'active' AND expires_at > now()",
+          [sessionId, userId],
+        );
+        if (!session.rows.length) throw Object.assign(new Error("Sesi desktop sudah berakhir."), { code: "computer_session_expired", status: 409 });
+        const row = session.rows[0];
+        const renewed = await withComputerMachineLock(client, row.instabox_machine_id, async () => retryComputerLifecycle(async () => {
+          const machine = await instabox.ensureRunning(row.instabox_machine_id);
+          await instabox.startDesktop(row.instabox_machine_id);
+          const stream = await instabox.createStream(row.instabox_machine_id, row.view_only, 600);
+          return { machine, stream };
+        }));
+        await client.query("UPDATE koasis_computer_sessions SET expires_at = $1::timestamptz WHERE id = $2 AND user_id = $3 AND status = 'active'", [renewed.stream.expiresAt, sessionId, userId]);
+        await client.query("UPDATE koasis_computer_machines SET last_seen_at = now(), updated_at = now() WHERE user_id = $1", [userId]);
+        return { sessionId, machine: renewed.machine, stream: renewed.stream, viewOnly: row.view_only };
+      });
+      sendJson(response, 200, { sessionId: result.sessionId, machine: result.machine, streamUrl: result.stream.url, expiresAt: result.stream.expiresAt, viewOnly: result.viewOnly });
+    } catch (error) {
+      const mapped = computerError(error);
+      sendJson(response, mapped.status, { error: mapped.message, code: mapped.code });
+    }
+  };
+
+  const handleComputerHeartbeat = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Gunakan POST /api/computer/heartbeat." });
+      return;
+    }
+    const userId = await requireUser(request, response, settings.firebaseProjectId);
+    if (!userId) return;
+    const rate = consumeComputerRate(userId, "heartbeat", 30);
+    if (!rate.allowed) {
+      response.setHeader("Retry-After", String(rate.retryAfterSeconds));
+      sendJson(response, 429, { error: "Sesi Computer terlalu sering diperbarui. Coba lagi sebentar.", code: "computer_rate_limited" });
+      return;
+    }
+    if (!instabox.configured || !pool) {
+      sendJson(response, 503, { error: "Komputer belum siap digunakan. Coba lagi nanti.", code: "computer_configuration" });
+      return;
+    }
+    try {
+      const body = await readJsonBody(request);
+      const sessionId = isUuid(body.sessionId) ? body.sessionId : null;
+      if (!sessionId) {
+        sendJson(response, 400, { error: "sessionId tidak valid.", code: "invalid_computer_session" });
+        return;
+      }
+      const activePool = await ensureSchema();
+      const result = await withComputerUserLock(activePool, userId, async (client) => {
+        const session = await client.query<{ id: string; instabox_machine_id: string; source: "user" | "agent" }>(
+          "SELECT id, instabox_machine_id, source FROM koasis_computer_sessions WHERE id = $1 AND user_id = $2 AND status = 'active' AND expires_at > now()",
+          [sessionId, userId],
+        );
+        if (!session.rows.length) throw Object.assign(new Error("Sesi desktop sudah berakhir."), { code: "computer_session_expired", status: 409 });
+        const row = session.rows[0];
+        const machine = await withComputerMachineLock(client, row.instabox_machine_id, () => retryComputerLifecycle(() => instabox.touch(row.instabox_machine_id)));
+        const expiresAt = new Date(Date.now() + (row.source === "agent" ? COMPUTER_AGENT_SESSION_TTL_MS : COMPUTER_USER_SESSION_TTL_MS)).toISOString();
+        await client.query("UPDATE koasis_computer_sessions SET expires_at = $1::timestamptz WHERE id = $2 AND user_id = $3 AND status = 'active'", [expiresAt, sessionId, userId]);
+        await client.query("UPDATE koasis_computer_machines SET last_seen_at = now(), updated_at = now() WHERE user_id = $1", [userId]);
+        return { sessionId, machine, expiresAt };
+      });
+      sendJson(response, 200, result);
     } catch (error) {
       const mapped = computerError(error);
       sendJson(response, mapped.status, { error: mapped.message, code: mapped.code });
@@ -777,13 +873,17 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       }
       const activePool = await ensureSchema();
       const result = await withComputerUserLock(activePool, userId, async (client) => {
-        const activeSession = await client.query<{ id: string; instabox_machine_id: string; view_only: boolean }>(
-          "SELECT id, instabox_machine_id, view_only FROM koasis_computer_sessions WHERE user_id = $1 AND status = 'active' AND expires_at > now() AND ($2::uuid IS NOT NULL AND id = $2::uuid OR $2::uuid IS NULL AND source = 'user') ORDER BY created_at DESC LIMIT 1",
+        const activeSession = await client.query<{ id: string; instabox_machine_id: string; view_only: boolean; source: "user" | "agent" }>(
+          "SELECT id, instabox_machine_id, view_only, source FROM koasis_computer_sessions WHERE user_id = $1 AND status = 'active' AND expires_at > now() AND ($2::uuid IS NOT NULL AND id = $2::uuid OR $2::uuid IS NULL AND source = 'user') ORDER BY created_at DESC LIMIT 1",
           [userId, sessionId ?? null],
         );
         if (!activeSession.rows.length) throw Object.assign(new Error("Sesi desktop sudah berakhir."), { code: "computer_session_expired", status: 409 });
         if (activeSession.rows[0].view_only) throw Object.assign(new Error("Sesi ini hanya bisa dilihat."), { code: "computer_control_not_allowed", status: 409 });
-        return withComputerMachineLock(client, activeSession.rows[0].instabox_machine_id, () => instabox.action(activeSession.rows[0].instabox_machine_id, action));
+        const active = activeSession.rows[0];
+        const result = await withComputerMachineLock(client, active.instabox_machine_id, () => instabox.action(active.instabox_machine_id, action));
+        const expiresAt = new Date(Date.now() + (active.source === "agent" ? COMPUTER_AGENT_SESSION_TTL_MS : COMPUTER_USER_SESSION_TTL_MS)).toISOString();
+        await client.query("UPDATE koasis_computer_sessions SET expires_at = $1::timestamptz WHERE id = $2 AND user_id = $3 AND status = 'active'", [expiresAt, active.id, userId]);
+        return result;
       });
       sendJson(response, 200, result);
     } catch (error) {
@@ -810,6 +910,12 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
   };
   const computerSessionMiddleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
     void handleComputerSession(request, response);
+  };
+  const computerRefreshMiddleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
+    void handleComputerRefresh(request, response);
+  };
+  const computerHeartbeatMiddleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
+    void handleComputerHeartbeat(request, response);
   };
   const computerRevokeMiddleware = (request: IncomingMessage, response: ServerResponse, _next: Next) => {
     void handleComputerRevoke(request, response);
@@ -844,6 +950,8 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       server.middlewares.use("/api/computer/status", computerStatusMiddleware);
       server.middlewares.use("/api/computer/select", computerSelectMiddleware);
       server.middlewares.use("/api/computer/session", computerSessionMiddleware);
+      server.middlewares.use("/api/computer/refresh", computerRefreshMiddleware);
+      server.middlewares.use("/api/computer/heartbeat", computerHeartbeatMiddleware);
       server.middlewares.use("/api/computer/revoke", computerRevokeMiddleware);
       server.middlewares.use("/api/computer/pause", computerPauseMiddleware);
       server.middlewares.use("/api/computer/action", computerActionMiddleware);
@@ -859,6 +967,8 @@ export function createKoasisBackendPlugin(env: Record<string, string>): Plugin {
       server.middlewares.use("/api/computer/status", computerStatusMiddleware);
       server.middlewares.use("/api/computer/select", computerSelectMiddleware);
       server.middlewares.use("/api/computer/session", computerSessionMiddleware);
+      server.middlewares.use("/api/computer/refresh", computerRefreshMiddleware);
+      server.middlewares.use("/api/computer/heartbeat", computerHeartbeatMiddleware);
       server.middlewares.use("/api/computer/revoke", computerRevokeMiddleware);
       server.middlewares.use("/api/computer/pause", computerPauseMiddleware);
       server.middlewares.use("/api/computer/action", computerActionMiddleware);

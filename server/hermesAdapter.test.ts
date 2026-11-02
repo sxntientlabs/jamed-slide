@@ -149,6 +149,62 @@ describe("Hermes adapter", () => {
     expect(lines.find((line) => line.type === "replace")).toMatchObject({ content: "Saya memakai model Koasis Agent." });
   });
 
+  test("preserves separator spaces between Hermes run-event deltas", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-spaces", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        "event: message.delta",
+        'data: {"type":"message.delta","text":"Aku"}',
+        "",
+        "event: message.delta",
+        'data: {"type":"message.delta","text":" Study"}',
+        "",
+        "event: message.delta",
+        'data: {"type":"message.delta","text":" Desk."}',
+        "",
+        "event: run.completed",
+        'data: {"type":"run.completed","output":"Aku Study Desk."}',
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-spaces",
+      messages: [{ role: "user", content: "uji spasi" }],
+      context: { agentMode: "chat" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.filter((line) => line.type === "delta").map((line) => line.content)).toEqual(["Aku", " Study", " Desk."]);
+  });
+
+  test("preserves separator spaces between Hermes chat-completion deltas", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response([
+      'data: {"choices":[{"delta":{"content":"Aku"}}]}',
+      "",
+      'data: {"choices":[{"delta":{"content":" Study"}}]}',
+      "",
+      'data: {"choices":[{"delta":{"content":" Desk."}}]}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-completion-spaces",
+      messages: [{ role: "user", content: "uji spasi", attachments: [{ kind: "image", dataUrl: `data:image/png;base64,${"a".repeat(160)}` }] }],
+      context: { agentMode: "chat" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.filter((line) => line.type === "delta").map((line) => line.content)).toEqual(["Aku", " Study", " Desk."]);
+  });
+
   test("forwards screenshots nested in a provider attachment envelope", async () => {
     const screenshot = "a".repeat(160);
     vi.spyOn(globalThis, "fetch")
@@ -176,5 +232,86 @@ describe("Hermes adapter", () => {
       activity: "screenshot",
       screenshotDataUrl: expect.stringMatching(/^data:image\/png;base64,a+$/),
     });
+  });
+
+  test("translates tool_name progress and keeps generated images as artifacts", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-image", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        "event: tool.started",
+        'data: {"type":"tool.started","tool_name":"image_generate"}',
+        "",
+        "event: run.completed",
+        `data: ${JSON.stringify({ type: "run.completed", run_id: "run-image", output: "Selesai", image: `data:image/png;base64,${"a".repeat(160)}` })}`,
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "https://hermes.example",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+    const response = await adapter.forwardChat({
+      requestId: "request-image",
+      messages: [{ role: "user", content: "buat gambar" }],
+      context: { agentMode: "agentic" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.find((line) => line.type === "tool_activity")).toMatchObject({ activity: "started", tool: "image_generate" });
+    expect(lines.find((line) => line.type === "artifact")).toMatchObject({ artifact: { kind: "image", title: "Output gambar dari Agent" } });
+  });
+
+  test("sends image attachments through Hermes' multimodal streaming endpoint", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response([
+        'data: {"choices":[{"delta":{"content":"Saya melihat gambar."}}]}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+    const response = await adapter.forwardChat({
+      requestId: "request-multimodal",
+      messages: [{ role: "user", content: "jelaskan gambar", attachments: [{ kind: "image", dataUrl: `data:image/png;base64,${"a".repeat(160)}` }] }],
+      context: { agentMode: "agentic", sessionId: "chat-2" },
+      koasis: { sessionKey: "owner-a" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.find((line) => line.type === "delta")).toMatchObject({ content: "Saya melihat gambar." });
+    expect(fetchSpy).toHaveBeenCalledWith("http://koasis-agent:8642/v1/chat/completions", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "X-Hermes-Session-Key": "owner-a", "X-Hermes-Session-Id": "koasis-chat-2" }),
+    }));
+    const payload = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    const requestMessages = payload.messages as Array<Record<string, unknown>>;
+    expect(requestMessages.at(-1)?.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "image_url" })]));
+  });
+
+  test("only the session owner can resolve a pending run", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-control", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        'event: approval.request',
+        'data: {"type":"approval.request","run_id":"run-control","description":"Izinkan tool?","choices":["once","deny"]}',
+        "",
+        'event: run.completed',
+        'data: {"type":"run.completed","run_id":"run-control","output":"Selesai"}',
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({ KOASIS_HERMES_API_URL: "https://hermes.example", KOASIS_HERMES_API_KEY: "server-secret" });
+    const response = await adapter.forwardChat({
+      requestId: "request-control",
+      messages: [{ role: "user", content: "uji" }],
+      koasis: { sessionKey: "owner-a" },
+    }, undefined, new AbortController().signal);
+    const controlResponse = new Response(JSON.stringify({ status: "accepted" }), { status: 202 });
+    fetchSpy.mockResolvedValueOnce(controlResponse);
+    const foreignControl = adapter.control("request-control", "owner-b", { action: "approval", choice: "once" }, new AbortController().signal);
+    const ownerControl = adapter.control("request-control", "owner-a", { action: "approval", choice: "once" }, new AbortController().signal);
+    await expect(foreignControl).resolves.toMatchObject({ status: 404 });
+    await expect(ownerControl).resolves.toMatchObject({ status: 202 });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 });

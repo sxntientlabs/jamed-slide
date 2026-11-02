@@ -139,7 +139,11 @@ export class InstaboxService {
     };
   }
 
-  private connect(machineId: string, resume = false): Promise<Sandbox> {
+  // Control actions must wake a paused shared machine. The SDK defaults to
+  // resume=true, but passing resume:false here used to make every action
+  // attach to a paused sandbox and then fail with "Machine belum berjalan".
+  // Read-only lifecycle operations opt out explicitly below.
+  private connect(machineId: string, resume = true): Promise<Sandbox> {
     return Sandbox.connect(machineId, { ...this.options(), resume });
   }
 
@@ -179,7 +183,7 @@ export class InstaboxService {
   }
 
   async ensureRunning(machineId: string): Promise<InstaboxMachineSummary> {
-    const sandbox = await this.connect(machineId, false);
+    const sandbox = await this.connect(machineId);
     let info = await sandbox.getInfo();
     if (info.state === "suspended" || info.state === "stopped") {
       await sandbox.resume();
@@ -192,12 +196,12 @@ export class InstaboxService {
   }
 
   async startDesktop(machineId: string): Promise<void> {
-    const sandbox = await this.connect(machineId, false);
+    const sandbox = await this.connect(machineId);
     await sandbox.desktop.start({ width: 1280, height: 800 });
   }
 
   async createStream(machineId: string, viewOnly: boolean, ttlSeconds = 600): Promise<InstaboxStream> {
-    const sandbox = await this.connect(machineId, false);
+    const sandbox = await this.connect(machineId);
     const stream = await sandbox.desktop.streamUrl({ viewOnly, ttlSeconds });
     return { url: stream.url, expiresAt: stream.expiresAt.toISOString() };
   }
@@ -215,7 +219,7 @@ export class InstaboxService {
   }
 
   async action(machineId: string, action: InstaboxAction): Promise<InstaboxActionResult> {
-    const sandbox = await this.connect(machineId, false);
+    const sandbox = await this.connect(machineId);
     const info = await sandbox.getInfo();
     if (info.state !== "running") throw new Error("Machine belum berjalan.");
 
@@ -249,5 +253,16 @@ export class InstaboxService {
     }
     await sandbox.desktop.scroll({ direction: action.direction, amount: Math.min(20, Math.max(1, Math.round(action.amount || 3))) });
     return { type: action.type };
+  }
+
+  /**
+   * Send a cheap, harmless command so InstaBox counts an open Computer
+   * session as active. A viewer alone does not reset the provider idle timer.
+   * The default connection also resumes a machine if it was auto-paused.
+   */
+  async touch(machineId: string): Promise<InstaboxMachineSummary> {
+    const sandbox = await this.connect(machineId);
+    await sandbox.commands.run("true", { timeoutMs: 30_000 });
+    return toMachineSummary(await sandbox.getInfo());
   }
 }

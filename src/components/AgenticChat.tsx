@@ -8,10 +8,10 @@ import { KoasisWorkflowDialog, type KoasisWorkflowKind } from "./KoasisWorkflowD
 import { MkarRotationCockpit, type MkarCockpitAction } from "./MkarRotationCockpit";
 import { KoasisClinicalWorkspace } from "./KoasisClinicalWorkspace";
 import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
-import { AgentChatError, sendAgentChat, type AgentChatAttachment, type AgentChatMessage, type AgentChatResult, type AgentComputerActivity, type AgentMode, type AgentRunStatus } from "../lib/agentChatClient";
+import { AgentChatError, sendAgentChat, sendAgentControl, type AgentApprovalRequest, type AgentChatAttachment, type AgentChatMessage, type AgentChatResult, type AgentComputerActivity, type AgentClarifyRequest, type AgentMode, type AgentRunStatus, type AgentToolActivity } from "../lib/agentChatClient";
 import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "../lib/evidenceCitations";
 import { searchEvidenceSources, type EvidenceQueryPlan, type EvidenceSource } from "../lib/evidenceSearchClient";
-import { ComputerClientError, getComputerStatus, openComputerSession, revokeComputerSession, selectComputerMachine, type ComputerMachine, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
+import { ComputerClientError, getComputerStatus, heartbeatComputerSession, openComputerSession, refreshComputerSession, revokeComputerSession, selectComputerMachine, type ComputerMachine, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
 import { loadPublicAdminCatalog } from "../lib/adminApi";
 import type { PublicAdminCatalog } from "../lib/adminConfig";
@@ -408,14 +408,16 @@ function sharedMachineLabel(machine: ComputerMachine): string {
   return key ? SHARED_MACHINE_LABELS[key] : machine.name;
 }
 
-function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<string> }) {
+function ComputerPageSurface({ getAuthToken, onAgentPrompt }: { getAuthToken: () => Promise<string>; onAgentPrompt?: (prompt: string) => void }) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [session, setSession] = useState<ComputerSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busyAction, setBusyAction] = useState<"open" | "control" | "select" | "revoke" | null>(null);
+  const [busyAction, setBusyAction] = useState<"open" | "control" | "select" | "refresh" | "revoke" | null>(null);
   const [error, setError] = useState("");
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [fullscreen, setFullscreen] = useState(false);
+  const [agentPrompt, setAgentPrompt] = useState("");
 
   const loadStatus = async () => {
     setLoading(true);
@@ -448,6 +450,71 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [session]);
+
+  const renewSession = async (background = false) => {
+    if (!session) return;
+    if (!background) {
+      setBusyAction("refresh");
+      setError("");
+    }
+    try {
+      const token = await getAuthToken();
+      const nextSession = await refreshComputerSession(session.sessionId, { authToken: token });
+      setSession(nextSession);
+      setSelectedMachineId(nextSession.machine.id);
+      setNow(Date.now());
+      setStatus((current) => current ? { ...current, selectedMachineId: nextSession.machine.id, machine: nextSession.machine, activeSession: { id: nextSession.sessionId, viewOnly: nextSession.viewOnly, expiresAt: nextSession.expiresAt, status: "active" } } : current);
+    } catch (caught) {
+      if (!background) setError(caught instanceof ComputerClientError ? caught.message : "Sesi desktop belum bisa diperbarui.");
+    } finally {
+      if (!background) setBusyAction(null);
+    }
+  };
+
+  // A stream URL expires after ten minutes and a viewer alone does not count
+  // as activity for InstaBox. Heartbeat keeps the shared machine awake;
+  // refresh rotates the stream before the visible URL expires.
+  useEffect(() => {
+    if (!session) return undefined;
+    let disposed = false;
+    const timer = window.setInterval(async () => {
+      if (disposed || busyAction) return;
+      const remaining = Date.parse(session.expiresAt) - Date.now();
+      if (remaining <= 0) return;
+      if (remaining < 4 * 60_000) {
+        await renewSession(true);
+        return;
+      }
+      try {
+        const token = await getAuthToken();
+        const heartbeat = await heartbeatComputerSession(session.sessionId, { authToken: token });
+        if (disposed) return;
+        setSession((current) => current?.sessionId === heartbeat.sessionId ? { ...current, machine: heartbeat.machine, expiresAt: heartbeat.expiresAt } : current);
+        setStatus((current) => current ? { ...current, machine: heartbeat.machine } : current);
+      } catch {
+        // A single missed heartbeat is recoverable; the next tick or the
+        // explicit refresh button will resume the machine and retry.
+      }
+    }, 90_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [session?.sessionId, session?.expiresAt, busyAction]);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [fullscreen]);
 
   const openSession = async (viewOnly: boolean) => {
     setBusyAction(viewOnly ? "open" : "control");
@@ -497,6 +564,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
 
   const revokeSession = async () => {
     setBusyAction("revoke");
+    setFullscreen(false);
     try {
       const token = await getAuthToken();
       await revokeComputerSession({ authToken: token }, session?.sessionId);
@@ -540,7 +608,7 @@ function ComputerPageSurface({ getAuthToken }: { getAuthToken: () => Promise<str
       {machine && !session && <div className="manus-computer-actions"><button type="button" className="manus-button-primary" onClick={() => void openSession(true)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "open" ? <LoaderCircle size={14} className="koasis-spinner" /> : <Monitor size={14} />} Buka desktop</button><button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction) || machineBusy || machine.state === "error"}>{busyAction === "control" ? <LoaderCircle size={14} className="koasis-spinner" /> : <PanelLeft size={14} />} Ambil kontrol</button></div>}
     </section>
 
-    {session && <section className="manus-computer-viewer"><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Desktop langsung</span><strong>{session.viewOnly ? "Lihat saja" : "Bisa dikendalikan"}</strong></div><div><span className="manus-computer-expiry">{sessionExpired ? "Tautan kedaluwarsa" : `${minutesLeft} menit tersisa`}</span><button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Sesi sudah berakhir</strong><small>Buka desktop lagi untuk membuat tautan baru.</small></div> : <iframe className="manus-computer-iframe" src={session.streamUrl} title="Desktop langsung" allow="clipboard-read; clipboard-write" />}</section>}
+    {session && <section className={`manus-computer-viewer ${fullscreen ? "is-fullscreen" : ""}`} role={fullscreen ? "dialog" : undefined} aria-modal={fullscreen ? "true" : undefined} aria-label={fullscreen ? "Desktop langsung" : undefined}><div className="manus-computer-viewer-heading"><div><span className="manus-section-kicker">Desktop langsung</span><strong>{session.viewOnly ? "Lihat saja" : "Bisa dikendalikan"}</strong></div><div className="manus-computer-viewer-actions"><span className="manus-computer-expiry">{sessionExpired ? "Tautan kedaluwarsa" : `${minutesLeft} menit tersisa`}</span>{!sessionExpired && session.viewOnly && <button type="button" className="manus-button-secondary" onClick={() => void openSession(false)} disabled={Boolean(busyAction)}>{busyAction === "control" ? <LoaderCircle size={13} className="koasis-spinner" /> : <PanelLeft size={13} />} Ambil kontrol</button>}{!sessionExpired && <button type="button" className="manus-button-secondary" onClick={() => void renewSession()} disabled={Boolean(busyAction)}>{busyAction === "refresh" ? <LoaderCircle size={13} className="koasis-spinner" /> : <RotateCcw size={13} />} Perbarui</button>}{!sessionExpired && <button type="button" className="manus-button-secondary" onClick={() => setFullscreen((current) => !current)}><Maximize2 size={13} />{fullscreen ? "Tutup layar penuh" : "Layar penuh"}</button>}<button type="button" className="manus-button-secondary" onClick={() => void revokeSession()} disabled={busyAction === "revoke"}>{busyAction === "revoke" ? <LoaderCircle size={13} className="koasis-spinner" /> : <X size={13} />} Tutup</button></div></div>{sessionExpired ? <div className="manus-computer-empty"><Monitor size={22} /><strong>Sesi sudah berakhir</strong><small>Buka desktop lagi untuk membuat tautan baru.</small></div> : <><div className="manus-computer-frame"><iframe className="manus-computer-iframe" src={session.streamUrl} title="Desktop langsung" allow="clipboard-read; clipboard-write; fullscreen" /></div>{onAgentPrompt && <form className="manus-computer-agent-input" onSubmit={(event) => { event.preventDefault(); const prompt = agentPrompt.trim(); if (!prompt) return; setAgentPrompt(""); onAgentPrompt(prompt); }}><Monitor size={14} aria-hidden="true" /><input value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} placeholder="Beri arahan ke Agent tentang komputer ini…" aria-label="Arahan Agent untuk komputer" /><button type="submit" disabled={!agentPrompt.trim()}>Kirim ke Agent</button></form>}</>}</section>}
 
     <section className="manus-secure-input-section"><div><span className="manus-section-kicker">Privasi</span><h2>Akses tetap terkontrol</h2><p>Akses desktop bersifat sementara dan dapat ditutup kapan saja. Data yang kamu masukkan tidak disimpan oleh Koasis.</p></div><div className="manus-computer-security-note"><ShieldCheck size={18} /><span><strong>Akses sementara</strong><small>Kamu dapat menutup sesi kapan saja.</small></span></div></section>
   </section>;
@@ -598,6 +666,9 @@ type PendingComputerApproval = {
   contextSources?: EvidenceSource[];
   contextSourceMode?: SourceMode;
 };
+
+type PendingAgentApproval = AgentApprovalRequest;
+type PendingAgentClarify = AgentClarifyRequest;
 
 const COMPUTER_APPROVAL_PATTERN = /\b(computer|desktop|browser|machine|browsing eksternal|gunakan internet|pakai internet|klik|click|ketik|type|scroll|buka situs|buka website|open browser|screenshot layar)\b|https?:\/\/|\b(?:drive|docs|slides)\.google\.com\b/i;
 const COMPUTER_APPROVAL_ACTION_PATTERN = /\b(?:buka|open|edit|ubah|perbaiki|tinjau|review|cek|akses|unggah|upload|download|unduh|salin|isi|ketik|klik|click)\b[^.?!]{0,90}\b(?:link|dokumen|document|slide|slides|file|situs|website|browser|drive|docs|sheet|sheets)\b/i;
@@ -1056,7 +1127,7 @@ function MessageBubble({ message, userLabel, onRetry, onFollowUp }: { message: C
   </article>;
 }
 
-function AgentThinking({ label, status, events }: { label: string; status: AgentRunStatus | null; events: KoasisRunEvent[] }) {
+function AgentThinking({ label, status, events, onStop }: { label: string; status: AgentRunStatus | null; events: KoasisRunEvent[]; onStop: () => void }) {
   const reasoningSentences = useMemo(() => [
     `${label} membaca permintaan dan konteks kerja yang sedang aktif.`,
     "Memisahkan tujuan, fakta yang tersedia, dan informasi yang masih belum ada.",
@@ -1065,7 +1136,7 @@ function AgentThinking({ label, status, events }: { label: string; status: Agent
     "Menyusun output yang bisa kamu review sebelum dipakai.",
     "Menandai ketidakpastian dan langkah berikutnya jika masih ada gap.",
   ], [label, status?.message]);
-  return <div className="koasis-agent-thinking-stack"><AicssThinkingSurface label={label} detail={status?.message || "Memulai workflow yang aman dan bisa direview…"} /><AicssThinkingReasoning sentences={reasoningSentences} /><KoasisRunTrace events={events} activePhase={status?.phase} /></div>;
+  return <div className="koasis-agent-thinking-stack"><div className="koasis-agent-thinking-head"><AicssThinkingSurface label={label} detail={status?.message || "Memulai workflow yang aman dan bisa direview…"} /><button type="button" className="koasis-agent-stop" onClick={onStop} title="Hentikan task Agent">Hentikan</button></div><AicssThinkingReasoning sentences={reasoningSentences} /><KoasisRunTrace events={events} activePhase={status?.phase} /></div>;
 }
 
 type ComputerLiveBusyState = "view" | "control" | "close" | null;
@@ -1098,7 +1169,7 @@ function ComputerActivityPreview({ activity, busy, liveSession, liveBusy, liveEr
     </div>
     {liveSession ? <div className={`koasis-computer-live ${expanded ? "expanded" : ""}`} role={expanded ? "dialog" : undefined} aria-modal={expanded ? "true" : undefined} aria-label={expanded ? "Desktop Computer" : undefined}>
       <div className="koasis-computer-live-head"><div><strong>{liveLabel}</strong><small>{busy ? "Agent tetap menjalankan task-nya di sesi terpisah." : "Sesi desktop sementara untuk melihat atau mengambil alih."}</small></div><div className="koasis-computer-live-actions"><span className="koasis-computer-live-badge"><i />Live</span>{expanded && <><button type="button" className="koasis-computer-activity-action" onClick={onToggleFullscreen} disabled={liveBusy === "close"}><Maximize2 size={12} />Tutup layar penuh</button><button type="button" className="koasis-computer-activity-action muted" onClick={onCloseLive} disabled={liveBusy !== null}>{liveBusy === "close" ? <LoaderCircle size={12} className="koasis-spinner" /> : <X size={12} />}Tutup live</button></>}</div></div>
-      <iframe className="koasis-computer-live-frame" src={liveSession.streamUrl} title="Desktop Computer live" allow="clipboard-read; clipboard-write" />
+      <iframe className="koasis-computer-live-frame" src={liveSession.streamUrl} title="Desktop Computer live" allow="clipboard-read; clipboard-write; fullscreen" />
       <small className="koasis-computer-live-note">Sesi live bersifat sementara dan tidak menyimpan screenshot atau input ke riwayat chat.</small>
     </div> : activity.screenshotDataUrl ? <div className="koasis-computer-activity-preview">
       <button type="button" className="koasis-computer-activity-preview-button" onClick={() => onOpenLive(true)} disabled={liveBusy !== null} aria-label="Buka preview Computer dalam layar penuh">
@@ -1117,6 +1188,28 @@ function ComputerApprovalCard({ prompt, onApprove, onDecline, onDismiss }: { pro
     <p>Agent mendeteksi bahwa tugas ini mungkin memerlukan browser atau desktop bersama. Jika disetujui, agent dapat membuka halaman, membaca tampilan, klik, mengetik, dan menggulir sesuai batas task. Preview aktivitasnya akan muncul langsung di chat.</p>
     <div className="koasis-computer-approval-request"><small>Permintaan yang akan dijalankan</small><strong>{prompt}</strong></div>
     <div className="koasis-computer-approval-actions"><button type="button" className="koasis-button-secondary" onClick={onDismiss}>Batalkan</button><button type="button" className="koasis-button-secondary" onClick={onDecline}>Lanjutkan tanpa Computer</button><button type="button" className="koasis-button-primary" onClick={onApprove}><Monitor size={13} /> Izinkan Computer</button></div>
+  </section>;
+}
+
+function AgentApprovalRequestCard({ request, onResolve, onDismiss }: { request: PendingAgentApproval; onResolve: (choice: AgentApprovalRequest["choices"][number]) => void; onDismiss: () => void }) {
+  const approval = request.approval;
+  const description = typeof approval.description === "string" ? approval.description : typeof approval.message === "string" ? approval.message : "Agent meminta izin untuk melanjutkan tindakan dengan tool.";
+  const choices = request.choices.filter((choice, index, all) => all.indexOf(choice) === index);
+  const labels: Record<AgentApprovalRequest["choices"][number], string> = { once: "Izinkan sekali", session: "Izinkan sesi ini", always: "Izinkan selalu", deny: "Tolak" };
+  return <section className="koasis-approval-card" role="alertdialog" aria-labelledby="koasis-agent-approval-title">
+    <div className="koasis-approval-card-head"><span className="koasis-approval-card-mark"><ShieldCheck size={17} /></span><div><span className="koasis-overline">Permission gate</span><h2 id="koasis-agent-approval-title">Agent meminta persetujuan</h2></div><button type="button" aria-label="Tolak permintaan Agent" title="Tolak" onClick={onDismiss}><X size={15} /></button></div>
+    <p>{description}</p>
+    <div className="koasis-approval-actions">{choices.map((choice) => <button type="button" className={choice === "deny" ? "koasis-button-secondary" : "koasis-button-primary"} key={choice} onClick={() => onResolve(choice)}>{labels[choice]}</button>)}</div>
+  </section>;
+}
+
+function AgentClarifyRequestCard({ request, onAnswer, onDismiss }: { request: PendingAgentClarify; onAnswer: (answer: string) => void; onDismiss: () => void }) {
+  const [answer, setAnswer] = useState("");
+  return <section className="koasis-approval-card" role="alertdialog" aria-labelledby="koasis-agent-clarify-title">
+    <div className="koasis-approval-card-head"><span className="koasis-approval-card-mark"><BookOpen size={17} /></span><div><span className="koasis-overline">Agent clarification</span><h2 id="koasis-agent-clarify-title">Agent membutuhkan jawaban</h2></div><button type="button" aria-label="Batalkan klarifikasi" title="Batalkan" onClick={onDismiss}><X size={15} /></button></div>
+    <p>{request.question}</p>
+    {request.choices.length > 0 && <div className="koasis-approval-actions">{request.choices.map((choice) => <button type="button" className="koasis-button-secondary" key={choice} onClick={() => onAnswer(choice)}>{choice}</button>)}</div>}
+    <div className="koasis-clarify-input"><input value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Tulis jawaban…" aria-label="Jawaban klarifikasi" onKeyDown={(event) => { if (event.key === "Enter" && answer.trim()) onAnswer(answer.trim()); }} /><button type="button" className="koasis-button-primary" disabled={!answer.trim()} onClick={() => onAnswer(answer.trim())}>Kirim</button></div>
   </section>;
 }
 
@@ -1145,7 +1238,7 @@ function HomeSurface({ workspace, tasks, onAction, onOpenWorkspace }: { workspac
   </div>;
 }
 
-function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<ManusPage, "home">; onStartTask: (agentId?: string) => void; getAuthToken: () => Promise<string> }) {
+function ManusPageSurface({ page, onStartTask, getAuthToken, onAgentPrompt }: { page: Exclude<ManusPage, "home">; onStartTask: (agentId?: string) => void; getAuthToken: () => Promise<string>; onAgentPrompt?: (prompt: string) => void }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -1222,7 +1315,7 @@ function ManusPageSurface({ page, onStartTask, getAuthToken }: { page: Exclude<M
   }
 
   if (page === "computers") {
-    return <ComputerPageSurface getAuthToken={getAuthToken} />;
+    return <ComputerPageSurface getAuthToken={getAuthToken} onAgentPrompt={onAgentPrompt} />;
   }
 
   if (page === "automations") {
@@ -1427,6 +1520,8 @@ export function AgenticChat() {
   const [runTrail, setRunTrail] = useState<KoasisRunEvent[]>([]);
   const [computerActivity, setComputerActivity] = useState<AgentComputerActivity | null>(null);
   const [computerApproval, setComputerApproval] = useState<PendingComputerApproval | null>(null);
+  const [agentApproval, setAgentApproval] = useState<PendingAgentApproval | null>(null);
+  const [agentClarify, setAgentClarify] = useState<PendingAgentClarify | null>(null);
   const [computerAccessMode, setComputerAccessMode] = useState<ComputerAccessMode>("ask");
   const [computerAccessMenuOpen, setComputerAccessMenuOpen] = useState(false);
   const [computerLiveSession, setComputerLiveSession] = useState<ComputerSession | null>(null);
@@ -1482,6 +1577,8 @@ export function AgenticChat() {
     localSessionInteractionRef.current = true;
     setAgentMode(next);
     setComputerApproval(null);
+    setAgentApproval(null);
+    setAgentClarify(null);
     setComputerAccessMenuOpen(false);
     if (next === "chat") setComputerAccessMode("off");
     else if (computerAccessMode === "off") setComputerAccessMode("ask");
@@ -1523,6 +1620,37 @@ export function AgenticChat() {
   useEffect(() => {
     computerLiveSessionRef.current = computerLiveSession;
   }, [computerLiveSession]);
+
+  useEffect(() => {
+    if (!computerLiveSession) return undefined;
+    let disposed = false;
+    const timer = window.setInterval(async () => {
+      if (disposed || computerLiveBusy) return;
+      const remaining = Date.parse(computerLiveSession.expiresAt) - Date.now();
+      try {
+        const authToken = await user.getIdToken();
+        if (remaining < 4 * 60_000) {
+          const refreshed = await refreshComputerSession(computerLiveSession.sessionId, { authToken });
+          if (disposed) return;
+          computerLiveSessionRef.current = refreshed;
+          setComputerLiveSession(refreshed);
+          setComputerLiveError("");
+        } else {
+          const heartbeat = await heartbeatComputerSession(computerLiveSession.sessionId, { authToken });
+          if (disposed) return;
+          setComputerLiveSession((current) => current?.sessionId === heartbeat.sessionId ? { ...current, machine: heartbeat.machine, expiresAt: heartbeat.expiresAt } : current);
+        }
+      } catch (error) {
+        if (!disposed && error instanceof ComputerClientError && error.code === "computer_session_expired") {
+          setComputerLiveError("Sesi live berakhir. Buka live lagi untuk melihat layar terbaru.");
+        }
+      }
+    }, 90_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [computerLiveSession?.sessionId, computerLiveSession?.expiresAt, computerLiveBusy]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -2187,7 +2315,52 @@ export function AgenticChat() {
     }
   };
 
-  const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode, computerApproved = false, skipComputerApproval = false) => {
+  const resolveAgentControl = (requestId: string, action: Parameters<typeof sendAgentControl>[1], clear: () => void) => {
+    setAttachmentError("");
+    void (async () => {
+      try {
+        const token = await getAgentAuthToken(user as AgentAuthUserLike);
+        await sendAgentControl(requestId, action, token);
+        clear();
+      } catch (error) {
+        setAttachmentError(error instanceof Error ? error.message : "Persetujuan Agent belum berhasil dikirim. Coba lagi.");
+      }
+    })();
+  };
+
+  const resolveAgentApproval = (choice: PendingAgentApproval["choices"][number]) => {
+    const pending = agentApproval;
+    if (!pending) return;
+    resolveAgentControl(pending.requestId, { action: "approval", choice, ...(pending.approval.request_id && typeof pending.approval.request_id === "string" ? { approvalRequestId: pending.approval.request_id } : {}) }, () => setAgentApproval(null));
+  };
+
+  const resolveAgentClarify = (answer: string) => {
+    const pending = agentClarify;
+    if (!pending || !answer.trim()) return;
+    resolveAgentControl(pending.requestId, { action: "clarify", answer: answer.trim() }, () => setAgentClarify(null));
+  };
+
+  const stopActiveAgent = () => {
+    const requestId = runStatus?.requestId;
+    const controller = requestControllerRef.current;
+    if (!requestId) {
+      controller?.abort();
+      return;
+    }
+    void (async () => {
+      try {
+        const token = await getAgentAuthToken(user as AgentAuthUserLike);
+        await sendAgentControl(requestId, { action: "stop" }, token);
+      } catch {
+        // Local runtimes and already-finished runs may not expose the remote
+        // control endpoint; aborting the client stream is still safe.
+      } finally {
+        controller?.abort();
+      }
+    })();
+  };
+
+  const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode, computerApproved = false, skipComputerApproval = false, forcedAgentMode?: AgentMode) => {
     const requestedSourceMode = contextSourceMode ?? sourceMode;
     const workspaceFile = workspace.contextFile;
     const workspaceAttachment: AgentChatAttachment | null = requestedSourceMode === "workspace" && workspaceFile && workspaceFile.kind === "pdf" && (workspaceFile.dataUrl || workspaceFile.storagePath)
@@ -2220,7 +2393,7 @@ export function AgenticChat() {
       }
     }
     const requestComputerApproved = computerApproved || computerAccessMode === "always";
-    const requestAgentMode = agentMode;
+    const requestAgentMode = forcedAgentMode ?? agentMode;
     localSessionInteractionRef.current = true;
     const allowComputer = requestAgentMode === "agentic";
     const effectiveComputerApproved = allowComputer && requestComputerApproved;
@@ -2249,6 +2422,8 @@ export function AgenticChat() {
     setComposerPalette(null);
     setBusy(true);
     setComputerActivity(null);
+    setAgentApproval(null);
+    setAgentClarify(null);
     trackRunStatus({ phase: "accepted", message: "Menyiapkan permintaan" });
     const assistantId = `assistant-${Date.now()}`;
     const controller = new AbortController();
@@ -2351,6 +2526,9 @@ export function AgenticChat() {
             ...activity,
             ...(activity.screenshotDataUrl || !current?.screenshotDataUrl ? {} : { screenshotDataUrl: current.screenshotDataUrl }),
           })),
+          onToolActivity: (activity: AgentToolActivity) => trackRunStatus({ phase: "generating", message: activity.message }),
+          onApprovalRequest: (request: AgentApprovalRequest) => setAgentApproval(request),
+          onClarifyRequest: (request: AgentClarifyRequest) => setAgentClarify(request),
         });
         const sendRequest = (token: string) => sendAgentChat(
           requestMessages,
@@ -2372,15 +2550,16 @@ export function AgenticChat() {
         let artifact: ChatArtifact | undefined;
         let artifactError: string | undefined;
         let artifactRemote: RemoteChatArtifact | undefined;
-        if (requestedArtifactKind) {
-          const artifactLabel = requestedArtifactKind === "pptx" ? "PPTX" : requestedArtifactKind === "image" ? "gambar" : "DOCX";
+        const outputArtifactKind = requestedArtifactKind || response.artifact?.kind;
+        if (outputArtifactKind) {
+          const artifactLabel = outputArtifactKind === "pptx" ? "PPTX" : outputArtifactKind === "image" ? "gambar" : "DOCX";
           trackRunStatus({ phase: "finalizing", message: `Membuat file ${artifactLabel} dari hasil chat` });
           try {
-            const generated = requestedArtifactKind === "image"
-              ? response.lastComputerScreenshotDataUrl
-                ? await createImageChatArtifact(response.lastComputerScreenshotDataUrl)
-                : (() => { throw new Error("Screenshot Computer belum tersedia untuk diunduh."); })()
-              : await createChatArtifact(requestedArtifactKind, prompt, response.content);
+            const generated = outputArtifactKind === "image"
+              ? response.lastComputerScreenshotDataUrl || response.artifact?.dataUrl
+                ? await createImageChatArtifact(response.lastComputerScreenshotDataUrl || response.artifact?.dataUrl || "")
+                : (() => { throw new Error("Output gambar Agent belum tersedia untuk diunduh."); })()
+              : await createChatArtifact(outputArtifactKind, prompt, response.content);
             const url = URL.createObjectURL(generated.blob);
             artifactUrlsRef.current.add(url);
             artifact = { ...generated, url };
@@ -2417,7 +2596,7 @@ export function AgenticChat() {
           followUpQuestions: metadataPrompt ? [] : buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: responseEvidenceSources, agentLabel: preset.label }),
           reviewRequired: response.reviewRequired,
           artifact,
-          artifactKind: requestedArtifactKind,
+          artifactKind: outputArtifactKind,
           artifactError,
           artifactRemote,
         });
@@ -2711,6 +2890,15 @@ export function AgenticChat() {
     submitPrompt(pending.prompt, pending.attachments, false, pending.contextSources, pending.contextSourceMode, false, true);
   };
 
+  const sendComputerPromptToAgent = (prompt: string) => {
+    // A prompt submitted from the Computer surface is an explicit user
+    // approval for this one task. It should enter the same Agentic pipeline
+    // and show its activity in the chat, instead of silently starting a
+    // separate hidden workflow.
+    setAgentMode("agentic");
+    submitPrompt(prompt, [], false, undefined, undefined, true, true, "agentic");
+  };
+
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const manusPageTitle: Record<Exclude<ManusPage, "home">, string> = { computers: "Computers", agents: "Specialist Agents", library: "Library", creations: "Creations", automations: "Automations", plugins: "Plugins & Clinical Tools" };
 
@@ -2747,13 +2935,15 @@ export function AgenticChat() {
       <div className={`koasis-content ${workspacePanelOpen ? "with-board" : "without-board"}`}>
         <section className="koasis-conversation">
           <div className="koasis-conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
-        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} queryPlan={evidenceQueryPlan} selectedSources={selectedEvidenceSources} onUseSource={addEvidenceSourceToContext} />}{activePreset.id === "presentation" ? <CreateStartSurface onPrompt={(prompt) => submitPrompt(prompt, [])} onPrepareArtifact={prepareCreateArtifact} onPrepareLinkEdit={prepareCreateLinkEdit} /> : <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}</>}
-            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} liveSession={computerLiveSession} liveBusy={computerLiveBusy} liveError={computerLiveError} expanded={computerPreviewExpanded} onOpenLive={openComputerLiveSession} onCloseLive={() => { void closeComputerLiveSession(); }} onToggleFullscreen={toggleComputerPreviewFullscreen} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
+        {manusPage !== "home" ? <ManusPageSurface page={manusPage} onStartTask={startNewChat} getAuthToken={() => user.getIdToken()} onAgentPrompt={sendComputerPromptToAgent} /> : showHome ? homeSurface === "chat" ? <HomeSurface workspace={workspace} tasks={workspaceTasks} onAction={handleHomeAction} onOpenWorkspace={() => setWorkspacePanelOpen(true)} /> : homeSurface === "ops" ? <KoasisClinicalWorkspace userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenWorkspace={() => setWorkspacePanelOpen(true)} onOpenCurriculum={() => openHomeSurface("curriculum")} /> : <MkarRotationCockpit userId={user.uid} workspace={workspace} tasks={workspaceTasks} activeShiftPhase={shiftPhase} onShiftPhaseChange={setShiftPhase} onAction={handleMkarAction} onToggleTask={toggleWorkspaceTask} onOpenOps={() => openHomeSurface("ops")} /> : <><div className="koasis-thread-head"><span className="koasis-overline">{activeSession?.title || "Percakapan"}</span><h1>{activePreset.label}</h1><p>{activePreset.purpose}</p><AgentContractBar preset={activePreset} sourceMode={sourceMode} /></div>{!messages.some((message) => message.role === "user") && !busy && <>{(activePreset.id === "evidence" || activePreset.id === "guideline") && <EvidenceSourceSearchPanel query={evidenceQuery} onQueryChange={(value) => { setEvidenceQuery(value); if (evidenceSearchError) setEvidenceSearchError(""); }} onSubmit={handleEvidenceSearch} busy={evidenceSearchBusy} error={evidenceSearchError} results={evidenceResults} queryPlan={evidenceQueryPlan} selectedSources={selectedEvidenceSources} onUseSource={addEvidenceSourceToContext} />}{activePreset.id === "presentation" ? <CreateStartSurface onPrompt={(prompt) => submitPrompt(prompt, [])} onPrepareArtifact={prepareCreateArtifact} onPrepareLinkEdit={prepareCreateLinkEdit} /> : <AgentStartSurface preset={activePreset} onPrompt={(prompt) => submitPrompt(prompt, [])} onWorkflow={openWorkflow} />}</>}</>}
+            {manusPage === "home" && !showHome && <><div className="koasis-message-list">{messages.map((message) => <MessageBubble key={message.id} message={message} userLabel={accountLabel} onRetry={handleRetry} onFollowUp={(prompt) => submitPrompt(prompt, [])} />)}{busy && !streamingMessageId && <AgentThinking label={activePreset.label} status={runStatus} events={runTrail} onStop={stopActiveAgent} />}{computerActivity && <ComputerActivityPreview activity={computerActivity} busy={busy} liveSession={computerLiveSession} liveBusy={computerLiveBusy} liveError={computerLiveError} expanded={computerPreviewExpanded} onOpenLive={openComputerLiveSession} onCloseLive={() => { void closeComputerLiveSession(); }} onToggleFullscreen={toggleComputerPreviewFullscreen} />}</div>{caseBriefOpen && <KoasisCaseBrief open={caseBriefOpen} busy={busy} onClose={() => { setCaseBriefOpen(false); }} onSubmit={(prompt) => { setCaseBriefOpen(false); submitPrompt(prompt, []); }} />}{workflowKind && <KoasisWorkflowDialog open={Boolean(workflowKind)} busy={busy} kind={workflowKind} onClose={() => setWorkflowKind(null)} onSubmit={(prompt) => { setWorkflowKind(null); submitPrompt(prompt, []); }} />}</>}
           </div>
           {showJumpToLatest && <button type="button" className="koasis-jump-latest" onClick={jumpToLatest}><ArrowDown size={14} /> Terbaru</button>}
           {manusPage === "home" && <div className="koasis-composer-area">
             <div className="koasis-composer-wrap" ref={composerWrapRef}>
               {computerApproval && <ComputerApprovalCard prompt={computerApproval.prompt} onApprove={approveComputerRequest} onDecline={continueWithoutComputer} onDismiss={() => setComputerApproval(null)} />}
+              {agentApproval && <AgentApprovalRequestCard request={agentApproval} onResolve={resolveAgentApproval} onDismiss={() => resolveAgentApproval("deny")} />}
+              {agentClarify && <AgentClarifyRequestCard request={agentClarify} onAnswer={resolveAgentClarify} onDismiss={() => resolveAgentClarify("Tidak, lanjutkan dengan asumsi yang paling aman.")} />}
               {privacyReview && <KoasisApprovalCard findings={privacyReview.findings.map((finding) => finding.label)} attachmentName={privacyReview.attachments.map((item) => item.name).join(", ") || undefined} onDismiss={() => setPrivacyReview(null)} onSanitize={movePrivacyReviewToComposer} />}
               {attachmentError && <div className="koasis-attachment-error" role="alert">{attachmentError}</div>}
               <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><AgentModeToggle value={agentMode} onChange={selectAgentMode} />{agentMode === "agentic" && <ComputerAccessSelector value={computerAccessMode} open={computerAccessMenuOpen} onToggle={() => { setComputerAccessMenuOpen((current) => !current); setModelMenuOpen(false); setEngineMenuOpen(false); setComposerPalette(null); }} onChange={(value) => { setComputerAccessMode(value); setComputerAccessMenuOpen(false); }} />}<button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); setComputerAccessMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>

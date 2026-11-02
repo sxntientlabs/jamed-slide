@@ -59,8 +59,37 @@ export type AgentComputerActivity = {
   requestId?: string;
 };
 
+export type AgentApprovalRequest = {
+  requestId: string;
+  runId?: string;
+  choices: Array<"once" | "session" | "always" | "deny">;
+  approval: Record<string, unknown>;
+};
+
+export type AgentClarifyRequest = {
+  requestId: string;
+  runId?: string;
+  question: string;
+  choices: string[];
+};
+
+export type AgentToolActivity = {
+  activity: "started" | "completed" | "failed";
+  tool: string;
+  message: string;
+  requestId?: string;
+};
+
+export type AgentGeneratedArtifact = {
+  kind: "image";
+  dataUrl: string;
+  title?: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
 type AgentChatStreamEvent = {
-  type?: "meta" | "status" | "computer_activity" | "delta" | "replace" | "done" | "error";
+  type?: "meta" | "status" | "computer_activity" | "tool_activity" | "approval_request" | "clarify_request" | "artifact" | "delta" | "replace" | "done" | "error";
   content?: string;
   model?: string;
   error?: string;
@@ -69,7 +98,7 @@ type AgentChatStreamEvent = {
   agentId?: string;
   phase?: AgentRunPhase;
   message?: string;
-  activity?: AgentComputerActivityKind;
+  activity?: AgentComputerActivityKind | "started" | "completed" | "failed";
   action?: string;
   screenshotDataUrl?: string;
   screenshotBase64?: string;
@@ -78,6 +107,12 @@ type AgentChatStreamEvent = {
   sourcePolicy?: AgentSourcePolicy;
   reviewRequired?: boolean;
   harness?: AgentHarnessDescriptor;
+  runId?: string;
+  choices?: string[];
+  approval?: Record<string, unknown>;
+  question?: string;
+  tool?: string;
+  artifact?: AgentGeneratedArtifact;
 };
 
 function normalizeScreenshotDataUrl(value: unknown): string | undefined {
@@ -116,6 +151,7 @@ export type AgentChatResult = {
   reviewRequired: boolean;
   harness?: AgentHarnessDescriptor;
   lastComputerScreenshotDataUrl?: string;
+  artifact?: AgentGeneratedArtifact;
 };
 
 export class AgentChatError extends Error {
@@ -135,7 +171,17 @@ type AgentChatOptions = {
   onDelta?: (content: string, delta: string) => void;
   onStatus?: (status: AgentRunStatus) => void;
   onComputerActivity?: (activity: AgentComputerActivity) => void;
+  onApprovalRequest?: (request: AgentApprovalRequest) => void;
+  onClarifyRequest?: (request: AgentClarifyRequest) => void;
+  onToolActivity?: (activity: AgentToolActivity) => void;
+  onArtifact?: (artifact: AgentGeneratedArtifact) => void;
 };
+
+export type AgentControlAction =
+  | { action: "approval"; choice: "once" | "session" | "always" | "deny"; approvalRequestId?: string }
+  | { action: "clarify"; answer: string }
+  | { action: "steer"; message: string }
+  | { action: "stop" };
 
 function userFacingAgentError(message: string | undefined, fallback: string): string {
   const value = message?.trim();
@@ -206,6 +252,7 @@ export async function sendAgentChat(
   let reviewRequired = true;
   let harness: AgentHarnessDescriptor | undefined;
   let lastComputerScreenshotDataUrl: string | undefined;
+  let artifact: AgentGeneratedArtifact | undefined;
 
   const consumeLine = (rawLine: string) => {
     const line = rawLine.trim();
@@ -228,7 +275,7 @@ export async function sendAgentChat(
     if (event.type === "status" && event.phase) {
       options.onStatus?.({ phase: event.phase, message: userFacingAgentText(event.message, "Agent sedang bekerja"), requestId: resolvedRequestId });
     }
-    if (event.type === "computer_activity" && event.activity && event.message) {
+    if (event.type === "computer_activity" && (event.activity === "starting" || event.activity === "action" || event.activity === "screenshot" || event.activity === "finished" || event.activity === "error") && event.message) {
       const screenshotDataUrl = normalizeScreenshotDataUrl(event.screenshotDataUrl || event.screenshotBase64);
       if (screenshotDataUrl) lastComputerScreenshotDataUrl = screenshotDataUrl;
       options.onComputerActivity?.({
@@ -238,6 +285,20 @@ export async function sendAgentChat(
         ...(screenshotDataUrl ? { screenshotDataUrl } : {}),
         requestId: resolvedRequestId,
       });
+    }
+    if (event.type === "tool_activity" && event.tool && event.message && (event.activity === "started" || event.activity === "completed" || event.activity === "failed")) {
+      options.onToolActivity?.({ activity: event.activity, tool: event.tool, message: userFacingAgentText(event.message, "Agent menjalankan tool"), requestId: resolvedRequestId });
+    }
+    if (event.type === "approval_request" && event.approval) {
+      const choices = (event.choices || []).filter((choice): choice is AgentApprovalRequest["choices"][number] => choice === "once" || choice === "session" || choice === "always" || choice === "deny");
+      options.onApprovalRequest?.({ requestId: resolvedRequestId, ...(event.runId ? { runId: event.runId } : {}), choices: choices.length ? choices : ["once", "deny"], approval: event.approval });
+    }
+    if (event.type === "clarify_request") {
+      options.onClarifyRequest?.({ requestId: resolvedRequestId, ...(event.runId ? { runId: event.runId } : {}), question: userFacingAgentText(event.question, "Agent membutuhkan jawaban tambahan."), choices: event.choices || [] });
+    }
+    if (event.type === "artifact" && event.artifact?.kind === "image" && typeof event.artifact.dataUrl === "string") {
+      artifact = event.artifact;
+      options.onArtifact?.(artifact);
     }
     if (event.type === "delta" && typeof event.content === "string") {
       content += event.content;
@@ -261,5 +322,20 @@ export async function sendAgentChat(
   }
   if (buffer.trim()) consumeLine(buffer);
   if (!content.trim()) throw new AgentChatError("Koasis belum menerima jawaban. Coba lagi.");
-  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, agentMode, sourcePolicy, reviewRequired, harness, lastComputerScreenshotDataUrl };
+  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, agentMode, sourcePolicy, reviewRequired, harness, lastComputerScreenshotDataUrl, artifact };
+}
+
+export async function sendAgentControl(
+  requestId: string,
+  action: AgentControlAction,
+  authToken?: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(koasisApiUrl("/koasis-service/agent/control"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+    body: JSON.stringify({ requestId, ...action }),
+    signal,
+  });
+  if (!response.ok) throw await readError(response);
 }

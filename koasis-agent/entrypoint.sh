@@ -51,6 +51,18 @@ platforms:
           provider: "custom"
           base_url: "${KOASIS_PROVIDER_BASE_URL}"
 
+# Match the useful interactive Hermes/Telegram tool surface in the web chat:
+# web, browser, terminal, files, memory, skills, vision, image generation,
+# planning, delegation, code execution, cron, connections, plus clarification
+# and text-to-speech. Native desktop computer_use remains disabled here because
+# Koasis routes shared-machine actions through its explicit InstaBox permission
+# and preview layer instead of the private Hermes container display.
+platform_toolsets:
+  api_server:
+    - "hermes-api-server"
+    - "clarify"
+    - "tts"
+
 agent:
   max_turns: ${KOASIS_AGENT_MAX_TURNS:-12}
   run_budget_seconds: ${KOASIS_AGENT_RUN_BUDGET_SECONDS:-480}
