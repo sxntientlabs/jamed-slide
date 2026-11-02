@@ -202,12 +202,27 @@ function runOutput(data: JsonRecord): string {
   return "";
 }
 
-function appendFinalOutput(current: string, output: string): { next: string; delta: string } {
+function compactOutput(value: string): string {
+  return value.replace(/\s+/g, "").trim().toLocaleLowerCase();
+}
+
+function appendFinalOutput(current: string, output: string): { next: string; delta: string; replacement?: string } {
   if (!output) return { next: current, delta: "" };
   if (!current) return { next: output, delta: output };
+  // Hermes may stream token text without spaces and then return the polished
+  // final answer with normal spacing. Treat those as the same answer and let
+  // the client replace the streamed buffer instead of rendering both copies.
+  if (compactOutput(output) === compactOutput(current)) {
+    return { next: output, delta: "", ...(output === current ? {} : { replacement: output }) };
+  }
   if (output === current || current.startsWith(output)) return { next: current, delta: "" };
   if (output.startsWith(current)) return { next: output, delta: output.slice(current.length) };
   return { next: `${current}\n\n${output}`, delta: `\n\n${output}` };
+}
+
+function writeMergedOutput(merged: { delta: string; replacement?: string }, requestId: string, write: StreamWriter): void {
+  if (merged.replacement) write({ type: "replace", content: merged.replacement, requestId });
+  else if (merged.delta) write({ type: "delta", content: merged.delta, requestId });
 }
 
 type StreamWriter = (event: JsonRecord) => void;
@@ -314,7 +329,7 @@ async function runHermesStream(
     const type = stringValue(parsed.data.type, 120) || parsed.event;
     if (type === "run.completed") {
       const merged = appendFinalOutput(accumulated, runOutput(parsed.data));
-      if (merged.delta) write({ type: "delta", content: merged.delta, requestId });
+      writeMergedOutput(merged, requestId, write);
       accumulated = merged.next;
       terminal = true;
       write({ type: "status", phase: "finalizing", message: "Agent menyelesaikan pekerjaan", requestId });
@@ -352,7 +367,7 @@ async function runHermesStream(
     const image = screenshotDataUrl(status);
     if (image) write({ type: "computer_activity", activity: "screenshot", action: "computer_screenshot", message: "Screenshot Computer siap", screenshotDataUrl: image, requestId });
     const merged = appendFinalOutput(accumulated, runOutput(status));
-    if (merged.delta) write({ type: "delta", content: merged.delta, requestId });
+    writeMergedOutput(merged, requestId, write);
     if (status.status === "completed") write({ type: "done", requestId });
     else {
       const error = stringValue(status.error, 600) || "Stream Agent terputus sebelum selesai.";

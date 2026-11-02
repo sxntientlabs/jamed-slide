@@ -120,6 +120,32 @@ describe("Hermes adapter", () => {
     expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)).instructions).toContain("Mode Chat aktif");
   });
 
+  test("replaces an unspaced stream buffer with Hermes' formatted final output", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-formatted", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        'event: message.delta',
+        'data: {"type":"message.delta","text":"SayamemakaimodelKoasisAgent."}',
+        "",
+        'event: run.completed',
+        'data: {"type":"run.completed","output":"Saya memakai model Koasis Agent."}',
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-formatted",
+      messages: [{ role: "user", content: "uji format" }],
+      context: { agentMode: "agentic" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.filter((line) => line.type === "delta")).toHaveLength(1);
+    expect(lines.find((line) => line.type === "replace")).toMatchObject({ content: "Saya memakai model Koasis Agent." });
+  });
+
   test("forwards screenshots nested in a provider attachment envelope", async () => {
     const screenshot = "a".repeat(160);
     vi.spyOn(globalThis, "fetch")

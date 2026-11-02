@@ -60,7 +60,7 @@ export type AgentComputerActivity = {
 };
 
 type AgentChatStreamEvent = {
-  type?: "meta" | "status" | "computer_activity" | "delta" | "done" | "error";
+  type?: "meta" | "status" | "computer_activity" | "delta" | "replace" | "done" | "error";
   content?: string;
   model?: string;
   error?: string;
@@ -241,6 +241,10 @@ export async function sendAgentChat(
     }
     if (event.type === "delta" && typeof event.content === "string") {
       content += event.content;
+      options.onDelta?.(content, event.content);
+    }
+    if (event.type === "replace" && typeof event.content === "string") {
+      content = event.content;
       options.onDelta?.(content, event.content);
     }
     if (event.type === "done" && typeof event.durationMs === "number") durationMs = event.durationMs;
