@@ -18,6 +18,13 @@ export default defineConfig(({ mode, command }) => {
   const base = configuredBasePath === "/"
     ? "/"
     : `/${configuredBasePath.replace(/^\/+|\/+$/g, "")}/`;
+  const configuredBasePrefix = base === "/" ? "" : base.replace(/\/$/, "");
+  const rootDomainHosts = new Set(
+    (env.KOASIS_ROOT_DOMAIN_HOSTS || "koasis.my.id")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  );
   const allowedPreviewHosts = env.JAMED_ALLOWED_HOSTS === "*"
     ? true
     : (env.JAMED_ALLOWED_HOSTS || "localhost,127.0.0.1")
@@ -31,6 +38,25 @@ export default defineConfig(({ mode, command }) => {
     base: command === "build" ? base : "/",
     plugins: [
       react(),
+      {
+        name: "koasis-root-domain-asset-alias",
+        configurePreviewServer(server) {
+          // The built HTML keeps the configured prefix for the existing
+          // server.eltexlabs.com/koasis-app route. On a root custom domain,
+          // map any prefixed request back to Vite's root before the SPA
+          // fallback turns a missing JavaScript file into index.html. This
+          // also keeps stale tabs' /koasis-app/api calls usable during rollout.
+          if (!configuredBasePrefix || !rootDomainHosts.size) return;
+          server.middlewares.use((request, _response, next) => {
+            const host = String(request.headers.host || "").split(":")[0].toLowerCase();
+            const requestUrl = request.url || "";
+            if (rootDomainHosts.has(host) && (requestUrl === configuredBasePrefix || requestUrl.startsWith(`${configuredBasePrefix}/`))) {
+              request.url = requestUrl.slice(configuredBasePrefix.length) || "/";
+            }
+            next();
+          });
+        },
+      },
       createKoasisCorsPlugin(env),
       createAiAgentPlugin(env),
       createKoasisBackendPlugin(env),

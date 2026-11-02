@@ -8,7 +8,15 @@ const configuredComputerApiBase = String(import.meta.env.VITE_KOASIS_COMPUTER_AP
 function deploymentBasePath(): string {
   const baseUrl = String(import.meta.env.BASE_URL || "/").trim();
   if (!baseUrl || baseUrl === "/") return "";
-  return `/${baseUrl.replace(/^\/+|\/+$/g, "")}`;
+  const configuredPath = `/${baseUrl.replace(/^\/+|\/+$/g, "")}`;
+  // The same container is exposed through the path-based Dokploy route and
+  // through a root custom domain. Only add the prefix when the current URL is
+  // actually under that path; root-domain API calls must stay at /api/....
+  if (typeof window !== "undefined") {
+    const currentPath = window.location.pathname;
+    if (currentPath !== configuredPath && !currentPath.startsWith(`${configuredPath}/`)) return "";
+  }
+  return configuredPath;
 }
 
 /**
