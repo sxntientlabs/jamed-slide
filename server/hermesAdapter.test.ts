@@ -314,4 +314,46 @@ describe("Hermes adapter", () => {
     await expect(ownerControl).resolves.toMatchObject({ status: 202 });
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
+
+  test("keeps an approval run alive when the event stream closes before the user answers", async () => {
+    const approval = {
+      type: "approval.request",
+      run_id: "run-approval-resume",
+      request_id: "approval-1",
+      description: "Allow computer_use to perform 'click'?",
+      choices: ["once", "session", "always", "deny"],
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-approval-resume", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        "id: 0",
+        `event: approval.request`,
+        `data: ${JSON.stringify(approval)}`,
+        "",
+        ": stream closed",
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "waiting_for_approval", approval }), { status: 200 }))
+      .mockResolvedValueOnce(new Response([
+        "id: 1",
+        "event: run.completed",
+        'data: {"type":"run.completed","run_id":"run-approval-resume","output":"Selesai setelah disetujui"}',
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({ KOASIS_HERMES_API_URL: "https://hermes.example", KOASIS_HERMES_API_KEY: "server-secret" });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-approval-resume",
+      messages: [{ role: "user", content: "Buka browser dan klik" }],
+      koasis: { sessionKey: "owner-a" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(lines.some((line) => line.type === "approval_request")).toBe(true);
+    expect(lines.some((line) => line.type === "done")).toBe(true);
+    expect(lines.some((line) => line.type === "error")).toBe(false);
+    expect(fetchSpy).toHaveBeenNthCalledWith(4, "https://hermes.example/v1/runs/run-approval-resume/events", expect.objectContaining({
+      headers: expect.objectContaining({ "Last-Event-ID": "0" }),
+    }));
+  });
 });
