@@ -47,6 +47,16 @@ export const KOASIS_REASONING_LEVELS: readonly { id: KoasisReasoningLevel; label
 export const DEFAULT_KOASIS_MODEL: KoasisModelId = "elective";
 export const DEFAULT_KOASIS_REASONING: KoasisReasoningLevel = "moderate";
 
+/**
+ * Returns the user-facing model name for prompts, logs, and runtime bridges.
+ * Keep this separate from the provider model ID: the latter is an implementation
+ * detail and must never be presented as the model selected in the Koasis UI.
+ */
+export function koasisModelLabel(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return KOASIS_MODELS.find((model) => model.id === raw)?.label || KOASIS_MODELS.find((model) => model.id === DEFAULT_KOASIS_MODEL)?.label || "Elective 6.7";
+}
+
 export function normalizeKoasisModelId(value: unknown): KoasisModelId {
   if (value === "cito" || value === "elective" || value === "executive") return value;
   return DEFAULT_KOASIS_MODEL;

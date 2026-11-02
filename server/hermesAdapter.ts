@@ -8,6 +8,12 @@
 export const HERMES_ADAPTER_NAME = "hermes-agent";
 export const HERMES_ADAPTER_VERSION = "0.2.0";
 
+const KOASIS_MODEL_LABELS: Record<string, string> = {
+  cito: "Cito 6.7",
+  elective: "Elective 6.7",
+  executive: "Executive 6.7",
+};
+
 type JsonRecord = Record<string, unknown>;
 
 export type HermesRuntimeDescription = {
@@ -65,6 +71,11 @@ function reasoningEffort(value: unknown): string | undefined {
   return undefined;
 }
 
+function koasisModelLabel(value: unknown): string {
+  const id = stringValue(value, 80).toLowerCase();
+  return KOASIS_MODEL_LABELS[id] || "Elective 6.7";
+}
+
 function textMessage(value: unknown): JsonRecord | null {
   const record = asRecord(value);
   const role = record.role === "assistant" ? "assistant" : record.role === "user" ? "user" : "";
@@ -91,7 +102,9 @@ function buildInstructions(body: JsonRecord, context: JsonRecord): string {
   const sessionTitle = stringValue(context.sessionTitle, 180);
   const sourceMode = stringValue(context.sourceMode, 40);
   const sourceCount = Array.isArray(context.evidenceSources) ? context.evidenceSources.length : 0;
+  const modelId = stringValue(context.modelId, 80).toLowerCase();
   if (agentId) instructions.push(`Specialist agent Koasis: ${agentId}.`);
+  if (modelId) instructions.push(`Model Koasis yang dipilih pengguna: ${koasisModelLabel(modelId)} (ID UI: ${modelId}). Jika pengguna menanyakan model aktif secara faktual, sebut label ini. "Koasis Agent" adalah nama assistant/runtime internal, bukan nama model yang dipilih, jadi jangan menyamakannya.`);
   if (sessionTitle) instructions.push(`Judul sesi: ${sessionTitle}.`);
   if (sourceMode === "sources" && sourceCount > 0) instructions.push(`Koasis telah melampirkan ${sourceCount} sumber evidence terpilih; gunakan sebagai konteks dan pertahankan provenance.`);
   if (context.computerApproved === true) instructions.push("Computer sudah disetujui untuk permintaan ini.");

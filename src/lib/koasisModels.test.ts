@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { KOASIS_MODELS, KOASIS_REASONING_LEVELS, koasisModelStyleInstructions, koasisReasoningProfile, normalizeKoasisModelId, normalizeKoasisReasoning } from "./koasisModels";
+import { KOASIS_MODELS, KOASIS_REASONING_LEVELS, koasisModelLabel, koasisModelStyleInstructions, koasisReasoningProfile, normalizeKoasisModelId, normalizeKoasisReasoning } from "./koasisModels";
 
 describe("Koasis model controls", () => {
   test("exposes the three named model tiers in product order", () => {
@@ -23,6 +23,12 @@ describe("Koasis model controls", () => {
     expect(koasisModelStyleInstructions("cito")).toContain("bullet");
     expect(koasisModelStyleInstructions("elective")).toContain("seimbangkan");
     expect(koasisModelStyleInstructions("executive")).toContain("mayoritas berbentuk paragraf");
+  });
+
+  test("keeps the user-facing model label separate from the runtime name", () => {
+    expect(koasisModelLabel("elective")).toBe("Elective 6.7");
+    expect(koasisModelLabel("cito")).toBe("Cito 6.7");
+    expect(koasisModelLabel("koasis-agent")).toBe("Elective 6.7");
   });
 
   test("maps each reasoning level to a distinct provider profile", () => {

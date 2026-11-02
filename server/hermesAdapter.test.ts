@@ -45,7 +45,7 @@ describe("Hermes adapter", () => {
       requestId: "request-123",
       agentId: "koasis",
       messages: [{ role: "user", content: "Buka browser" }],
-      context: { agentMode: "agentic", sessionId: "chat-1", reasoningEffort: "severe", computerApproved: true },
+      context: { agentMode: "agentic", sessionId: "chat-1", modelId: "elective", reasoningEffort: "severe", computerApproved: true },
       koasis: { agentId: "koasis", reviewRequired: false, instructions: "Jawab dalam bahasa Indonesia dan jangan mengarang sumber." },
     }, undefined, new AbortController().signal);
 
@@ -60,7 +60,10 @@ describe("Hermes adapter", () => {
       headers: expect.objectContaining({ Authorization: "Bearer server-secret", "Idempotency-Key": "request-123" }),
       body: expect.stringContaining('"session_id":"koasis-chat-1"'),
     }));
-    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)).instructions).toContain("Jawab dalam bahasa Indonesia");
+    const runPayload = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(runPayload.instructions).toContain("Jawab dalam bahasa Indonesia");
+    expect(runPayload.instructions).toContain("Model Koasis yang dipilih pengguna: Elective 6.7");
+    expect(runPayload.instructions).toContain("bukan nama model yang dipilih");
     expect(lines.find((line) => line.type === "meta")).toMatchObject({ agentId: "koasis", reviewRequired: false });
     expect(fetchSpy).toHaveBeenNthCalledWith(2, "https://hermes.example/v1/runs/run_123/events", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-secret", Accept: "text/event-stream" }),

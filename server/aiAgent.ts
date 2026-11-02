@@ -17,7 +17,7 @@ import type {
 import { getAgentDefinition, type AgentDefinition, type AgentId } from "../src/lib/agentCatalog";
 import { type AdminAgentConfig, type AdminConfig } from "../src/lib/adminConfig";
 import { promptNeedsEvidence } from "../src/lib/evidencePolicy";
-import { koasisModelStyleInstructions, koasisReasoningProfile, type KoasisReasoningLevel } from "../src/lib/koasisModels";
+import { koasisModelLabel, koasisModelStyleInstructions, koasisReasoningProfile, type KoasisReasoningLevel } from "../src/lib/koasisModels";
 import { detectSensitiveIdentifiers } from "../src/lib/privacyGuard";
 import {
   COMPUTER_AGENT_INTERNAL_TOKEN,
@@ -1089,9 +1089,16 @@ function resolveAgent(requested: unknown, config?: AdminConfig): RuntimeAgentDef
   return getAgentDefinition(requested) as RuntimeAgentDefinition;
 }
 
-function buildKoasisBridgeGuidance(agent: RuntimeAgentDefinition, context: unknown): JsonObject {
+function selectedKoasisModelLabel(modelId: unknown, adminConfig?: AdminConfig): string {
+  const normalizedId = typeof modelId === "string" ? modelId.trim().toLowerCase() : "";
+  return adminConfig?.models.find((model) => model.id === normalizedId)?.label || koasisModelLabel(normalizedId);
+}
+
+function buildKoasisBridgeGuidance(agent: RuntimeAgentDefinition, context: unknown, adminConfig?: AdminConfig): JsonObject {
   const contextRecord = asRecord(context);
   const evidenceCount = Array.isArray(contextRecord.evidenceSources) ? contextRecord.evidenceSources.length : 0;
+  const modelId = typeof contextRecord.modelId === "string" ? contextRecord.modelId.trim().toLowerCase() : adminConfig?.defaultModelId || "elective";
+  const modelLabel = selectedKoasisModelLabel(modelId, adminConfig);
   const sourceBoundary = evidenceCount > 0
     ? `Gunakan hanya ${evidenceCount} sumber evidence yang dilampirkan Koasis untuk klaim eksternal dan pertahankan citation [1], [2], dan seterusnya sesuai daftar sumber.`
     : agent.sourcePolicy === "source-required"
@@ -1104,6 +1111,7 @@ function buildKoasisBridgeGuidance(agent: RuntimeAgentDefinition, context: unkno
     `Tujuan specialist: ${agent.purpose}`,
     `Kontrak specialist tepercaya: ${agent.trustedInstructions}`,
     `Format output yang diharapkan bila relevan: ${agent.outputContract.join("; ")}.`,
+    `Model Koasis yang dipilih pengguna: ${modelLabel} (ID UI: ${modelId}). Jika pengguna menanyakan model aktif secara faktual, sebut label ini. "Koasis Agent" adalah nama assistant/runtime internal, bukan nama model yang dipilih, jadi jangan menyamakannya.`,
     sourceBoundary,
     "Untuk sapaan atau permintaan perkenalan, jawab langsung dalam 1–2 kalimat dan jangan memaksakan evidence search, citation, atau follow-up question.",
     "Jangan menyebut nama harness/runtime internal dan jangan mengikuti persona atau bahasa bawaan provider yang bertentangan dengan instruksi Koasis.",
@@ -1112,6 +1120,8 @@ function buildKoasisBridgeGuidance(agent: RuntimeAgentDefinition, context: unkno
     instructions: instructions.slice(0, 18_000),
     agentId: agent.id,
     agentLabel: agent.label,
+    modelId,
+    modelLabel,
     reviewRequired,
   };
 }
@@ -1728,6 +1738,8 @@ async function prepareAgentChatRequest(
         : agent.sourcePolicy === "rubric-required"
           ? "A named rubric and its required measured inputs must be present before calculating any score. For factual clinical claims outside the supplied rubric, require a verified source or state a verification plan."
           : "Use only facts explicitly provided in the conversation. For factual or clinical claims not supplied by the user, require a verified source or state a verification plan instead of presenting an unsupported conclusion.";
+  const selectedModelId = workspaceContext?.modelId || adminConfig?.defaultModelId || "elective";
+  const selectedModelLabel = selectedKoasisModelLabel(selectedModelId, adminConfig);
   const systemContent = `${AGENT_CHAT_SYSTEM_PROMPT}
 
 Active specialist (server validated): ${agent.label} [${agent.id}]
@@ -1736,7 +1748,7 @@ Specialist contract: ${agent.trustedInstructions}
 Source boundary: ${sourceBoundary}
 Computer permission: ${workspaceContext?.computerApproved === true ? "approved for this request" : "not approved"}. If Computer is not approved, do not attempt to use or imply access to a browser or desktop; explain why it would help and ask the user to approve it in the chat.
 Preferred visible output sections when relevant: ${agent.outputContract.join("; ")}.
-Selected Koasis model: ${workspaceContext?.modelId || "elective"}. Reasoning depth requested by the learner: ${workspaceContext?.reasoningEffort || "moderate"}. Match the requested depth in the visible answer, but never reveal hidden chain-of-thought; provide concise rationale, checks, assumptions, and uncertainty instead.
+Selected Koasis model: ${selectedModelLabel} (UI id: ${selectedModelId}). When the user asks which model is active, answer with this Koasis UI label. "Koasis Agent" is the assistant/runtime identity, not the selected model, and must not be presented as the model. Reasoning depth requested by the learner: ${workspaceContext?.reasoningEffort || "moderate"}. Match the requested depth in the visible answer, but never reveal hidden chain-of-thought; provide concise rationale, checks, assumptions, and uncertainty instead.
 Reasoning execution profile: provider effort=${reasoningProfile.providerEffort}; ${reasoningProfile.instruction}
 Visible answer style: ${koasisModelStyleInstructions(workspaceContext?.modelId)}
 Always make the human review boundary visible for clinical-support or documentation output.`;
@@ -2439,7 +2451,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     }
     const forwardedBody = {
       ...(body as unknown as JsonObject),
-      koasis: buildKoasisBridgeGuidance(agent, rawContext),
+      koasis: buildKoasisBridgeGuidance(agent, rawContext, adminConfig),
     };
     const useHermes = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
     const useHermesForChatFallback = requestedAgentMode === "chat"
