@@ -31,6 +31,7 @@ import {
 import { EvidenceSearchUnavailableError, searchFederatedEvidence, type FederatedEvidenceSearchResult } from "./evidenceSearch";
 import type { InstaboxAction } from "./instabox";
 import { createAdminConfigPool, createAdminConfigStore, type AdminConfigStore } from "./adminConfig";
+import { resolveComputerRuntime, type KoasisComputerRuntime } from "./computerRuntime";
 import { createHermesAdapter, type HermesAdapter } from "./hermesAdapter";
 import { createRakazoAdapter, type RakazoAdapter } from "./rakazoAdapter";
 
@@ -78,6 +79,7 @@ interface AgentSettings {
   webSearchProvider: "brave" | "tavily";
   webSearchUrl: string;
   agentRuntime: "hermes" | "rakazo" | "auto";
+  computerRuntime: KoasisComputerRuntime;
   adminConfig: AdminConfigStore;
   hermes: HermesAdapter;
   rakazo: RakazoAdapter;
@@ -1369,6 +1371,7 @@ type AgentEvidenceSource = {
   title: string;
   authors: string;
   journal: string;
+  language?: string;
   year?: string;
   doi?: string;
   pmid?: string;
@@ -1386,6 +1389,8 @@ type AgentEvidenceSource = {
   citedByCount?: number;
   publicationTypes?: string[];
   retractionStatus?: "retracted" | "corrected" | "unknown";
+  score?: number;
+  matchReasons?: string[];
   url: string;
 };
 
@@ -2095,6 +2100,7 @@ function normalizeAgentEvidenceSource(value: unknown): AgentEvidenceSource | nul
     : undefined;
   const retractionStatus = stringValue(record.retractionStatus) || "";
   const publicationTypes = Array.isArray(record.publicationTypes) ? record.publicationTypes.map(stripMarkup).filter(Boolean).slice(0, 12) : undefined;
+  const matchReasons = Array.isArray(record.matchReasons) ? record.matchReasons.map(stripMarkup).filter(Boolean).slice(0, 8) : undefined;
   const output: AgentEvidenceSource = {
     id,
     source,
@@ -2102,6 +2108,7 @@ function normalizeAgentEvidenceSource(value: unknown): AgentEvidenceSource | nul
     title,
     authors: stripMarkup(record.authors).slice(0, 500),
     journal: stripMarkup(record.journal).slice(0, 300),
+    language: (stringValue(record.language) || "").slice(0, 40) || undefined,
     year: (stringValue(record.year) || "").slice(0, 20) || undefined,
     doi: (stringValue(record.doi) || "").slice(0, 300) || undefined,
     pmid: (stringValue(record.pmid) || "").slice(0, 80) || undefined,
@@ -2113,6 +2120,8 @@ function normalizeAgentEvidenceSource(value: unknown): AgentEvidenceSource | nul
     citedByCount: numberValue(record.citedByCount),
     publicationTypes,
     retractionStatus: retractionStatus === "retracted" || retractionStatus === "corrected" || retractionStatus === "unknown" ? retractionStatus : undefined,
+    score: numberValue(record.score),
+    matchReasons,
     url,
   };
   return output;
@@ -2128,6 +2137,7 @@ async function handleRakazoHealth(request: IncomingMessage, response: ServerResp
     ok: true,
     harness: settings.rakazo.describe(),
     runtime: settings.agentRuntime,
+    computerRuntime: settings.computerRuntime,
     hermes: settings.hermes.describe(),
     lastAgentRequest: lastAgentRequestDiagnostic,
   });
@@ -2548,12 +2558,27 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     );
     const forwardedByRakazo = request.headers["x-koasis-rakazo-forwarded"] === "1"
       || (Array.isArray(request.headers["x-koasis-rakazo-forwarded"]) && request.headers["x-koasis-rakazo-forwarded"].includes("1"));
-    // Explicit Computer work stays in the local Computer loop whenever the
-    // configured OpenAI-compatible provider is available. That keeps the
-    // Instabox session and screenshot events attached to this chat instead of
-    // forwarding the request to a remote runtime that cannot expose them to
-    // Koasis' preview surface.
-    const localComputerRuntimeAvailable = localComputerRuntimeRequested && Boolean(settings.baseUrl && settings.apiKey);
+    const hermesRuntimeAvailable = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
+    // The local Computer loop is retained only for the explicit Instabox
+    // compatibility mode. The default VPS mode forwards Agentic Computer work
+    // to Hermes, where the private container owns the isolated desktop.
+    const localComputerRuntimeAvailable = localComputerRuntimeRequested
+      && settings.computerRuntime === "instabox"
+      && Boolean(settings.baseUrl && settings.apiKey);
+    if (computerIntentRequested && !forwardedByRakazo && settings.computerRuntime === "vps" && !hermesRuntimeAvailable) {
+      sendJson(response, 503, {
+        error: "Sandbox Computer di VPS belum tersedia. Pastikan service Agent Hermes aktif dan terhubung.",
+        code: "vps_computer_runtime_unavailable",
+      });
+      return;
+    }
+    if (computerIntentRequested && !forwardedByRakazo && settings.computerRuntime === "instabox" && !localComputerRuntimeAvailable) {
+      sendJson(response, 503, {
+        error: "Computer Instabox belum tersedia untuk sesi ini.",
+        code: "instabox_computer_runtime_unavailable",
+      });
+      return;
+    }
     if (computerIntentRequested && computerTaskNeedsClarification(typeof latestRawUserMessage?.content === "string" ? latestRawUserMessage.content : "")) {
       response.statusCode = 200;
       response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
@@ -2601,7 +2626,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       ...(forwardedContext ? { context: forwardedContext } : {}),
       koasis: { ...buildKoasisBridgeGuidance(agent, forwardedContext, adminConfig), sessionKey: hermesSessionKey },
     };
-    const useHermes = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
+    const useHermes = hermesRuntimeAvailable;
     const useHermesForChatFallback = requestedAgentMode === "chat"
       && (!settings.baseUrl || !settings.apiKey)
       && useHermes;
@@ -2877,6 +2902,7 @@ export function createAiAgentPlugin(env: Record<string, string>): Plugin {
     webSearchProvider,
     webSearchUrl: env.KOASIS_WEB_SEARCH_URL || "",
     agentRuntime: env.KOASIS_AGENT_RUNTIME === "hermes" || env.KOASIS_AGENT_RUNTIME === "rakazo" ? env.KOASIS_AGENT_RUNTIME : "auto",
+    computerRuntime: resolveComputerRuntime(env.KOASIS_COMPUTER_RUNTIME),
     hermes,
     rakazo,
     adminConfig: createAdminConfigStore({

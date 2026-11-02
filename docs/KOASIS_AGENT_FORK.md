@@ -40,13 +40,32 @@ provider key are different credentials and should be rotated independently.
 
 ## First deployment scope
 
-The first image intentionally excludes messaging gateways, desktop UI, the
-presentation renderer, and unnecessary media services. It includes the API
-server, streaming runs, terminal/tool loop, MCP hooks, lightweight web search,
-Koasis evidence instructions, and artifact instructions. Computer-use remains
-approval-gated at the Koasis boundary; the next integration step is to expose
-the approved Instabox actions to the Agent as a dedicated internal tool/MCP
-surface.
+The image intentionally excludes messaging gateways, the presentation renderer,
+and unnecessary media services. It includes the API server, streaming runs,
+terminal/tool loop, MCP hooks, lightweight web search, Koasis evidence
+instructions, and artifact instructions. Agentic Computer is now enabled as a
+Hermes-native toolset and runs in a private Xfce/Xvnc desktop sandbox inside the
+`koasis-agent` container. The sandbox has its own Chromium profile and is
+bounded by the container filesystem; it does not require the host Docker socket
+and does not operate an Instabox shared machine.
+
+The Koasis approval flag is still required before the Agent is instructed to use
+Computer. Instabox remains available for the manual Computers page and as an
+explicit compatibility mode through `KOASIS_COMPUTER_RUNTIME=instabox`.
+
+Relevant defaults:
+
+```ini
+KOASIS_COMPUTER_RUNTIME=vps
+KOASIS_AGENT_COMPUTER_ENABLED=true
+KOASIS_AGENT_DESKTOP_GEOMETRY=1440x900
+KOASIS_AGENT_DESKTOP_MIN_FREE_MEMORY_MB=1024
+KOASIS_AGENT_DESKTOP_IDLE_MINUTES=30
+```
+
+The private Agent stream already translates Hermes `computer_use` tool events
+and screenshots into Koasis `computer_activity` events, so Computer progress
+stays in the chat instead of redirecting the user to another page.
 
 ## Rollback
 

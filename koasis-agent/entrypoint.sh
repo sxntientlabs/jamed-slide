@@ -7,6 +7,8 @@ set -eu
 
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 export HERMES_HOME HOME="${HOME:-$HERMES_HOME}"
+export HERMES_CUA_DRIVER_CMD="${HERMES_CUA_DRIVER_CMD:-/usr/local/bin/cua-driver}"
+export HERMES_WRITE_SAFE_ROOT="${HERMES_WRITE_SAFE_ROOT:-$HERMES_HOME}"
 mkdir -p "$HERMES_HOME/skills" "$HERMES_HOME/logs"
 
 # The data volume owns the active persona and skills. Seed them only when the
@@ -54,18 +56,48 @@ platforms:
 # Match the useful interactive Hermes/Telegram tool surface in the web chat:
 # web, browser, terminal, files, memory, skills, vision, image generation,
 # planning, delegation, code execution, cron, connections, plus clarification
-# and text-to-speech. Native desktop computer_use remains disabled here because
-# Koasis routes shared-machine actions through its explicit InstaBox permission
-# and preview layer instead of the private Hermes container display.
+# and text-to-speech. The explicit computer_use toolset is added separately
+# because Hermes intentionally excludes it from the API-server bundle by default.
 platform_toolsets:
   api_server:
     - "hermes-api-server"
+    - "computer_use"
     - "clarify"
     - "tts"
+
+# Agentic Computer runs inside this private container, not on the host desktop
+# and not on an Instabox shared machine. Hermes starts the isolated Xfce/Xvnc
+# desktop lazily on first use and keeps the browser profile in the data volume.
+terminal:
+  backend: "local"
+  cwd: "${HERMES_HOME}"
+
+bot_desktop:
+  geometry: "${KOASIS_AGENT_DESKTOP_GEOMETRY:-1440x900}"
+  auto_start: ${KOASIS_AGENT_COMPUTER_ENABLED:-true}
+  min_free_memory_mb: ${KOASIS_AGENT_DESKTOP_MIN_FREE_MEMORY_MB:-1024}
+  idle_stop_minutes: ${KOASIS_AGENT_DESKTOP_IDLE_MINUTES:-30}
+  placement: "gateway"
+
+browser:
+  headed: true
+  executable_path: "/usr/bin/chromium"
+
+computer_use:
+  backend: "cua"
+  permission_mode: "standard"
 
 agent:
   max_turns: ${KOASIS_AGENT_MAX_TURNS:-12}
   run_budget_seconds: ${KOASIS_AGENT_RUN_BUDGET_SECONDS:-480}
 EOF
+
+# Migrate data from the earlier root-owned image, then run Hermes as an
+# unprivileged user. The container is the sandbox boundary; no host Docker
+# socket is exposed.
+if id pn >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+  chown -R pn:pn "$HERMES_HOME"
+  exec runuser --user pn --preserve-environment -- hermes gateway run
+fi
 
 exec hermes gateway run

@@ -1,6 +1,12 @@
 # Koasis Computer + InstaBox
 
-Computer sekarang memakai InstaBox sebagai workspace Linux per user. Browser tidak pernah menerima API key; browser hanya menerima Firebase ID token dan URL desktop sementara.
+The manual Computers page still uses InstaBox as the shared Linux desktop pool.
+Agentic Computer defaults to the private Hermes desktop sandbox in the VPS
+container; it does not consume an InstaBox machine. Set
+`KOASIS_COMPUTER_RUNTIME=instabox` only when a deployment explicitly needs the
+legacy Agent-to-InstaBox path.
+
+Browser tidak pernah menerima API key; browser hanya menerima Firebase ID token dan URL desktop sementara.
 
 ## Arsitektur
 
