@@ -2450,9 +2450,17 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       response.end();
       return;
     }
+    // Keep the metadata invariant when the request is forwarded to Hermes or
+    // another remote runtime. The local normalization below cannot protect a
+    // forwarded request, so sanitize the context before building the bridge
+    // guidance and payload.
+    const forwardedContext = metadataPrompt
+      ? { ...(rawContext || {}), sourceMode: "workspace", evidenceSources: [] }
+      : rawContext;
     const forwardedBody = {
       ...(body as unknown as JsonObject),
-      koasis: buildKoasisBridgeGuidance(agent, rawContext, adminConfig),
+      ...(forwardedContext ? { context: forwardedContext } : {}),
+      koasis: buildKoasisBridgeGuidance(agent, forwardedContext, adminConfig),
     };
     const useHermes = settings.agentRuntime !== "rakazo" && settings.hermes.isRemoteConfigured();
     const useHermesForChatFallback = requestedAgentMode === "chat"

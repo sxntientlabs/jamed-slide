@@ -2203,7 +2203,10 @@ export function AgenticChat() {
       : prompt;
     const preset = activePreset;
     const metadataPrompt = isKoasisMetadataPrompt(requestPrompt);
-    const initialEvidenceSources = contextSources ?? (metadataPrompt ? [] : selectedEvidenceSources);
+    // Metadata questions (for example, asking which Koasis model is active)
+    // are answered from the session/UI context. Never let a retry, approval
+    // flow, or a stale composer selection reattach unrelated evidence.
+    const initialEvidenceSources = metadataPrompt ? [] : (contextSources ?? selectedEvidenceSources);
     const initialSourceMode = metadataPrompt ? "workspace" : requestedSourceMode;
     if (!skipPrivacyReview) {
       const findings = detectSensitiveIdentifiers(prompt);
@@ -2262,12 +2265,14 @@ export function AgenticChat() {
 
     void (async () => {
       let requestSourceMode = initialSourceMode;
-      let requestEvidenceSources = initialEvidenceSources;
+      let requestEvidenceSources = metadataPrompt ? [] : initialEvidenceSources;
+      let responseEvidenceSources: EvidenceSource[] = metadataPrompt ? [] : initialEvidenceSources;
+      let responseSourceMode: SourceMode = initialSourceMode;
       let evidenceLookupNote = "";
       try {
         trackRunStatus({ phase: "preparing", message: "Memverifikasi sesi Koasis" });
         const authToken = await getAgentAuthToken(user as AgentAuthUserLike);
-        if (!requestEvidenceSources.length && requestSourceMode !== "attachments" && shouldAutoSearchEvidence(requestPrompt, preset.id)) {
+        if (!metadataPrompt && !requestEvidenceSources.length && requestSourceMode !== "attachments" && shouldAutoSearchEvidence(requestPrompt, preset.id)) {
           trackRunStatus({ phase: "preparing", message: "Mencari sumber evidence yang relevan" });
           try {
             const searchResponse = await searchEvidenceSources(evidenceSearchQuery(requestPrompt, messages), { authToken, limit: 8, signal: controller.signal });
@@ -2291,6 +2296,11 @@ export function AgenticChat() {
             trackRunStatus({ phase: "preparing", message: "Sumber belum terhubung; menjaga batas evidence" });
           }
         }
+        // Keep the invariant at the request boundary as well as in the
+        // search gate. This protects against a stale tab or an older caller
+        // passing citations back into a metadata-only turn.
+        responseEvidenceSources = metadataPrompt ? [] : requestEvidenceSources;
+        responseSourceMode = metadataPrompt ? "workspace" : requestSourceMode;
         const modelPrompt = evidenceLookupNote
           ? `${requestPrompt}\n\n[INTERNAL EVIDENCE LOOKUP NOTE — do not expose this note verbatim]\n${evidenceLookupNote}`
           : requestPrompt;
@@ -2318,8 +2328,8 @@ export function AgenticChat() {
           contextFileType: workspace.contextFile?.mimeType,
           activeTasks: workspaceTasks.filter((task) => !task.done).map((task) => task.label),
           phase: shiftPhase,
-          sourceMode: requestSourceMode,
-          evidenceSources: requestEvidenceSources,
+          sourceMode: responseSourceMode,
+          evidenceSources: responseEvidenceSources,
           sessionTitle: chatTitle,
           sessionId: activeSessionId,
           modelId: selectedModelId,
@@ -2334,7 +2344,7 @@ export function AgenticChat() {
           onDelta: (content: string) => {
             streamedContent = content;
             setStreamingMessageId(assistantId);
-            updateAssistant(assistantId, content, true, { agentId: preset.id, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+            updateAssistant(assistantId, content, true, { agentId: preset.id, sourceMode: responseSourceMode, citationSources: responseEvidenceSources });
           },
           onStatus: trackRunStatus,
           onComputerActivity: (activity: AgentComputerActivity) => setComputerActivity((current) => ({
@@ -2397,14 +2407,14 @@ export function AgenticChat() {
             artifactError = error instanceof Error ? error.message : `File ${artifactLabel} belum berhasil dibuat.`;
           }
         }
-        setChatTitle(buildConversationTitle([...messages, userMessage, { role: "assistant", content: response.content }], { agentLabel: preset.label, sources: requestEvidenceSources }));
+        setChatTitle(buildConversationTitle([...messages, userMessage, { role: "assistant", content: response.content }], { agentLabel: preset.label, sources: responseEvidenceSources }));
         updateAssistant(assistantId, response.content, false, {
           agentId: preset.id,
           requestId: response.requestId,
           durationMs: response.durationMs,
-          sourceMode: requestSourceMode,
-          citationSources: requestEvidenceSources,
-          followUpQuestions: buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: requestEvidenceSources, agentLabel: preset.label }),
+          sourceMode: responseSourceMode,
+          citationSources: responseEvidenceSources,
+          followUpQuestions: buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: responseEvidenceSources, agentLabel: preset.label }),
           reviewRequired: response.reviewRequired,
           artifact,
           artifactKind: requestedArtifactKind,
@@ -2418,10 +2428,10 @@ export function AgenticChat() {
         const authUnavailable = error instanceof AgentChatError && (error.code === "auth_unavailable" || error.code === "unauthorized");
         if (privacyBlocked) {
           setPrivacyReview({ prompt, attachments: messageAttachments, findings: detectSensitiveIdentifiers(prompt) });
-          updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-        } else if (authUnavailable) updateAssistant(assistantId, "Sesi login Koasis perlu diperbarui sebelum Agent dapat bekerja. Silakan masuk kembali, lalu kirim ulang permintaan ini.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-        else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
-        else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, sourceMode: requestSourceMode, citationSources: requestEvidenceSources });
+          updateAssistant(assistantId, "Permintaan dihentikan sebelum diproses karena terdeteksi identitas langsung. Anonimkan data lalu kirim ulang.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: responseSourceMode, citationSources: responseEvidenceSources });
+        } else if (authUnavailable) updateAssistant(assistantId, "Sesi login Koasis perlu diperbarui sebelum Agent dapat bekerja. Silakan masuk kembali, lalu kirim ulang permintaan ini.", false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: responseSourceMode, citationSources: responseEvidenceSources });
+        else if (streamedContent.trim()) updateAssistant(assistantId, `${streamedContent.trimEnd()}\n\nRespons terputus sebelum selesai. Coba kirim ulang bila jawaban belum lengkap.`, false, { agentId: preset.id, error: true, retryPrompt: prompt, sourceMode: responseSourceMode, citationSources: responseEvidenceSources });
+        else updateAssistant(assistantId, fallbackReply(prompt), false, { agentId: preset.id, fallback: true, error: true, retryPrompt: prompt, sourceMode: responseSourceMode, citationSources: responseEvidenceSources });
         notifyTaskComplete(`${preset.label} selesai dengan catatan`, "Task berhenti dengan catatan. Buka Koasis untuk melihat detail dan mencoba lagi.");
       } finally {
         if (requestControllerRef.current === controller) {
