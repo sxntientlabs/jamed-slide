@@ -16,7 +16,7 @@ import type {
 } from "../src/types";
 import { getAgentDefinition, type AgentDefinition, type AgentId } from "../src/lib/agentCatalog";
 import { type AdminAgentConfig, type AdminConfig } from "../src/lib/adminConfig";
-import { promptNeedsEvidence } from "../src/lib/evidencePolicy";
+import { isKoasisMetadataPrompt, promptNeedsEvidence } from "../src/lib/evidencePolicy";
 import { koasisModelLabel, koasisModelStyleInstructions, koasisReasoningProfile, type KoasisReasoningLevel } from "../src/lib/koasisModels";
 import { detectSensitiveIdentifiers } from "../src/lib/privacyGuard";
 import {
@@ -2406,6 +2406,7 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
     const latestRawUserMessage = Array.isArray(body.messages)
       ? [...body.messages].reverse().find((message) => message?.role === "user" && typeof message?.content === "string")
       : undefined;
+    const metadataPrompt = isKoasisMetadataPrompt(typeof latestRawUserMessage?.content === "string" ? latestRawUserMessage.content : "");
     const computerIntentRequested = requestedAgentMode === "agentic"
       && computerIntentDetected(typeof latestRawUserMessage?.content === "string" ? latestRawUserMessage.content : "");
     const localComputerRuntimeRequested = computerIntentRequested;
@@ -2542,8 +2543,8 @@ async function handleAgentChat(request: IncomingMessage, response: ServerRespons
       contextFileType: typeof rawContext.contextFileType === "string" ? rawContext.contextFileType.slice(0, 80) : undefined,
       activeTasks: Array.isArray(rawContext.activeTasks) ? rawContext.activeTasks.filter((task): task is string => typeof task === "string").map((task) => task.slice(0, 160)).slice(0, 12) : undefined,
       phase: rawContext.phase === "before" || rawContext.phase === "during" || rawContext.phase === "after" ? rawContext.phase : undefined,
-      sourceMode: rawContext.sourceMode === "workspace" || rawContext.sourceMode === "attachments" || rawContext.sourceMode === "sources" ? rawContext.sourceMode : undefined,
-      evidenceSources: Array.isArray(rawContext.evidenceSources) ? rawContext.evidenceSources.map(normalizeAgentEvidenceSource).filter((source): source is AgentEvidenceSource => Boolean(source)).slice(0, 8) : undefined,
+      sourceMode: metadataPrompt && rawContext.sourceMode !== "attachments" ? "workspace" : rawContext.sourceMode === "workspace" || rawContext.sourceMode === "attachments" || rawContext.sourceMode === "sources" ? rawContext.sourceMode : undefined,
+      evidenceSources: metadataPrompt && rawContext.sourceMode !== "attachments" ? undefined : Array.isArray(rawContext.evidenceSources) ? rawContext.evidenceSources.map(normalizeAgentEvidenceSource).filter((source): source is AgentEvidenceSource => Boolean(source)).slice(0, 8) : undefined,
       sessionTitle: typeof rawContext.sessionTitle === "string" ? rawContext.sessionTitle.slice(0, 180) : undefined,
       sessionId: typeof rawContext.sessionId === "string" && /^[a-zA-Z0-9._:-]{1,120}$/.test(rawContext.sessionId.trim()) ? rawContext.sessionId.trim() : undefined,
       modelId: typeof rawContext.modelId === "string" && /^[a-z][a-z0-9_-]{1,47}$/i.test(rawContext.modelId.trim()) ? rawContext.modelId.trim().toLowerCase() : undefined,

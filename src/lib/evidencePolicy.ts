@@ -9,6 +9,11 @@ const EVIDENCE_WORKFLOW_TERMS = /\b(?:clinical prebrief|prebrief|evidence brief|
 const KOASIS_META_TERMS = /\b(?:model|versi|reasoning|effort|mode|sesi|session|status|pengaturan|setting|konfigurasi|computer|agent|assistant|ui|antarmuka|aplikasi)\b/i;
 const KOASIS_META_CONTEXT = /\b(?:koasis|sesi ini|session ini|yang aktif|sedang aktif|yang dipakai|digunakan di sini|di aplikasi ini|di ui|di chat|percakapan ini)\b/i;
 
+export function isKoasisMetadataPrompt(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  return Boolean(normalized && !RESEARCH_TERMS.test(normalized) && KOASIS_META_TERMS.test(normalized) && KOASIS_META_CONTEXT.test(normalized));
+}
+
 /**
  * Classifies prompts that need an evidence lookup before the model can safely
  * make a factual or clinical claim. Formatting and workflow requests stay
@@ -22,7 +27,7 @@ export function promptNeedsEvidence(prompt: string, agentId: AgentId): boolean {
   // Questions about the Koasis UI/session are answered from trusted app
   // context. Sending them to literature search produces convincing-looking
   // but unrelated papers (for example, searching "model aktif di Koasis").
-  if (!hasResearchTerm && KOASIS_META_TERMS.test(normalized) && KOASIS_META_CONTEXT.test(normalized)) return false;
+  if (isKoasisMetadataPrompt(normalized)) return false;
   const isFormatOnly = FORMAT_ONLY_OPENERS.test(normalized) && FORMAT_ONLY_TERMS.test(normalized) && !hasResearchTerm;
   if (isFormatOnly) return false;
   const isKnowledgeQuestion = normalized.includes("?") || KNOWLEDGE_OPENERS.test(normalized);

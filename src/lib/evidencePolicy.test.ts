@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promptNeedsEvidence } from "./evidencePolicy";
+import { isKoasisMetadataPrompt, promptNeedsEvidence } from "./evidencePolicy";
 
 describe("promptNeedsEvidence", () => {
   it("requires a lookup for clinical and source-seeking questions", () => {
@@ -16,6 +16,7 @@ describe("promptNeedsEvidence", () => {
   });
 
   it("does not search literature for Koasis session and UI questions", () => {
+    expect(isKoasisMetadataPrompt("Model apa yang sedang aktif di Koasis untuk sesi ini?")).toBe(true);
     expect(promptNeedsEvidence("Model apa yang sedang aktif di Koasis untuk sesi ini?", "koasis")).toBe(false);
     expect(promptNeedsEvidence("Reasoning effort apa yang dipakai di chat ini?", "koasis")).toBe(false);
     expect(promptNeedsEvidence("Apakah model pembelajaran ini efektif untuk pneumonia?", "koasis")).toBe(true);

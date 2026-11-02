@@ -15,7 +15,7 @@ import { ComputerClientError, getComputerStatus, openComputerSession, revokeComp
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
 import { loadPublicAdminCatalog } from "../lib/adminApi";
 import type { PublicAdminCatalog } from "../lib/adminConfig";
-import { promptNeedsEvidence } from "../lib/evidencePolicy";
+import { isKoasisMetadataPrompt, promptNeedsEvidence } from "../lib/evidencePolicy";
 import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normalizeKoasisModelId, normalizeKoasisReasoning, type KoasisModelDefinition, type KoasisReasoningLevel } from "../lib/koasisModels";
 import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatArtifact, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
 import { detectSensitiveIdentifiers, redactSensitiveIdentifiers, type SensitiveIdentifierFinding } from "../lib/privacyGuard";
@@ -2188,10 +2188,9 @@ export function AgenticChat() {
   };
 
   const submitPrompt = (rawPrompt: string, attached: AgentChatAttachment[] = attachments, skipPrivacyReview = false, contextSources?: EvidenceSource[], contextSourceMode?: SourceMode, computerApproved = false, skipComputerApproval = false) => {
-    const initialSourceMode = contextSourceMode ?? sourceMode;
-    const initialEvidenceSources = contextSources ?? selectedEvidenceSources;
+    const requestedSourceMode = contextSourceMode ?? sourceMode;
     const workspaceFile = workspace.contextFile;
-    const workspaceAttachment: AgentChatAttachment | null = initialSourceMode === "workspace" && workspaceFile && workspaceFile.kind === "pdf" && (workspaceFile.dataUrl || workspaceFile.storagePath)
+    const workspaceAttachment: AgentChatAttachment | null = requestedSourceMode === "workspace" && workspaceFile && workspaceFile.kind === "pdf" && (workspaceFile.dataUrl || workspaceFile.storagePath)
       ? { name: workspaceFile.name, mimeType: workspaceFile.mimeType, kind: "pdf", dataUrl: workspaceFile.dataUrl, ...(workspaceFile.storagePath ? { storagePath: workspaceFile.storagePath } : {}) }
       : null;
     const messageAttachments = [...attached, workspaceAttachment].filter((item, index, items): item is AgentChatAttachment => Boolean(item) && items.findIndex((candidate) => candidate?.name === item?.name && candidate?.dataUrl === item?.dataUrl) === index);
@@ -2202,6 +2201,10 @@ export function AgenticChat() {
     const requestPrompt = slashCommand
       ? `${slashCommand.command.instruction}\n\n${slashCommand.rest ? `Permintaan pengguna:\n${slashCommand.rest}` : "Terapkan command ini pada konteks kerja yang sedang aktif."}`
       : prompt;
+    const preset = activePreset;
+    const metadataPrompt = isKoasisMetadataPrompt(requestPrompt);
+    const initialEvidenceSources = contextSources ?? (metadataPrompt ? [] : selectedEvidenceSources);
+    const initialSourceMode = metadataPrompt ? "workspace" : requestedSourceMode;
     if (!skipPrivacyReview) {
       const findings = detectSensitiveIdentifiers(prompt);
       if (findings.length) {
@@ -2228,7 +2231,6 @@ export function AgenticChat() {
     }
     followScrollRef.current = true;
     setShowJumpToLatest(false);
-    const preset = activePreset;
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: "user", content: prompt, attachments: messageAttachments.length ? messageAttachments : undefined, timestamp: currentTime() };
     setMessages((current) => [...current, userMessage]);
     setChatTitle(buildConversationTitle([...messages, userMessage], { agentLabel: preset.label }));
