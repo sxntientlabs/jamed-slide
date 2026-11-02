@@ -2414,7 +2414,7 @@ export function AgenticChat() {
           durationMs: response.durationMs,
           sourceMode: responseSourceMode,
           citationSources: responseEvidenceSources,
-          followUpQuestions: buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: responseEvidenceSources, agentLabel: preset.label }),
+          followUpQuestions: metadataPrompt ? [] : buildUniqueFollowUpQuestions({ prompt, answer: response.content, sources: responseEvidenceSources, agentLabel: preset.label }),
           reviewRequired: response.reviewRequired,
           artifact,
           artifactKind: requestedArtifactKind,
