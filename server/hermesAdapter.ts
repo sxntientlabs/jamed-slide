@@ -435,6 +435,18 @@ async function runHermesStream(
   let terminal = false;
   let lastEventSequence = -1;
   let lastApprovalKey = "";
+  let lastActivityAt = Date.now();
+  let waitingForApproval = false;
+  const heartbeat = setInterval(() => {
+    if (terminal || signal.aborted || Date.now() - lastActivityAt < 8_000) return;
+    write({
+      type: "status",
+      phase: "generating",
+      message: waitingForApproval ? "Agent masih menunggu persetujuan" : "Agent masih bekerja",
+      requestId,
+    });
+  }, 8_000);
+  if (typeof heartbeat === "object" && "unref" in heartbeat && typeof heartbeat.unref === "function") heartbeat.unref();
   const approvalKey = (data: JsonRecord): string => {
     const request = stringValue(data.request_id || data.approval_request_id || data.id, 256);
     return request || `${stringValue(data.description || data.message, 600)}:${stringValue(data.command, 600)}`;
@@ -444,11 +456,14 @@ async function runHermesStream(
     if (image) write({ type: "computer_activity", activity: "screenshot", action: "computer_screenshot", message: "Screenshot Computer siap", screenshotDataUrl: image, requestId });
     const approval = asRecord(status.approval);
     if (status.status === "waiting_for_approval" && Object.keys(approval).length) {
+      waitingForApproval = true;
       const key = approvalKey(approval);
       if (key !== lastApprovalKey) {
         lastApprovalKey = key;
         mapHermesEvent("approval.request", { ...approval, type: "approval.request", run_id: runId }, requestId, accumulated, write, runId);
       }
+    } else if (status.status !== "waiting_for_approval") {
+      waitingForApproval = false;
     }
     return runOutput(status);
   };
@@ -470,9 +485,15 @@ async function runHermesStream(
   const processBlock = (block: string) => {
     const parsed = parseSseBlock(block);
     if (!parsed) return;
+    lastActivityAt = Date.now();
     if (parsed.sequence !== undefined) lastEventSequence = Math.max(lastEventSequence, parsed.sequence);
     const type = stringValue(parsed.data.type, 120) || parsed.event;
-    if (type === "approval.request") lastApprovalKey = approvalKey(parsed.data);
+    if (type === "approval.request") {
+      waitingForApproval = true;
+      lastApprovalKey = approvalKey(parsed.data);
+    } else if (type !== "run.waiting_for_approval") {
+      waitingForApproval = false;
+    }
     accumulated = mapHermesEvent(parsed.event, parsed.data, requestId, accumulated, write, runId);
     if (type === "run.completed") {
       const merged = appendFinalOutput(accumulated, runOutput(parsed.data));
@@ -489,61 +510,65 @@ async function runHermesStream(
     }
   };
 
-  while (!terminal) {
-    const eventResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`, {
-      headers: {
-        Accept: "text/event-stream",
-        Authorization: `Bearer ${apiKey}`,
-        ...(lastEventSequence >= 0 ? { "Last-Event-ID": String(lastEventSequence) } : {}),
-      },
-      signal,
-    });
-    console.info("[koasis-hermes] event stream connected", { requestId, runId, status: eventResponse.status, lastEventSequence });
-    if (eventResponse.ok && eventResponse.body) {
-      const reader = eventResponse.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          buffer += decoder.decode(value, { stream: !done });
-          const blocks = buffer.split(/\r?\n\r?\n/);
-          buffer = blocks.pop() || "";
-          blocks.forEach(processBlock);
-          if (terminal) {
-            await reader.cancel().catch(() => undefined);
-            break;
+  try {
+    while (!terminal) {
+      const eventResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`, {
+        headers: {
+          Accept: "text/event-stream",
+          Authorization: `Bearer ${apiKey}`,
+          ...(lastEventSequence >= 0 ? { "Last-Event-ID": String(lastEventSequence) } : {}),
+        },
+        signal,
+      });
+      console.info("[koasis-hermes] event stream connected", { requestId, runId, status: eventResponse.status, lastEventSequence });
+      if (eventResponse.ok && eventResponse.body) {
+        const reader = eventResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            buffer += decoder.decode(value, { stream: !done });
+            const blocks = buffer.split(/\r?\n\r?\n/);
+            buffer = blocks.pop() || "";
+            blocks.forEach(processBlock);
+            if (terminal) {
+              await reader.cancel().catch(() => undefined);
+              break;
+            }
+            if (done) break;
           }
-          if (done) break;
+          if (buffer.trim() && !terminal) processBlock(buffer);
+        } finally {
+          reader.releaseLock();
         }
-        if (buffer.trim() && !terminal) processBlock(buffer);
-      } finally {
-        reader.releaseLock();
+        if (terminal) return;
       }
-      if (terminal) return;
-    }
 
-    const statusResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
-      headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
-      signal,
-    });
-    const status = asRecord(await statusResponse.json().catch(() => ({})));
-    if (finishFromStatus(status)) return;
-    const runStatus = stringValue(status.status, 80);
-    if (HERMES_ACTIVE_RUN_STATES.has(runStatus)) {
-      // A proxy or a provider restart may close the SSE connection immediately
-      // after an approval request. The run is still alive in Hermes, so keep
-      // the request/control mapping and resume from the last SSE sequence
-      // instead of turning a pending approval into a false client error.
-      if (!signal.aborted) await waitForHermesResume(signal);
-      continue;
+      const statusResponse = await fetch(`${baseUrl}/v1/runs/${encodeURIComponent(runId)}`, {
+        headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
+        signal,
+      });
+      const status = asRecord(await statusResponse.json().catch(() => ({})));
+      if (finishFromStatus(status)) return;
+      const runStatus = stringValue(status.status, 80);
+      if (HERMES_ACTIVE_RUN_STATES.has(runStatus)) {
+        // A proxy or a provider restart may close the SSE connection immediately
+        // after an approval request. The run is still alive in Hermes, so keep
+        // the request/control mapping and resume from the last SSE sequence
+        // instead of turning a pending approval into a false client error.
+        if (!signal.aborted) await waitForHermesResume(signal);
+        continue;
+      }
+      const error = stringValue(status.error, 600) || (!eventResponse.ok
+        ? `Hermes event stream tidak tersedia (HTTP ${eventResponse.status}).`
+        : "Stream Agent terputus sebelum selesai.");
+      console.error("[koasis-hermes] stream incomplete", { requestId, runId, status: runStatus, error });
+      write({ type: "error", error, code: "stream_incomplete", requestId });
+      return;
     }
-    const error = stringValue(status.error, 600) || (!eventResponse.ok
-      ? `Hermes event stream tidak tersedia (HTTP ${eventResponse.status}).`
-      : "Stream Agent terputus sebelum selesai.");
-    console.error("[koasis-hermes] stream incomplete", { requestId, runId, status: runStatus, error });
-    write({ type: "error", error, code: "stream_incomplete", requestId });
-    return;
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
