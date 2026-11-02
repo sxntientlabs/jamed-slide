@@ -2323,6 +2323,10 @@ export function AgenticChat() {
         await sendAgentControl(requestId, action, token);
         clear();
       } catch (error) {
+        // A control response can arrive after Hermes has already finalized or
+        // timed out the run. In that case the card is no longer actionable;
+        // remove it instead of leaving a dead approval request on screen.
+        if (error instanceof AgentChatError && error.code === "hermes_run_not_found") clear();
         setAttachmentError(error instanceof Error ? error.message : "Persetujuan Agent belum berhasil dikirim. Coba lagi.");
       }
     })();
