@@ -2603,6 +2603,13 @@ export function AgenticChat() {
         notifyTaskComplete(`${preset.label} selesai`, artifactError ? "Jawaban selesai, tetapi file output perlu diperiksa." : "Jawaban dan output task sudah siap direview.");
       } catch (error) {
         if (controller.signal.aborted) return;
+        // A terminal stream error means Hermes can no longer accept a
+        // response for the pending control request. Keeping the card visible
+        // here makes it look actionable even though the run has already
+        // ended, which was the source of the stale permission gate shown to
+        // users after a timed-out Computer approval.
+        setAgentApproval(null);
+        setAgentClarify(null);
         const privacyBlocked = error instanceof AgentChatError && error.code === "privacy_review_required";
         const authUnavailable = error instanceof AgentChatError && (error.code === "auth_unavailable" || error.code === "unauthorized");
         if (privacyBlocked) {
@@ -2619,6 +2626,8 @@ export function AgenticChat() {
           setStreamingMessageId(null);
           setRunStatus(null);
           setRunTrail([]);
+          setAgentApproval(null);
+          setAgentClarify(null);
         }
       }
     })();
