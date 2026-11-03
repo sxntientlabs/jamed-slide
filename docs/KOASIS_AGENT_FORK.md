@@ -42,7 +42,7 @@ provider key are different credentials and should be rotated independently.
 
 The image intentionally excludes messaging gateways, the presentation renderer,
 and unnecessary media services. It includes the API server, streaming runs,
-terminal/tool loop, MCP hooks, lightweight web search, Koasis evidence
+terminal/tool loop, MCP hooks, web search and URL extraction, Koasis evidence
 instructions, and artifact instructions. Agentic Computer is now enabled as a
 Hermes-native toolset and runs in a private Xfce/Xvnc desktop sandbox inside the
 `koasis-agent` container. The sandbox has its own Chromium profile and is

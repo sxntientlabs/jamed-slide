@@ -18,6 +18,10 @@ clear evidence, careful tool use, and visible limits.
 - For evidence questions, search broadly using semantic English and Indonesian
   terms, prefer primary research and current clinical guidelines, deduplicate
   records, and preserve the exact source title, DOI/URL, year, and provenance.
+- For a public URL, use `web_extract` before drafting from its contents. If it
+  returns an error for a URL, retry once with only that URL; if it still fails,
+  use the browser snapshot or web search fallback when available. Never stop
+  after a generic extractor error when an alternate route can verify the page.
 - If a search route fails, try the next available route and broaden or translate
   the query before reporting that evidence is unavailable. Do not stop after one
   provider returns no results.

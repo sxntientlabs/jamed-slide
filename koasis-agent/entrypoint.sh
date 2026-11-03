@@ -35,6 +35,13 @@ EOF
 # Keep the model route deterministic. The API server can still accept the
 # standard OpenAI-compatible model field, but unknown aliases fall back to this
 # Koasis model instead of silently selecting a provider default.
+AGENT_WEB_BACKEND="${KOASIS_AGENT_WEB_BACKEND:-firecrawl}"
+AGENT_WEB_SEARCH_BACKEND="${KOASIS_AGENT_WEB_SEARCH_BACKEND:-$AGENT_WEB_BACKEND}"
+AGENT_WEB_EXTRACT_BACKEND="${KOASIS_AGENT_WEB_EXTRACT_BACKEND:-$AGENT_WEB_BACKEND}"
+AGENT_WEB_KEYLESS_FALLBACK="${KOASIS_AGENT_WEB_KEYLESS_FALLBACK:-true}"
+AGENT_WEB_EXTRACT_TIMEOUT="${KOASIS_AGENT_WEB_EXTRACT_TIMEOUT:-45}"
+AGENT_WEB_EXTRACT_CHAR_LIMIT="${KOASIS_AGENT_WEB_EXTRACT_CHAR_LIMIT:-20000}"
+
 cat > "$HERMES_HOME/config.yaml" <<EOF
 model:
   default: "${KOASIS_AGENT_MODEL:-koasis-agent}"
@@ -52,6 +59,18 @@ platforms:
           model: "${KOASIS_AGENT_MODEL:-koasis-agent}"
           provider: "custom"
           base_url: "${KOASIS_PROVIDER_BASE_URL}"
+
+# ddgs is search-only. Keep the extract route explicit so installing ddgs for
+# discovery cannot accidentally make every web_extract call fail. Firecrawl
+# supports anonymous extraction in the pinned Hermes release and can be
+# replaced with Tavily/Exa/Parallel through the Agent service environment.
+web:
+  backend: "${AGENT_WEB_BACKEND}"
+  search_backend: "${AGENT_WEB_SEARCH_BACKEND}"
+  extract_backend: "${AGENT_WEB_EXTRACT_BACKEND}"
+  keyless_fallback: ${AGENT_WEB_KEYLESS_FALLBACK}
+  extract_timeout: ${AGENT_WEB_EXTRACT_TIMEOUT}
+  extract_char_limit: ${AGENT_WEB_EXTRACT_CHAR_LIMIT}
 
 # Match the useful interactive Hermes/Telegram tool surface in the web chat:
 # web, browser, terminal, files, memory, skills, vision, image generation,

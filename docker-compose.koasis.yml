@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: koasis-agent/Dockerfile
       args:
-        HERMES_REF: ${HERMES_REF:-a4994d4ead8f9c915b485cec5689909b349a49df}
+        HERMES_REF: ${HERMES_REF:-v2026.9.24}
     image: ${KOASIS_AGENT_IMAGE:-koasis-agent:local}
     restart: unless-stopped
     environment:
@@ -20,6 +20,24 @@ services:
       KOASIS_AGENT_DESKTOP_GEOMETRY: ${KOASIS_AGENT_DESKTOP_GEOMETRY:-1440x900}
       KOASIS_AGENT_DESKTOP_MIN_FREE_MEMORY_MB: ${KOASIS_AGENT_DESKTOP_MIN_FREE_MEMORY_MB:-1024}
       KOASIS_AGENT_DESKTOP_IDLE_MINUTES: ${KOASIS_AGENT_DESKTOP_IDLE_MINUTES:-30}
+      # Keep web_extract on a provider that supports extraction. ddgs is
+      # intentionally search-only, so leaving this unset would break URL reads
+      # after the image installs ddgs for web discovery.
+      KOASIS_AGENT_WEB_BACKEND: ${KOASIS_AGENT_WEB_BACKEND:-firecrawl}
+      KOASIS_AGENT_WEB_SEARCH_BACKEND: ${KOASIS_AGENT_WEB_SEARCH_BACKEND:-firecrawl}
+      KOASIS_AGENT_WEB_EXTRACT_BACKEND: ${KOASIS_AGENT_WEB_EXTRACT_BACKEND:-firecrawl}
+      KOASIS_AGENT_WEB_KEYLESS_FALLBACK: ${KOASIS_AGENT_WEB_KEYLESS_FALLBACK:-true}
+      KOASIS_AGENT_WEB_EXTRACT_TIMEOUT: ${KOASIS_AGENT_WEB_EXTRACT_TIMEOUT:-45}
+      KOASIS_AGENT_WEB_EXTRACT_CHAR_LIMIT: ${KOASIS_AGENT_WEB_EXTRACT_CHAR_LIMIT:-20000}
+      # Optional provider credentials stay server-side. The defaults remain
+      # keyless Firecrawl, so these are only needed for a paid/provider pin.
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      FIRECRAWL_API_URL: ${FIRECRAWL_API_URL:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      PARALLEL_API_KEY: ${PARALLEL_API_KEY:-}
+      KEENABLE_API_KEY: ${KEENABLE_API_KEY:-}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
       KOASIS_PROVIDER_API_KEY: ${KOASIS_PROVIDER_API_KEY:?set KOASIS_PROVIDER_API_KEY}
       KOASIS_PROVIDER_BASE_URL: ${KOASIS_PROVIDER_BASE_URL:?set KOASIS_PROVIDER_BASE_URL}
     expose:

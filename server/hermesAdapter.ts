@@ -195,6 +195,7 @@ function buildInstructions(body: JsonRecord, context: JsonRecord): string {
     "Untuk teks yang terlihat pengguna, pertahankan spasi normal antarkata, spasi setelah tanda baca, dan pemisahan paragraf; jangan menggabungkan kata.",
     "Untuk sapaan atau permintaan perkenalan, jawab langsung dan singkat. Jangan memaksakan pencarian evidence, citation, atau follow-up question jika permintaan tidak membutuhkan itu.",
     "Jangan mengarang sumber, hasil tool, atau tindakan yang belum selesai.",
+    "Untuk membaca URL publik, gunakan web_extract. Jika web_extract mengembalikan error atau error per-URL, ulangi sekali hanya untuk URL tersebut; bila masih gagal, gunakan browser_navigate/browser_snapshot atau web_search sebagai fallback yang tersedia dan jangan berhenti pada pesan error generik.",
     KOASIS_CITATION_FORMAT_POLICY,
     "Untuk tindakan Computer, gunakan hanya jika computerApproved bernilai true; jika belum disetujui, jelaskan kebutuhan dan minta persetujuan.",
   ];

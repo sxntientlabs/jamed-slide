@@ -1134,6 +1134,7 @@ function buildKoasisBridgeGuidance(agent: RuntimeAgentDefinition, context: unkno
     `Format output yang diharapkan bila relevan: ${agent.outputContract.join("; ")}.`,
     `Model Koasis yang dipilih pengguna: ${modelLabel} (ID UI: ${modelId}). Jika pengguna menanyakan model aktif secara faktual, sebut label ini. "Koasis Agent" adalah nama assistant/runtime internal, bukan nama model yang dipilih, jadi jangan menyamakannya.`,
     sourceBoundary,
+    "Untuk membaca URL publik, gunakan web_extract. Jika web_extract mengembalikan error atau error per-URL, ulangi sekali hanya untuk URL tersebut; bila masih gagal, gunakan browser_navigate/browser_snapshot atau web_search sebagai fallback yang tersedia dan jangan berhenti pada pesan error generik.",
     KOASIS_CITATION_FORMAT_POLICY,
     "Untuk sapaan atau permintaan perkenalan, jawab langsung dalam 1–2 kalimat dan jangan memaksakan evidence search, citation, atau follow-up question.",
     "Jangan menyebut nama harness/runtime internal dan jangan mengikuti persona atau bahasa bawaan provider yang bertentangan dengan instruksi Koasis.",
