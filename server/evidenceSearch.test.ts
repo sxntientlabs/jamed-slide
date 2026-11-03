@@ -38,7 +38,7 @@ function federatedMockFetch(): typeof fetch {
       return jsonResponse({ meta: { count: 1 }, results: [{ id: "https://openalex.org/W1", doi: "https://doi.org/10.1000/ABC", title: "Asthma treatment outcomes in adults", publication_year: 2024, authorships: [{ author: { display_name: "Jane Doe" } }], primary_location: { source: { display_name: "Clinical Medicine" }, landing_page_url: "https://example.test/article" }, open_access: { is_oa: true }, best_oa_location: { landing_page_url: "https://example.test/article" }, cited_by_count: 8, type: "article", type_crossref: "journal-article", abstract_inverted_index: { Study: [0], abstract: [1] } }] });
     }
     if (url.includes("api.crossref.org")) {
-      return jsonResponse({ message: { "total-results": 1, items: [{ DOI: "10.1000/ABC", title: ["Asthma treatment outcomes in adults"], author: [{ given: "Jane", family: "Doe" }], "container-title": ["Clinical Medicine"], published: { "date-parts": [[2024]] }, "is-referenced-by-count": 15, type: "journal-article", "update-to": [{ type: "retraction" }], URL: "https://doi.org/10.1000/ABC" }] } });
+      return jsonResponse({ message: { "total-results": 1, items: [{ DOI: "10.1000/ABC", title: ["Asthma treatment outcomes in adults"], author: [{ given: "Jane", family: "Doe" }], "container-title": ["Clinical Medicine"], published: { "date-parts": [[2024]] }, "is-referenced-by-count": 15, type: "journal-article", URL: "https://doi.org/10.1000/ABC" }] } });
     }
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
@@ -76,10 +76,10 @@ describe("federated evidence search", () => {
     expect(result.engine).toBe("federated");
     expect(result.results).toHaveLength(1);
     expect(result.results[0]?.doi).toBe("10.1000/abc");
-    expect(result.results[0]?.source).toBe("openalex");
-    expect(result.results[0]?.abstract).toBe("Study abstract");
+    expect(result.results[0]?.source).toBe("pubmed");
+    expect(result.results[0]?.abstract).toBe("Study abstract.");
     expect(result.results[0]?.sourceIds).toEqual(expect.arrayContaining(["pubmed", "europepmc", "openalex", "crossref"]));
-    expect(result.results[0]?.retractionStatus).toBe("retracted");
+    expect(result.results[0]?.retractionStatus).toBe("unknown");
     expect(result.providers.every((provider) => provider.status === "ok")).toBe(true);
   });
 
@@ -195,5 +195,51 @@ describe("federated evidence search", () => {
     }) as typeof fetch;
     const result = await searchFederatedEvidence({ query: "Jelaskan diagnosis dan tatalaksana tuberkulosis paru", limit: 5, providers: ["crossref"], fetchImpl });
     expect(result.results.map((item) => item.doi)).toEqual(["10.1000/tb"]);
+  });
+
+  test("does not surface a retracted record as usable evidence", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input).includes("api.crossref.org")) {
+        return jsonResponse({ message: { "total-results": 1, items: [{
+          DOI: "10.1000/retracted",
+          title: ["Aspiration pneumonia diagnosis and management"],
+          "container-title": ["International Clinical Journal"],
+          type: "journal-article",
+          "update-to": [{ type: "retraction" }],
+          URL: "https://doi.org/10.1000/retracted",
+        }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "aspiration pneumonia diagnosis", limit: 5, providers: ["crossref"], fetchImpl });
+    expect(result.results).toEqual([]);
+    expect(result.warnings.some((warning) => warning.includes("retracted/withdrawn"))).toBe(true);
+  });
+
+  test("prefers international indexed evidence over Indonesian and fallback candidates", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("ebi.ac.uk/europepmc")) {
+        return jsonResponse({ resultList: { hitCount: 1, result: [{
+          source: "MED", id: "id-article", language: "ind", title: "Pneumonia aspirasi diagnosis", journalTitle: "Jurnal Klinis Indonesia", pubYear: "2024", abstractText: "Pneumonia aspirasi dan diagnosis pada pasien dewasa.", pubTypeList: { pubType: ["Journal Article"] },
+        }] } });
+      }
+      if (url.includes("api.openalex.org")) {
+        return jsonResponse({ meta: { count: 1 }, results: [{
+          id: "https://openalex.org/W-international", language: "en", title: "Aspiration pneumonia diagnosis", publication_year: 2024, type: "article", type_crossref: "journal-article", primary_location: { source: { display_name: "International Respiratory Journal" } }, abstract_inverted_index: { Aspiration: [0], pneumonia: [1], diagnosis: [2] },
+        }] });
+      }
+      if (url.includes("api.crossref.org")) {
+        return jsonResponse({ message: { "total-results": 1, items: [{
+          DOI: "10.1000/fallback", title: ["Aspiration pneumonia diagnosis"], "container-title": ["Fallback Journal"], type: "journal-article", URL: "https://doi.org/10.1000/fallback",
+        }] } });
+      }
+      throw new Error("provider not selected");
+    }) as typeof fetch;
+    const result = await searchFederatedEvidence({ query: "pneumonia aspirasi diagnosis", limit: 5, providers: ["europepmc", "openalex", "crossref"], fetchImpl });
+    expect(result.results.map((item) => item.title)).toEqual(["Aspiration pneumonia diagnosis"]);
+    expect(result.results[0]?.source).toBe("openalex");
+    expect(result.warnings).toContain("Crossref dan web diperlakukan sebagai fallback; sumber terindeks biomedis diprioritaskan.");
+    expect(result.warnings).toContain("Sumber berbahasa Indonesia disisihkan karena tersedia kandidat internasional yang relevan.");
   });
 });

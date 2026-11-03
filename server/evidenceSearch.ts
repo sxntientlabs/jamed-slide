@@ -41,6 +41,7 @@ export type FederatedEvidenceRecord = {
   title: string;
   authors: string;
   journal: string;
+  language?: string;
   year?: string;
   doi?: string;
   pmid?: string;
@@ -100,9 +101,19 @@ type ProviderResult = {
 
 type JsonRecord = Record<string, unknown>;
 
-// OpenAlex is the discovery index of record. PubMed and Europe PMC remain
-// verification/enrichment sources for biomedical identifiers and full text.
-const PROVIDER_ORDER: EvidenceProviderId[] = ["openalex", "pubmed", "europepmc", "crossref", "web"];
+// Biomedical indexes lead the evidence ranking. OpenAlex remains the broad
+// discovery layer, while Crossref and web search are metadata/discovery
+// fallbacks rather than equal-quality medical evidence sources.
+const PROVIDER_ORDER: EvidenceProviderId[] = ["pubmed", "europepmc", "openalex", "crossref", "web"];
+const PROVIDER_AUTHORITY: Record<EvidenceProviderId, { bonus: number; reason: string }> = {
+  pubmed: { bonus: 0.16, reason: "diindeks PubMed, indeks biomedis internasional" },
+  europepmc: { bonus: 0.14, reason: "diindeks Europe PMC, basis data biomedis internasional" },
+  openalex: { bonus: 0.06, reason: "tercakup dalam discovery akademik OpenAlex" },
+  crossref: { bonus: 0.015, reason: "metadata DOI dari Crossref" },
+  web: { bonus: -0.08, reason: "lead dari web, bukan jurnal terverifikasi" },
+};
+const INDEXED_EVIDENCE_PROVIDERS = new Set<EvidenceProviderId>(["pubmed", "europepmc", "openalex"]);
+const FALLBACK_EVIDENCE_PROVIDERS = new Set<EvidenceProviderId>(["crossref", "web"]);
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_PROVIDER_PAGE_SIZE = 12;
 const MAX_QUERY_VARIANTS = 3;
@@ -446,6 +457,7 @@ function createProviderRecord(providerId: EvidenceProviderId, providerRecordId: 
     title: values.title.trim(),
     authors: values.authors || "",
     journal: values.journal || "",
+    language: values.language?.trim() || undefined,
     year: values.year,
     doi: normalizeDoi(values.doi),
     pmid: normalizeIdentifier(values.pmid),
@@ -486,6 +498,7 @@ function parsePubmedXml(xml: string, fallbackIds: string[]): ProviderRecord[] {
       return firstNonEmpty(xmlTag(author, "CollectiveName"), [xmlTag(author, "LastName"), xmlTag(author, "ForeName")].filter(Boolean).join(" ")) || "";
     }).filter(Boolean).join(", ");
     const publicationTypes = xmlTags(article, "PublicationType");
+    const language = xmlTags(article, "Language")[0];
     const doi = Array.from(article.matchAll(/<ArticleId\b[^>]*IdType=["']doi["'][^>]*>([\s\S]*?)<\/ArticleId>/gi))[0]?.[1];
     const pmcid = Array.from(article.matchAll(/<ArticleId\b[^>]*IdType=["']pmc["'][^>]*>([\s\S]*?)<\/ArticleId>/gi))[0]?.[1];
     const journal = xmlTag(article, "Title");
@@ -494,6 +507,7 @@ function parsePubmedXml(xml: string, fallbackIds: string[]): ProviderRecord[] {
       title,
       authors,
       journal,
+      language,
       year,
       doi,
       pmid,
@@ -655,6 +669,7 @@ async function searchEuropePmcVariant(options: FederatedEvidenceSearchOptions, q
       title: stripMarkup(record.title),
       authors: stripMarkup(record.authorString),
       journal: stripMarkup(record.journalTitle),
+      language: stringValue(record.language),
       year: stringValue(record.pubYear),
       doi,
       pmid,
@@ -710,6 +725,7 @@ async function searchOpenAlexVariant(options: FederatedEvidenceSearchOptions, qu
       title: stripMarkup(record.title),
       authors: arrayValue(record.authorships).slice(0, 8).map((value) => stringValue(asRecord(asRecord(value).author).display_name)).filter((value): value is string => Boolean(value)).join(", "),
       journal: stringValue(source.display_name),
+      language: stringValue(record.language),
       year: parseDateYear(record.publication_year),
       doi,
       abstract,
@@ -748,7 +764,7 @@ async function searchCrossrefVariant(options: FederatedEvidenceSearchOptions, qu
   const url = new URL("https://api.crossref.org/works");
   url.searchParams.set("query.bibliographic", query);
   url.searchParams.set("rows", String(Math.min(options.limit, MAX_PROVIDER_PAGE_SIZE)));
-  url.searchParams.set("select", "DOI,title,author,container-title,published,published-print,published-online,is-referenced-by-count,link,license,update-to,type,URL");
+  url.searchParams.set("select", "DOI,title,author,container-title,published,published-print,published-online,is-referenced-by-count,link,license,language,update-to,type,URL");
   if (options.crossrefEmail) url.searchParams.set("mailto", options.crossrefEmail);
   const payload = await requestJson(fetchImpl, url, { headers: { Accept: "application/json", "User-Agent": "Koasis/1.0 (medical evidence metadata; mailto: support@koasis.my.id)" } }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const message = asRecord(payload.message);
@@ -765,6 +781,7 @@ async function searchCrossrefVariant(options: FederatedEvidenceSearchOptions, qu
         return firstNonEmpty([stringValue(author.given), stringValue(author.family)].filter(Boolean).join(" "), stringValue(author.name)) || "";
       }).filter(Boolean).join(", "),
       journal: stripMarkup(arrayValue(record["container-title"])[0]),
+      language: stringValue(record.language),
       year: parseDateYear(findNested(record, ["published", "date-parts"]) || findNested(record, ["published-online", "date-parts"]) || findNested(record, ["published-print", "date-parts"])),
       doi,
       abstract: crossrefAbstract(record.abstract),
@@ -875,6 +892,7 @@ function mergeProviderRecords(records: ProviderRecord[]): ProviderRecord {
     ...primary,
     authors: firstNonEmpty(...sorted.map((record) => record.authors)) || "",
     journal: firstNonEmpty(...sorted.map((record) => record.journal)) || "",
+    language: firstNonEmpty(...sorted.map((record) => record.language)),
     year: firstNonEmpty(...sorted.map((record) => record.year)),
     doi: firstNonEmpty(...sorted.map((record) => record.doi)),
     pmid: firstNonEmpty(...sorted.map((record) => record.pmid)),
@@ -923,6 +941,65 @@ function isExcludedPublication(record: ProviderRecord): boolean {
   return EXCLUDED_PUBLICATION_TYPES.test(record.publicationTypes.join(" "));
 }
 
+function normalizedRecordLanguage(value: string | undefined): "en" | "id" | "other" | "unknown" {
+  const normalized = normalizeTitle(value || "");
+  if (!normalized) return "unknown";
+  if (/^(?:en|eng|english|en us|en gb)$/.test(normalized)) return "en";
+  if (/^(?:id|ind|indonesian|bahasa indonesia)$/.test(normalized)) return "id";
+  return "other";
+}
+
+function inferredRecordLanguage(record: Pick<ProviderRecord | FederatedEvidenceRecord, "language" | "title" | "abstract">): "en" | "id" | "other" | "unknown" {
+  const explicit = normalizedRecordLanguage(record.language);
+  if (explicit !== "unknown") return explicit;
+  const tokens = new Set(tokenize(`${record.title} ${record.abstract || ""}`));
+  const englishMarkers = ["the", "and", "with", "patients", "study", "results", "clinical", "treatment", "diagnosis", "management", "randomized", "review"];
+  const indonesianMarkers = ["dan", "dengan", "pada", "pasien", "penelitian", "hasil", "tatalaksana", "pengobatan", "berdasarkan", "menunjukkan", "hubungan", "gambaran", "terhadap"];
+  const englishScore = englishMarkers.filter((token) => tokens.has(token)).length;
+  const indonesianScore = indonesianMarkers.filter((token) => tokens.has(token)).length;
+  if (englishScore >= 2 && englishScore > indonesianScore) return "en";
+  if (indonesianScore >= 2 && indonesianScore > englishScore) return "id";
+  return "unknown";
+}
+
+function prefersInternationalSources(query: string): boolean {
+  return !/\b(?:indonesia|bahasa indonesia|lokal|nasional|indonesian)\b/i.test(query);
+}
+
+function isRetractedRecord(record: ProviderRecord | FederatedEvidenceRecord): boolean {
+  return record.retractionStatus === "retracted" || /\b(?:retracted|retraction|withdrawn|expression of concern)\b/i.test(record.publicationTypes.join(" "));
+}
+
+function hasUsableEvidenceMetadata(record: FederatedEvidenceRecord): boolean {
+  // A biomedical index already provides a medical provenance boundary. For
+  // broad discovery providers, require a journal/container so a repository
+  // page, dataset, or arbitrary DOI landing page cannot look like a journal
+  // article in the main evidence list.
+  if (record.source === "pubmed" || record.source === "europepmc") return Boolean(record.title);
+  if (record.source === "openalex" || record.source === "crossref") return Boolean(record.title && record.journal);
+  return Boolean(record.title && record.abstract);
+}
+
+function selectEvidenceCandidates(
+  candidates: FederatedEvidenceRecord[],
+  query: string,
+  limit: number,
+): { results: FederatedEvidenceRecord[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const indexed = candidates.filter((record) => INDEXED_EVIDENCE_PROVIDERS.has(record.source) && hasUsableEvidenceMetadata(record));
+  const fallback = candidates.filter((record) => FALLBACK_EVIDENCE_PROVIDERS.has(record.source) && hasUsableEvidenceMetadata(record));
+  const tier = indexed.length ? indexed : fallback;
+  if (indexed.length && fallback.length) warnings.push("Crossref dan web diperlakukan sebagai fallback; sumber terindeks biomedis diprioritaskan.");
+
+  if (!tier.length) return { results: [], warnings };
+  const international = tier.filter((record) => inferredRecordLanguage(record) !== "id");
+  const selectedPool = prefersInternationalSources(query) && international.length ? international : tier;
+  if (prefersInternationalSources(query) && international.length && international.length < tier.length) {
+    warnings.push("Sumber berbahasa Indonesia disisihkan karena tersedia kandidat internasional yang relevan.");
+  }
+  return { results: selectedPool.slice(0, limit), warnings };
+}
+
 function relevanceScore(record: ProviderRecord, query: string, expandedTerms: string[], allProviderCount: number): { score: number; reasons: string[] } {
   const queryTokens = searchSignalTokens(query, expandedTerms);
   const directQueryTokens = searchSignalTokens(query, []);
@@ -936,7 +1013,12 @@ function relevanceScore(record: ProviderRecord, query: string, expandedTerms: st
   const bodyCoverage = queryTokens.length ? bodyMatches / queryTokens.length : 0;
   const directTitleCoverage = directQueryTokens.length ? directTitleMatches / directQueryTokens.length : 0;
   const directBodyCoverage = directQueryTokens.length ? directBodyMatches / directQueryTokens.length : 0;
-  const providerCoverage = allProviderCount ? 1 / allProviderCount : 1;
+  // Reward corroboration instead of penalizing records found by multiple
+  // providers. The previous 1 / providerCount formula did the opposite.
+  const corroborationBonus = Math.min(0.12, Math.max(0, allProviderCount - 1) * 0.04);
+  const authority = PROVIDER_AUTHORITY[record.providerId];
+  const language = inferredRecordLanguage(record);
+  const languageBonus = language === "en" ? 0.05 : language === "id" ? -0.04 : 0;
   const rrf = 1 / (60 + Math.max(1, record.rank));
   const publicationText = record.publicationTypes.join(" ").toLowerCase();
   const evidenceText = `${record.title} ${record.abstract || ""} ${publicationText}`;
@@ -954,10 +1036,13 @@ function relevanceScore(record: ProviderRecord, query: string, expandedTerms: st
   else if (titleCoverage >= 0.35) reasons.push("istilah semantik query muncul pada judul");
   else if (bodyCoverage >= 0.35) reasons.push("istilah semantik query muncul pada metadata/abstract");
   if (allProviderCount > 1) reasons.push(`terkonfirmasi ${allProviderCount} sumber metadata`);
+  reasons.push(authority.reason);
+  if (language === "en") reasons.push("indikasi publikasi berbahasa Inggris");
+  else if (language === "id") reasons.push("indikasi bahasa Indonesia; diprioritaskan di bawah sumber internasional bila relevansi setara");
   if (record.isOpenAccess) reasons.push("memiliki penanda open access");
   if (evidenceTypeBonus) reasons.push("tipe publikasi relevan untuk evidence");
   if (record.retractionStatus === "retracted") reasons.push("perlu perhatian: status retraction terdeteksi");
-  const score = rrf + directTitleCoverage * 0.52 + directBodyCoverage * 0.2 + titleCoverage * 0.5 + bodyCoverage * 0.18 + providerCoverage * 0.08 + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus - retractionPenalty;
+  const score = rrf + directTitleCoverage * 0.52 + directBodyCoverage * 0.2 + titleCoverage * 0.5 + bodyCoverage * 0.18 + authority.bonus + corroborationBonus + languageBonus + (record.isOpenAccess ? 0.04 : 0) + evidenceTypeBonus - retractionPenalty;
   return { score: Number(score.toFixed(6)), reasons: reasons.length ? reasons : ["hasil federated search"] };
 }
 
@@ -1047,10 +1132,17 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
   const eligibleProviderRecords = providerRecords.filter((record) => !isExcludedPublication(record));
   if (excludedRecords.length) warnings.push(`${excludedRecords.length} kandidat non-jurnal (misalnya tesis, buku, atau dataset) disisihkan dari daftar evidence utama.`);
   const deduplicated = deduplicateProviderRecords(eligibleProviderRecords);
-  const rankedResults: FederatedEvidenceRecord[] = deduplicated
+  // Apply the retraction gate after cross-provider deduplication. A DOI may
+  // be marked retracted by Crossref while PubMed or OpenAlex returns the same
+  // work without that flag; filtering before merge would lose the warning.
+  const retractedRecords = deduplicated.filter(isRetractedRecord);
+  const safeDeduplicated = deduplicated.filter((record) => !isRetractedRecord(record));
+  if (retractedRecords.length) warnings.push(`${retractedRecords.length} kandidat dengan status retracted/withdrawn disisihkan dari daftar evidence utama.`);
+  const rankedResults: FederatedEvidenceRecord[] = safeDeduplicated
     .map((record) => {
-      const score = relevanceScore(record, plan.originalQuery, plan.expandedTerms, new Set(eligibleProviderRecords.filter((item) => evidenceRecordId(item) === evidenceRecordId(record)).map((item) => item.providerId)).size || 1);
-      const sourceIds = uniqueStrings(eligibleProviderRecords.filter((item) => identifierKeys(item).some((key) => identifierKeys(record).includes(key))).map((item) => item.providerId)) as EvidenceProviderId[];
+      const relatedRecords = eligibleProviderRecords.filter((item) => !isRetractedRecord(item) && identifierKeys(item).some((key) => identifierKeys(record).includes(key)));
+      const sourceIds = uniqueStrings(relatedRecords.map((item) => item.providerId)) as EvidenceProviderId[];
+      const score = relevanceScore(record, plan.originalQuery, plan.expandedTerms, sourceIds.length || 1);
       return {
         id: evidenceRecordId(record),
         source: record.providerId,
@@ -1058,6 +1150,7 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
         title: record.title,
         authors: record.authors,
         journal: record.journal,
+        language: record.language,
         year: record.year,
         doi: record.doi,
         pmid: record.pmid,
@@ -1075,14 +1168,16 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
       };
     })
     .sort((left, right) => right.score - left.score || (right.citedByCount || 0) - (left.citedByCount || 0));
-  const strictResults = rankedResults
+  const strictCandidates = rankedResults
     .filter((record) => hasSearchSignal(record, plan.originalQuery))
-    .slice(0, Math.max(1, Math.min(MAX_PROVIDER_PAGE_SIZE, Math.round(options.limit))));
-  const broadenedResults = strictResults.length ? [] : rankedResults.filter((record) => hasBroadSearchSignal(record, plan.originalQuery));
-  const results = (strictResults.length ? strictResults : broadenedResults)
-    .slice(0, Math.max(1, Math.min(MAX_PROVIDER_PAGE_SIZE, Math.round(options.limit))));
-  if (!strictResults.length && broadenedResults.length) warnings.push("Pencocokan diperluas ke istilah topik utama; verifikasi relevansi setiap sumber sebelum digunakan.");
-  if (!results.length && rankedResults.length) warnings.push("Provider mengembalikan kandidat tanpa kecocokan istilah topik; hasil tersebut disembunyikan agar tidak dianggap sebagai evidence yang relevan.");
+    .filter(hasUsableEvidenceMetadata);
+  const broadenedCandidates = strictCandidates.length ? [] : rankedResults.filter((record) => hasBroadSearchSignal(record, plan.originalQuery)).filter(hasUsableEvidenceMetadata);
+  const candidatePool = strictCandidates.length ? strictCandidates : broadenedCandidates;
+  const requestedLimit = Math.max(1, Math.min(MAX_PROVIDER_PAGE_SIZE, Math.round(options.limit)));
+  const selected = selectEvidenceCandidates(candidatePool, plan.originalQuery, requestedLimit);
+  warnings.push(...selected.warnings);
+  if (!strictCandidates.length && broadenedCandidates.length) warnings.push("Pencocokan diperluas ke istilah topik utama; verifikasi relevansi setiap sumber sebelum digunakan.");
+  if (!selected.results.length && rankedResults.length) warnings.push("Provider mengembalikan kandidat tanpa kecocokan istilah topik atau metadata evidence yang cukup; hasil tersebut disembunyikan.");
   return {
     engine: "federated",
     query: plan.originalQuery,
@@ -1090,7 +1185,7 @@ export async function searchFederatedEvidence(options: FederatedEvidenceSearchOp
     queryPlan: plan,
     retrievedAt: new Date().toISOString(),
     hitCount: providerStates.reduce((total, state) => total + (state.hitCount || state.returned), 0),
-    results,
+    results: selected.results,
     providers: providerStates,
     warnings,
   };

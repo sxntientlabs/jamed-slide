@@ -43,6 +43,7 @@ export type EvidenceSource = {
   title: string;
   authors: string;
   journal: string;
+  language?: string;
   year?: string;
   doi?: string;
   pmid?: string;
