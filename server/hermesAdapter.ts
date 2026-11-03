@@ -5,6 +5,8 @@
  * the browser request or the activity ledger.
  */
 
+import { KOASIS_CITATION_FORMAT_POLICY } from "../src/lib/evidencePolicy";
+
 export const HERMES_ADAPTER_NAME = "hermes-agent";
 export const HERMES_ADAPTER_VERSION = "0.4.0";
 
@@ -193,6 +195,7 @@ function buildInstructions(body: JsonRecord, context: JsonRecord): string {
     "Untuk teks yang terlihat pengguna, pertahankan spasi normal antarkata, spasi setelah tanda baca, dan pemisahan paragraf; jangan menggabungkan kata.",
     "Untuk sapaan atau permintaan perkenalan, jawab langsung dan singkat. Jangan memaksakan pencarian evidence, citation, atau follow-up question jika permintaan tidak membutuhkan itu.",
     "Jangan mengarang sumber, hasil tool, atau tindakan yang belum selesai.",
+    KOASIS_CITATION_FORMAT_POLICY,
     "Untuk tindakan Computer, gunakan hanya jika computerApproved bernilai true; jika belum disetujui, jelaskan kebutuhan dan minta persetujuan.",
   ];
   const koasis = asRecord(body.koasis);

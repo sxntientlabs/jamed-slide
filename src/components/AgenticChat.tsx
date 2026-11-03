@@ -9,7 +9,7 @@ import { MkarRotationCockpit, type MkarCockpitAction } from "./MkarRotationCockp
 import { KoasisClinicalWorkspace } from "./KoasisClinicalWorkspace";
 import { AicssCodeBlock, AicssDataTable, AicssTextResponse, AicssThinkingReasoning, AicssThinkingSurface, KoasisApprovalCard, KoasisAttachmentPreview, KoasisAudioWaves, KoasisCitation, KoasisComparisonTable, KoasisDiffBlock, KoasisImageProcessing, KoasisMessageActions, KoasisReasoningEffort, KoasisRunTrace, KoasisStreamingText, KoasisTodoList, type AicssTableRow, type KoasisRunEvent } from "./AicssAgentSurfaces";
 import { AgentChatError, sendAgentChat, sendAgentControl, type AgentApprovalRequest, type AgentChatAttachment, type AgentChatMessage, type AgentChatResult, type AgentComputerActivity, type AgentClarifyRequest, type AgentMode, type AgentRunStatus, type AgentToolActivity } from "../lib/agentChatClient";
-import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "../lib/evidenceCitations";
+import { evidenceProviderLabel as evidenceSourceLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation, removeInlineEvidenceBibliography } from "../lib/evidenceCitations";
 import { searchEvidenceSources, type EvidenceQueryPlan, type EvidenceSource } from "../lib/evidenceSearchClient";
 import { ComputerClientError, getComputerStatus, heartbeatComputerSession, openComputerSession, refreshComputerSession, revokeComputerSession, selectComputerMachine, type ComputerMachine, type ComputerSession, type ComputerStatus } from "../lib/computerClient";
 import { AGENT_DEFINITIONS, AGENT_GROUPS, agentNeedsExternalSource, normalizeAgentId, type AgentDefinition, type AgentGroup, type AgentId } from "../lib/agentCatalog";
@@ -1091,8 +1091,9 @@ function FollowUpQuestions({ questions, busy, onSelect }: { questions: string[];
 
 function safeEvidenceMessageContent(message: ChatMessage): string {
   const isLegacyEvidenceFailure = /Evidence Desk belum menemukan sumber yang cukup relevan|Pencarian sumber belum menghasilkan kandidat yang cukup relevan/i.test(message.content);
-  if (!isLegacyEvidenceFailure) return message.content;
-  return "Koasis memperluas pencarian lintas sumber medis dan web. Hasil yang belum memiliki kecocokan topik yang jelas tidak dipakai sebagai evidence; tambahkan fokus klinis, populasi, intervensi, atau luaran agar pencarian dapat diarahkan dengan lebih presisi.";
+  if (isLegacyEvidenceFailure) return "Koasis memperluas pencarian lintas sumber medis dan web. Hasil yang belum memiliki kecocokan topik yang jelas tidak dipakai sebagai evidence; tambahkan fokus klinis, populasi, intervensi, atau luaran agar pencarian dapat diarahkan dengan lebih presisi.";
+  if (message.streaming || !message.citationSources?.length) return message.content;
+  return removeInlineEvidenceBibliography(message.content, message.citationSources);
 }
 
 function ChatArtifactCard({ artifact, kind, error }: { artifact?: ChatArtifact; kind?: ChatArtifactKind; error?: string }) {

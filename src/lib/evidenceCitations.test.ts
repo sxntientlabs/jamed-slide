@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { evidenceProviderLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation } from "./evidenceCitations";
+import { evidenceProviderLabel, evidenceSourceBadges, evidenceSourceKey, evidenceSourceReference, matchEvidenceCitation, removeInlineEvidenceBibliography } from "./evidenceCitations";
 import type { EvidenceSource } from "./evidenceSearchClient";
 
 const source: EvidenceSource = {
@@ -36,5 +36,21 @@ describe("evidence citations", () => {
   test("derives a compact source label and evidence badges", () => {
     expect(evidenceProviderLabel(source)).toBe("Clinical Medicine");
     expect(evidenceSourceBadges({ ...source, year: "2025", publicationTypes: ["Systematic Review"] }, 2026)).toEqual(["Recent", "SR"]);
+  });
+
+  test("removes a duplicated prose bibliography while keeping inline citations", () => {
+    const content = [
+      "Diagnosis requires clinical assessment [1].",
+      "",
+      "Rujukan utama: Doe et al., Asthma treatment outcomes. https://pubmed.ncbi.nlm.nih.gov/12345/",
+      "",
+      "Interpret the result within the patient's context.",
+    ].join("\n");
+    expect(removeInlineEvidenceBibliography(content, [source])).toBe("Diagnosis requires clinical assessment [1].\n\nInterpret the result within the patient's context.");
+  });
+
+  test("does not alter ordinary prose when no bibliography marker is present", () => {
+    const content = "The reference panel below contains the selected sources [1].";
+    expect(removeInlineEvidenceBibliography(content, [source])).toBe(content);
   });
 });

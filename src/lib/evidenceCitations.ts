@@ -85,3 +85,35 @@ export function matchEvidenceCitation(token: string, sources: EvidenceSource[]):
   const index = sources.findIndex((source) => evidenceCitationAliases(source).includes(normalized));
   return index >= 0 && sources[index] ? { source: sources[index], index } : null;
 }
+
+function normalizeReferenceText(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+function isInlineEvidenceBibliography(value: string, sources: EvidenceSource[]): boolean {
+  const text = value.trim();
+  if (!/^(?:#{1,3}\s*)?(?:rujukan(?: utama)?|referensi(?: utama)?|daftar pustaka|references?|bibliography)\s*:/i.test(text)) return false;
+  if (/https?:\/\/|\b(?:doi|pmid|pmcid)\s*[:#]?\s*|\b10\.\d{4,9}\/|\[\d+(?:\s*[-–]\s*\d+)?\]/i.test(text)) return true;
+  const normalized = normalizeReferenceText(text);
+  return sources.some((source) => {
+    const title = normalizeReferenceText(source.title);
+    return title.length >= 24 && normalized.includes(title);
+  });
+}
+
+/**
+ * The reference panel is the canonical bibliography surface in Koasis. Some
+ * providers still append a prose block such as "Rujukan utama: ... DOI ..."
+ * after an otherwise correctly cited answer. Remove only that clearly marked,
+ * source-backed paragraph; ordinary prose and inline [n] citations remain.
+ */
+export function removeInlineEvidenceBibliography(content: string, sources: EvidenceSource[]): string {
+  if (!content.trim() || !sources.length) return content;
+  return content
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/)
+    .filter((paragraph) => !isInlineEvidenceBibliography(paragraph, sources))
+    .join("\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

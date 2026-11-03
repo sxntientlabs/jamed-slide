@@ -64,6 +64,7 @@ describe("Hermes adapter", () => {
     expect(runPayload.instructions).toContain("Jawab dalam bahasa Indonesia");
     expect(runPayload.instructions).toContain("Model Koasis yang dipilih pengguna: Elective 6.7");
     expect(runPayload.instructions).toContain("bukan nama model yang dipilih");
+    expect(runPayload.instructions).toContain("Jangan menulis bibliografi inline");
     expect(lines.find((line) => line.type === "meta")).toMatchObject({ agentId: "koasis", reviewRequired: false });
     expect(fetchSpy).toHaveBeenNthCalledWith(2, "https://hermes.example/v1/runs/run_123/events", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-secret", Accept: "text/event-stream" }),
