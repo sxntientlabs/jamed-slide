@@ -24,6 +24,7 @@ import { createChatArtifact, createImageChatArtifact, createRemoteChatArtifact, 
 import { extractDocxText } from "../lib/docxParser";
 import { parsePptx } from "../lib/pptxParser";
 import { koasisAssetUrl } from "../lib/koasisAssets";
+import { parseRichTextBlocks, type RichTextBlock } from "../lib/richText";
 
 type ThemeMode = "light" | "dark";
 type SourceMode = "workspace" | "attachments" | "sources";
@@ -917,11 +918,27 @@ function openEvidenceSource(source: EvidenceSource): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function safeExternalUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function renderInlineText(value: string, keyPrefix: string, citationSources: EvidenceSource[] = []): ReactNode {
-  const chunks = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[(?:\d+(?:\s*[-–]\s*\d+)?|(?:[A-Za-z][A-Za-z0-9_-]*:){0,2}(?:DOI|PMID|PMCID):[^\]\s]+)\])/gi).filter((chunk) => chunk !== "");
+  const chunks = value.split(/(\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\[(?:\d+(?:\s*[-–]\s*\d+)?|(?:[A-Za-z][A-Za-z0-9_-]*:){0,2}(?:DOI|PMID|PMCID):[^\]\s]+)\]|https?:\/\/[^\s<]+|\*[^*\n]+\*)/gi).filter((chunk) => chunk !== "");
   return chunks.map((chunk, index) => {
     if (chunk.startsWith("**") && chunk.endsWith("**")) return <strong key={`${keyPrefix}-strong-${index}`}>{chunk.slice(2, -2)}</strong>;
+    if (chunk.startsWith("__") && chunk.endsWith("__")) return <strong key={`${keyPrefix}-strong-${index}`}>{chunk.slice(2, -2)}</strong>;
+    if (chunk.startsWith("~~") && chunk.endsWith("~~")) return <del key={`${keyPrefix}-del-${index}`}>{chunk.slice(2, -2)}</del>;
     if (chunk.startsWith("`") && chunk.endsWith("`")) return <code key={`${keyPrefix}-code-${index}`}>{chunk.slice(1, -1)}</code>;
+    const markdownLink = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/i.exec(chunk);
+    if (markdownLink) {
+      const href = safeExternalUrl(markdownLink[2]);
+      if (href) return <a key={`${keyPrefix}-link-${index}`} href={href} target="_blank" rel="noreferrer">{renderInlineText(markdownLink[1], `${keyPrefix}-link-label-${index}`, citationSources)}</a>;
+    }
     if (/^\[(?:\d+(?:\s*[-–]\s*\d+)?|(?:[A-Za-z][A-Za-z0-9_-]*:){0,2}(?:DOI|PMID|PMCID):[^\]\s]+)\]$/i.test(chunk)) {
       const range = /^\[(\d+)\s*[-–]\s*(\d+)\]$/.exec(chunk);
       if (range) {
@@ -938,93 +955,43 @@ function renderInlineText(value: string, keyPrefix: string, citationSources: Evi
       const label = `Buka referensi [${matched.index + 1}] ${matched.source.title}`;
       return <KoasisCitation key={`${keyPrefix}-citation-${index}`} number={String(matched.index + 1)} label={label} onClick={() => openEvidenceSource(matched.source)} />;
     }
+    if (chunk.startsWith("*") && chunk.endsWith("*") && !chunk.startsWith("**")) return <em key={`${keyPrefix}-em-${index}`}>{chunk.slice(1, -1)}</em>;
+    if (/^https?:\/\//i.test(chunk)) {
+      const cleanUrl = chunk.replace(/[),.;:!?]+$/g, "");
+      const suffix = chunk.slice(cleanUrl.length);
+      const href = safeExternalUrl(cleanUrl);
+      if (href) return <span key={`${keyPrefix}-url-${index}`}><a href={href} target="_blank" rel="noreferrer">{cleanUrl}</a>{suffix}</span>;
+    }
     return <span key={`${keyPrefix}-text-${index}`}>{chunk}</span>;
   });
 }
 
-function pipeCells(line: string): string[] {
-  const value = line.trim();
-  if (!value.includes("|")) return [];
-  return value.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
-}
-
-function isPipeDivider(cells: string[]): boolean {
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+function blocksForRichText(parsedBlocks: RichTextBlock[], citationSources: EvidenceSource[]): ReactNode[] {
+  return parsedBlocks.map((block, index) => {
+    if (block.kind === "heading") {
+      const Heading = block.level === 2 ? "h2" : block.level === 3 ? "h3" : "h4";
+      return <Heading className={`koasis-rich-heading level-${block.level}`} key={`heading-${index}`}>{renderInlineText(block.text, `heading-${index}`, citationSources)}</Heading>;
+    }
+    if (block.kind === "section") return <h3 className="koasis-rich-section-label" key={`section-${index}`}>{renderInlineText(block.text, `section-${index}`, citationSources)}</h3>;
+    if (block.kind === "paragraph") return <p key={`paragraph-${index}`}>{renderInlineText(block.lines.join(" "), `paragraph-${index}`, citationSources)}</p>;
+    if (block.kind === "blockquote") return <blockquote key={`quote-${index}`}>{block.lines.map((line, lineIndex) => <p key={`quote-${index}-${lineIndex}`}>{renderInlineText(line, `quote-${index}-${lineIndex}`, citationSources)}</p>)}</blockquote>;
+    if (block.kind === "rule") return <hr className="koasis-rich-rule" key={`rule-${index}`} />;
+    if (block.kind === "code") return /^(diff|patch)$/i.test(block.lang) ? <KoasisDiffBlock key={`diff-${index}`} code={block.code} /> : <AicssCodeBlock key={`code-${index}`} lang={block.lang} code={block.code} />;
+    if (block.kind === "todo") return <KoasisTodoList key={`todo-${index}`} items={block.items.map((item) => ({ label: item.text, done: item.done }))} />;
+    if (block.kind === "list") {
+      const ListTag = block.ordered ? "ol" : "ul";
+      return <ListTag className={`koasis-rich-list ${block.ordered ? "ordered" : "unordered"}`} key={`list-${index}`}>{block.items.map((item, itemIndex) => <li className={`koasis-rich-list-item depth-${item.level}`} key={`list-${index}-${itemIndex}`}>{renderInlineText(item.text, `list-${index}-${itemIndex}`, citationSources)}</li>)}</ListTag>;
+    }
+    if (block.headers.length === 3 && /model/i.test(block.headers[0]) && /context/i.test(block.headers[1]) && /price/i.test(block.headers[2])) {
+      const modelRows: AicssTableRow[] = block.rows.map((row) => ({ model: row[0], context: row[1], price: row[2] }));
+      return <AicssDataTable key={`table-${index}`} rows={modelRows} />;
+    }
+    return <KoasisComparisonTable key={`comparison-${index}`} headers={block.headers} rows={block.rows} />;
+  });
 }
 
 function RichAgentText({ content, enhanced = false, citationSources = [] }: { content: string; enhanced?: boolean; citationSources?: EvidenceSource[] }) {
-  const lines = content.split("\n");
-  const blocks: ReactNode[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const trimmed = line.trim();
-    if (!trimmed) {
-      blocks.push(<span className="koasis-rich-break" key={`break-${index}`} />);
-      continue;
-    }
-    if (/^```/.test(trimmed)) {
-      const lang = trimmed.replace(/^```/, "").trim() || "text";
-      const codeLines: string[] = [];
-      let cursor = index + 1;
-      while (cursor < lines.length && !/^```/.test(lines[cursor].trim())) {
-        codeLines.push(lines[cursor]);
-        cursor += 1;
-      }
-      blocks.push(/^(diff|patch)$/i.test(lang) ? <KoasisDiffBlock key={`diff-${index}`} code={codeLines.join("\n")} /> : <AicssCodeBlock key={`code-${index}`} lang={lang} code={codeLines.join("\n")} />);
-      index = cursor < lines.length ? cursor : lines.length;
-      continue;
-    }
-    const headerCells = pipeCells(trimmed);
-    const dividerCells = index + 1 < lines.length ? pipeCells(lines[index + 1]) : [];
-    if (headerCells.length >= 2 && isPipeDivider(dividerCells)) {
-      const rows: string[][] = [];
-      let cursor = index + 2;
-      while (cursor < lines.length) {
-        const cells = pipeCells(lines[cursor]);
-        if (cells.length !== headerCells.length) break;
-        rows.push(cells);
-        cursor += 1;
-      }
-      if (rows.length) {
-        if (headerCells.length === 3 && /model/i.test(headerCells[0]) && /context/i.test(headerCells[1]) && /price/i.test(headerCells[2])) {
-          const modelRows: AicssTableRow[] = rows.map((row) => ({ model: row[0], context: row[1], price: row[2] }));
-          blocks.push(<AicssDataTable key={`table-${index}`} rows={modelRows} />);
-        } else {
-          blocks.push(<KoasisComparisonTable key={`comparison-${index}`} headers={headerCells} rows={rows} />);
-        }
-      }
-      index = cursor - 1;
-      continue;
-    }
-    if (/^#{1,3}\s/.test(trimmed)) {
-      blocks.push(<h3 key={index}>{renderInlineText(trimmed.replace(/^#{1,3}\s/, ""), `heading-${index}`, citationSources)}</h3>);
-      continue;
-    }
-    if (/^[-*]\s+\[[ xX]\]\s+/.test(trimmed)) {
-      const items: Array<{ label: string; done: boolean }> = [];
-      let cursor = index;
-      while (cursor < lines.length) {
-        const todoLine = lines[cursor].trim();
-        const match = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(todoLine);
-        if (!match) break;
-        items.push({ done: match[1].toLowerCase() === "x", label: match[2] });
-        cursor += 1;
-      }
-      blocks.push(<KoasisTodoList key={`todo-${index}`} items={items} />);
-      index = cursor - 1;
-      continue;
-    }
-    if (/^[-*]\s/.test(trimmed)) {
-      blocks.push(<div className="koasis-rich-bullet" key={index}><i />{renderInlineText(trimmed.replace(/^[-*]\s/, ""), `bullet-${index}`, citationSources)}</div>);
-      continue;
-    }
-    if (/^\d+\.\s/.test(trimmed)) {
-      blocks.push(<div className="koasis-rich-number" key={index}><strong>{trimmed.match(/^\d+/)?.[0]}</strong><span>{renderInlineText(trimmed.replace(/^\d+\.\s/, ""), `number-${index}`, citationSources)}</span></div>);
-      continue;
-    }
-    blocks.push(<p key={index}>{renderInlineText(line, `paragraph-${index}`, citationSources)}</p>);
-  }
-  const body = <div className="koasis-rich-text">{blocks}</div>;
+  const body = <div className="koasis-rich-text">{blocksForRichText(parseRichTextBlocks(content), citationSources)}</div>;
   return enhanced ? <AicssTextResponse>{body}</AicssTextResponse> : body;
 }
 
