@@ -6,7 +6,7 @@ import { koasisApiUrl } from "./koasisApi";
 export type AgentChatAttachment = {
   name: string;
   mimeType: string;
-  kind: "image" | "pdf" | "audio";
+  kind: "image" | "pdf" | "audio" | "video" | "file";
   dataUrl?: string;
   storagePath?: string;
 };
@@ -81,7 +81,7 @@ export type AgentToolActivity = {
 };
 
 export type AgentGeneratedArtifact = {
-  kind: "image";
+  kind: "image" | "file";
   dataUrl: string;
   title?: string;
   fileName?: string;
@@ -121,6 +121,22 @@ function normalizeScreenshotDataUrl(value: unknown): string | undefined {
   if (/^data:image\/(?:png|jpe?g|webp);base64,/i.test(candidate)) return candidate;
   if (candidate.length >= 128 && /^[A-Za-z0-9+/]+={0,2}$/.test(candidate)) return `data:image/png;base64,${candidate}`;
   return undefined;
+}
+
+function normalizeArtifact(value: unknown): AgentGeneratedArtifact | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const dataUrl = typeof record.dataUrl === "string" ? record.dataUrl.trim() : "";
+  if (!/^data:[^;,\s]+(?:;[^,]*)?;base64,[A-Za-z0-9+/=]+$/i.test(dataUrl) || dataUrl.length > 12_000_000) return undefined;
+  const kind = record.kind === "image" || /^data:image\//i.test(dataUrl) ? "image" : record.kind === "file" ? "file" : undefined;
+  if (!kind) return undefined;
+  return {
+    kind,
+    dataUrl,
+    ...(typeof record.title === "string" && record.title.trim() ? { title: record.title.trim().slice(0, 240) } : {}),
+    ...(typeof record.fileName === "string" && record.fileName.trim() ? { fileName: record.fileName.trim().slice(0, 180) } : {}),
+    ...(typeof record.mimeType === "string" && record.mimeType.trim() ? { mimeType: record.mimeType.trim().slice(0, 160) } : {}),
+  };
 }
 
 export type AgentRunPhase = "accepted" | "preparing" | "generating" | "finalizing";
@@ -296,9 +312,12 @@ export async function sendAgentChat(
     if (event.type === "clarify_request") {
       options.onClarifyRequest?.({ requestId: resolvedRequestId, ...(event.runId ? { runId: event.runId } : {}), question: userFacingAgentText(event.question, "Agent membutuhkan jawaban tambahan."), choices: event.choices || [] });
     }
-    if (event.type === "artifact" && event.artifact?.kind === "image" && typeof event.artifact.dataUrl === "string") {
-      artifact = event.artifact;
-      options.onArtifact?.(artifact);
+    if (event.type === "artifact") {
+      const nextArtifact = normalizeArtifact(event.artifact);
+      if (nextArtifact) {
+        artifact = nextArtifact;
+        options.onArtifact?.(artifact);
+      }
     }
     if (event.type === "delta" && typeof event.content === "string") {
       content += event.content;
@@ -321,8 +340,8 @@ export async function sendAgentChat(
     if (done) break;
   }
   if (buffer.trim()) consumeLine(buffer);
-  if (!content.trim()) throw new AgentChatError("Koasis belum menerima jawaban. Coba lagi.");
-  return { content: content.trim(), model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, agentMode, sourcePolicy, reviewRequired, harness, lastComputerScreenshotDataUrl, artifact };
+  if (!content.trim() && !artifact) throw new AgentChatError("Koasis belum menerima jawaban. Coba lagi.");
+  return { content: content.trim() || "Output file dari Agent siap diunduh.", model, requestId: resolvedRequestId, agentId: resolvedAgentId, durationMs, agentMode, sourcePolicy, reviewRequired, harness, lastComputerScreenshotDataUrl, artifact };
 }
 
 export async function sendAgentControl(

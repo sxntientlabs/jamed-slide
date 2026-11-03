@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 
 
-path = Path("/opt/hermes-source/tools/bot_desktop/launcher.sh")
+source_root = Path(os.environ.get("HERMES_SOURCE_ROOT", "/opt/hermes-source"))
+path = source_root / "tools/bot_desktop/launcher.sh"
 source = path.read_text()
 
 old_display_env = "export GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb NO_AT_BRIDGE=1 GTK_A11Y=none"

@@ -289,6 +289,73 @@ describe("Hermes adapter", () => {
     expect(requestMessages.at(-1)?.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "image_url" })]));
   });
 
+  test("forwards media artifacts emitted by Hermes chat-completions SSE", async () => {
+    const dataUrl = `data:audio/mpeg;base64,${"a".repeat(160)}`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response([
+      `data: ${JSON.stringify({ attachments: [{ name: "briefing.mp3", mime_type: "audio/mpeg", data_url: dataUrl }] })}`,
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-media-sse",
+      messages: [{
+        role: "user",
+        content: "buat audio dari gambar ini",
+        attachments: [{ kind: "image", dataUrl: `data:image/png;base64,${"b".repeat(160)}` }],
+      }],
+      context: { agentMode: "agentic" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.find((line) => line.type === "artifact")).toMatchObject({
+      artifact: { kind: "file", fileName: "briefing.mp3", mimeType: "audio/mpeg", dataUrl },
+    });
+  });
+
+  test("sends non-image attachments through the Runs media manifest", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-file", status: "started" }), { status: 202 }))
+      .mockResolvedValueOnce(new Response([
+        'event: run.completed',
+        `data: ${JSON.stringify({
+          type: "run.completed",
+          run_id: "run-file",
+          output: "File sudah dibuat. MEDIA:/opt/data/cache/report.pdf",
+          attachments: [{ name: "report.pdf", mime_type: "application/pdf", data_url: "data:application/pdf;base64,JVBERg==" }],
+        })}`,
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    const adapter = createHermesAdapter({
+      KOASIS_HERMES_API_URL: "http://koasis-agent:8642",
+      KOASIS_HERMES_API_KEY: "server-secret",
+    });
+
+    const response = await adapter.forwardChat({
+      requestId: "request-file",
+      messages: [{ role: "user", content: "Baca file ini", attachments: [{ name: "source.pdf", mimeType: "application/pdf", kind: "pdf", dataUrl: "data:application/pdf;base64,JVBERg==" }] }],
+      context: { agentMode: "agentic", sessionId: "chat-file" },
+      koasis: { sessionKey: "owner-a" },
+    }, undefined, new AbortController().signal);
+    const lines = (await response?.text() || "").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.find((line) => line.type === "artifact")).toMatchObject({
+      artifact: { kind: "file", fileName: "report.pdf", mimeType: "application/pdf", dataUrl: "data:application/pdf;base64,JVBERg==" },
+    });
+    expect(lines.find((line) => line.type === "delta")).toMatchObject({ content: "File sudah dibuat." });
+    expect(fetchSpy).toHaveBeenNthCalledWith(1, "http://koasis-agent:8642/v1/runs", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "X-Hermes-Session-Id": "koasis-chat-file" }),
+    }));
+    const payload = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(payload.input).toEqual([expect.objectContaining({
+      attachments: [expect.objectContaining({ name: "source.pdf", mimeType: "application/pdf", kind: "pdf" })],
+    })]);
+  });
+
   test("only the session owner can resolve a pending run", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: "run-control", status: "started" }), { status: 202 }))

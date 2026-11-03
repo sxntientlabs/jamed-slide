@@ -20,7 +20,7 @@ import { DEFAULT_KOASIS_MODEL, DEFAULT_KOASIS_REASONING, KOASIS_MODELS, normaliz
 import { downloadKoasisFileDataUrl, loadKoasisSessions, loadKoasisState, saveKoasisSession, saveKoasisState, uploadKoasisAttachment, uploadKoasisFile, type RemoteChatArtifact, type RemoteChatMessage, type RemoteChatSession, type RemoteKoasisState } from "../lib/koasisRemoteStore";
 import { detectSensitiveIdentifiers, redactSensitiveIdentifiers, type SensitiveIdentifierFinding } from "../lib/privacyGuard";
 import { buildConversationTitle, buildUniqueFollowUpQuestions } from "../lib/conversationMeta";
-import { createChatArtifact, createImageChatArtifact, inferChatArtifactKind, type ChatArtifactKind, type GeneratedChatArtifact } from "../lib/chatArtifacts";
+import { createChatArtifact, createImageChatArtifact, createRemoteChatArtifact, inferChatArtifactKind, type ChatArtifactKind, type GeneratedChatArtifact } from "../lib/chatArtifacts";
 import { extractDocxText } from "../lib/docxParser";
 import { parsePptx } from "../lib/pptxParser";
 import { koasisAssetUrl } from "../lib/koasisAssets";
@@ -880,7 +880,8 @@ function attachmentKind(file: File): AgentChatAttachment["kind"] | undefined {
   if (file.type.startsWith("image/")) return "image";
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) return "pdf";
   if (file.type.startsWith("audio/")) return "audio";
-  return undefined;
+  if (file.type.startsWith("video/")) return "video";
+  return "file";
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -1097,11 +1098,29 @@ function safeEvidenceMessageContent(message: ChatMessage): string {
 function ChatArtifactCard({ artifact, kind, error }: { artifact?: ChatArtifact; kind?: ChatArtifactKind; error?: string }) {
   if (!artifact && !error && !kind) return null;
   const effectiveKind = artifact?.kind || kind;
-  const label = effectiveKind === "pptx" ? "PPTX editable" : effectiveKind === "image" ? "Gambar PNG" : "DOCX editable";
+  const mimeType = artifact?.mimeType?.toLowerCase() || "";
+  const label = effectiveKind === "pptx"
+    ? "PPTX editable"
+    : effectiveKind === "docx"
+      ? "DOCX editable"
+      : effectiveKind === "image" || mimeType.startsWith("image/")
+        ? "Gambar"
+        : mimeType === "application/pdf"
+          ? "PDF"
+          : mimeType.startsWith("audio/")
+            ? "Audio"
+            : mimeType.startsWith("video/")
+              ? "Video"
+              : "File";
   const unavailableMessage = error || (kind ? "Output tersimpan, tetapi belum dapat dipulihkan dari riwayat. Coba buka ulang atau kirim ulang permintaan ini." : undefined);
-  return <section className={`koasis-chat-artifact ${effectiveKind === "image" ? "image" : ""}`.trim()} aria-label="Output file dari chat">
-    {artifact?.kind === "image" && <img className="koasis-chat-artifact-preview" src={artifact.url} alt="Tangkapan layar dari Computer" />}
-    <div className="koasis-chat-artifact-icon" aria-hidden="true">{effectiveKind === "pptx" ? <Shapes size={17} /> : effectiveKind === "image" ? <ImageIcon size={17} /> : <FileText size={17} />}</div>
+  const isImage = effectiveKind === "image" || mimeType.startsWith("image/");
+  const isAudio = Boolean(artifact && mimeType.startsWith("audio/"));
+  const isVideo = Boolean(artifact && mimeType.startsWith("video/"));
+  return <section className={`koasis-chat-artifact ${isImage ? "image" : ""}`.trim()} aria-label="Output file dari chat">
+    {artifact && isImage && <img className="koasis-chat-artifact-preview" src={artifact.url} alt="Output gambar dari Agent" />}
+    {artifact && isAudio && <audio className="koasis-chat-artifact-media" controls preload="metadata" src={artifact.url}>Audio output dari Agent.</audio>}
+    {artifact && isVideo && <video className="koasis-chat-artifact-media" controls preload="metadata" src={artifact.url}>Video output dari Agent.</video>}
+    <div className="koasis-chat-artifact-icon" aria-hidden="true">{effectiveKind === "pptx" ? <Shapes size={17} /> : isImage ? <ImageIcon size={17} /> : <FileText size={17} />}</div>
     <div className="koasis-chat-artifact-copy"><strong>{artifact ? artifact.title : `Output ${label}`}</strong><span>{artifact ? `${label} · siap diunduh dari hasil task` : unavailableMessage}</span></div>
     {artifact && <a className="koasis-chat-artifact-download" href={artifact.url} download={artifact.fileName}><Download size={14} /> Unduh</a>}
   </section>;
@@ -2554,16 +2573,36 @@ export function AgenticChat() {
         let artifact: ChatArtifact | undefined;
         let artifactError: string | undefined;
         let artifactRemote: RemoteChatArtifact | undefined;
-        const outputArtifactKind = requestedArtifactKind || response.artifact?.kind;
+        // A media artifact returned by Agent is authoritative: its MIME/name is
+        // the actual output contract, even when the original prompt happened to
+        // contain a generic "file" or "docs" hint.
+        const canUseRemoteArtifact = Boolean(response.artifact?.dataUrl);
+        const outputArtifactKind = canUseRemoteArtifact ? response.artifact?.kind : requestedArtifactKind;
         if (outputArtifactKind) {
-          const artifactLabel = outputArtifactKind === "pptx" ? "PPTX" : outputArtifactKind === "image" ? "gambar" : "DOCX";
+          const artifactLabel = outputArtifactKind === "pptx"
+            ? "PPTX"
+            : outputArtifactKind === "docx"
+              ? "DOCX"
+              : outputArtifactKind === "image"
+                ? "gambar"
+                : "file";
           trackRunStatus({ phase: "finalizing", message: `Membuat file ${artifactLabel} dari hasil chat` });
           try {
-            const generated = outputArtifactKind === "image"
-              ? response.lastComputerScreenshotDataUrl || response.artifact?.dataUrl
-                ? await createImageChatArtifact(response.lastComputerScreenshotDataUrl || response.artifact?.dataUrl || "")
-                : (() => { throw new Error("Output gambar Agent belum tersedia untuk diunduh."); })()
-              : await createChatArtifact(outputArtifactKind, prompt, response.content);
+            const generated = canUseRemoteArtifact && response.artifact?.dataUrl
+              ? await createRemoteChatArtifact(
+                response.artifact.dataUrl,
+                response.artifact.fileName,
+                response.artifact.mimeType,
+                response.artifact.title,
+                response.artifact.kind,
+              )
+              : outputArtifactKind === "image"
+                ? response.lastComputerScreenshotDataUrl
+                  ? await createImageChatArtifact(response.lastComputerScreenshotDataUrl)
+                  : (() => { throw new Error("Output gambar Agent belum tersedia untuk diunduh."); })()
+                : outputArtifactKind === "pptx" || outputArtifactKind === "docx"
+                  ? await createChatArtifact(outputArtifactKind, prompt, response.content)
+                  : (() => { throw new Error("Format file output belum dikenali."); })();
             const url = URL.createObjectURL(generated.blob);
             artifactUrlsRef.current.add(url);
             artifact = { ...generated, url };
@@ -2720,6 +2759,20 @@ export function AgenticChat() {
     const nextAttachments: AgentChatAttachment[] = [];
     const textParts: string[] = [];
     const errors: string[] = [];
+    const queueAttachment = async (file: File, kind: AgentChatAttachment["kind"] = attachmentKind(file) || "file") => {
+      try {
+        const attachment: AgentChatAttachment = { name: file.name, mimeType: file.type || "application/octet-stream", kind, dataUrl: await readFileAsDataUrl(file) };
+        try {
+          const stored = await uploadKoasisAttachment(user.uid, attachment);
+          nextAttachments.push(stored ? { ...attachment, storagePath: stored.storagePath } : attachment);
+        } catch {
+          nextAttachments.push(attachment);
+          errors.push(`${file.name}: file belum berhasil disimpan; file tetap tersedia selama sesi ini.`);
+        }
+      } catch {
+        errors.push(`${file.name}: attachment belum bisa dibaca.`);
+      }
+    };
     for (const file of files) {
       if (file.size > 8 * 1024 * 1024) {
         errors.push(`${file.name}: file terlalu besar (batas 8 MB).`);
@@ -2731,6 +2784,7 @@ export function AgenticChat() {
         } catch {
           errors.push(`${file.name}: file teks belum bisa dibaca.`);
         }
+        await queueAttachment(file);
         continue;
       }
       if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(file.name)) {
@@ -2743,6 +2797,7 @@ export function AgenticChat() {
         } catch {
           errors.push(`${file.name}: DOCX belum bisa dibaca.`);
         }
+        await queueAttachment(file);
         continue;
       }
       if (file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || /\.pptx$/i.test(file.name)) {
@@ -2760,25 +2815,11 @@ export function AgenticChat() {
         } catch {
           errors.push(`${file.name}: PPTX belum bisa dibaca. Kirim file lain atau minta agent membuat ulang file editable dari chat.`);
         }
+        await queueAttachment(file);
         continue;
       }
       const kind = attachmentKind(file);
-      if (!kind) {
-        errors.push(`${file.name}: gunakan TXT, CSV, TSV, DOCX, PPTX, PDF, gambar, atau audio.`);
-        continue;
-      }
-      try {
-        const attachment: AgentChatAttachment = { name: file.name, mimeType: file.type || `${kind}/*`, kind, dataUrl: await readFileAsDataUrl(file) };
-        try {
-          const stored = await uploadKoasisAttachment(user.uid, attachment);
-          nextAttachments.push(stored ? { ...attachment, storagePath: stored.storagePath } : attachment);
-        } catch {
-          nextAttachments.push(attachment);
-          errors.push(`${file.name}: file belum berhasil disimpan; file tetap tersedia selama sesi ini.`);
-        }
-      } catch {
-        errors.push(`${file.name}: attachment belum bisa dibaca.`);
-      }
+      await queueAttachment(file, kind || "file");
     }
     const availableSlots = Math.max(0, 4 - attachments.length);
     if (nextAttachments.length > availableSlots) errors.push("Maksimal 4 attachment aktif dalam satu pesan.");
@@ -2961,7 +3002,7 @@ export function AgenticChat() {
               {attachmentError && <div className="koasis-attachment-error" role="alert">{attachmentError}</div>}
               <div className="koasis-composer-toolbar"><div className="koasis-toolbar-left"><AgentModeToggle value={agentMode} onChange={selectAgentMode} />{agentMode === "agentic" && <ComputerAccessSelector value={computerAccessMode} open={computerAccessMenuOpen} onToggle={() => { setComputerAccessMenuOpen((current) => !current); setModelMenuOpen(false); setEngineMenuOpen(false); setComposerPalette(null); }} onChange={(value) => { setComputerAccessMode(value); setComputerAccessMenuOpen(false); }} />}<button type="button" className="koasis-toolbar-mode" title="Ganti specialist agent" onClick={() => { setModelMenuOpen((current) => !current); setEngineMenuOpen(false); setComputerAccessMenuOpen(false); }} aria-label="Pilih specialist agent" aria-expanded={modelMenuOpen} aria-haspopup="menu"><KoasisGlyph name={activePreset.glyph} size={13} /> {activePreset.label}</button><KoasisReasoningEffort value={reasoningEffort} modelLabel={activeModel.label} onChange={setReasoningEffort} /></div><span>Enter kirim · Shift + Enter baris baru</span></div>
               <form className={`koasis-composer ${attachments.length ? "has-attachments" : ""}`} onSubmit={handleSubmit}>
-                <input ref={fileInputRef} type="file" accept="image/*,application/pdf,audio/*,.txt,.csv,.tsv,.docx,.pptx,.md" multiple hidden onChange={(event) => { void handleFile(event); }} />
+                <input ref={fileInputRef} type="file" accept="*/*" multiple hidden onChange={(event) => { void handleFile(event); }} />
                 {composerPalette && (composerPalette === "mention" ? mentionOptions : commandOptions).length > 0 && <div className={`koasis-composer-palette ${composerPalette}`} role="listbox" aria-label={composerPalette === "mention" ? "Pilih specialist agent" : "Pilih plugin command"}>
                   <div className="koasis-composer-palette-head"><div><strong>{composerPalette === "mention" ? "Spawn specialist agent" : "Plugin commands"}</strong><small>{composerPalette === "mention" ? "Pilih agent untuk menangani pesan ini." : "Pilih command untuk menjalankan plugin pada konteks aktif."}</small></div><kbd>{composerPalette === "mention" ? "@" : "/"}</kbd></div>
                   <div className="koasis-composer-palette-list">

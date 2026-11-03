@@ -6,7 +6,7 @@
  */
 
 export const HERMES_ADAPTER_NAME = "hermes-agent";
-export const HERMES_ADAPTER_VERSION = "0.3.0";
+export const HERMES_ADAPTER_VERSION = "0.4.0";
 
 const KOASIS_MODEL_LABELS: Record<string, string> = {
   cito: "Cito 6.7",
@@ -67,6 +67,9 @@ const CAPABILITIES = [
   "cron",
   "connections",
   "image-input",
+  "file-input",
+  "audio-input",
+  "media-output",
   "session-continuity",
   "computer-approval",
   "computer-activity-preview",
@@ -119,14 +122,30 @@ function textMessage(value: unknown): JsonRecord | null {
   const record = asRecord(value);
   const role = record.role === "assistant" ? "assistant" : record.role === "user" ? "user" : "";
   const content = stringValue(record.content, 12_000);
-  return role && content ? { role, content } : null;
+  const attachments = attachmentRecords(record.attachments ?? record.media);
+  if (!role || (!content && !attachments.length)) return null;
+  return {
+    role,
+    content,
+    ...(attachments.length ? { attachments } : {}),
+  };
 }
 
 function attachmentRecords(value: unknown): JsonRecord[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => asRecord(item))
-    .filter((item) => typeof item.dataUrl === "string" && item.dataUrl.trim())
+    .filter((item) => {
+      const dataUrl = item.dataUrl ?? item.data_url;
+      return typeof dataUrl === "string" && dataUrl.trim();
+    })
+    .map((item) => ({
+      ...item,
+      dataUrl: stringValue(item.dataUrl ?? item.data_url, 12_000_000),
+      name: stringValue(item.name ?? item.fileName ?? item.filename, 180) || "attachment",
+      mimeType: stringValue(item.mimeType ?? item.mime_type ?? item.contentType, 120) || "application/octet-stream",
+      kind: stringValue(item.kind, 30) || "file",
+    }))
     .slice(0, 6);
 }
 
@@ -134,7 +153,7 @@ function chatCompletionContent(value: unknown): string | JsonRecord[] {
   const record = asRecord(value);
   const text = stringValue(record.content, 12_000);
   const parts: JsonRecord[] = text ? [{ type: "text", text }] : [];
-  for (const attachment of attachmentRecords(record.attachments)) {
+  for (const attachment of attachmentRecords(record.attachments ?? record.media)) {
     if (stringValue(attachment.kind, 30) !== "image") continue;
     const dataUrl = stringValue(attachment.dataUrl, 12_000_000);
     if (dataUrl) parts.push({ type: "image_url", image_url: { url: dataUrl, detail: "auto" } });
@@ -199,10 +218,21 @@ function buildRunPayload(body: JsonRecord, model: string, provider: string | und
   const latestUserIndex = [...messages].map((message) => message.role).lastIndexOf("user");
   const latestUser = latestUserIndex >= 0 ? messages[latestUserIndex] : messages.at(-1);
   const input = stringValue(latestUser?.content || "", 12_000);
-  const history = messages.slice(0, Math.max(0, latestUserIndex)).slice(-24);
+  const history = messages
+    .slice(0, Math.max(0, latestUserIndex))
+    .slice(-24)
+    .map(({ role, content }) => ({ role, content }));
   const effort = reasoningEffort(context.reasoningEffort);
+  const latestAttachments = attachmentRecords(latestUser?.attachments);
+  const inputMessage = latestAttachments.length
+    ? {
+      role: latestUser?.role === "assistant" ? "assistant" : "user",
+      content: input || "Lanjutkan tugas dari konteks sesi Koasis.",
+      attachments: latestAttachments,
+    }
+    : undefined;
   const payload: JsonRecord = {
-    input: input || "Lanjutkan tugas dari konteks sesi Koasis.",
+    input: inputMessage ? [inputMessage] : input || "Lanjutkan tugas dari konteks sesi Koasis.",
     model,
     instructions: buildInstructions(body, context),
     ...(history.length ? { conversation_history: history } : {}),
@@ -280,9 +310,78 @@ function screenshotDataUrl(data: JsonRecord): string | undefined {
   return undefined;
 }
 
+type HermesMediaArtifact = {
+  kind: "image" | "file";
+  dataUrl: string;
+  title?: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
+function mediaDataUrl(value: unknown): { dataUrl: string; mimeType?: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const candidate = value.trim();
+  const match = /^data:([^;,\s]+)(?:;[^,]*)?;base64,[A-Za-z0-9+/=]+$/i.exec(candidate);
+  if (!match || candidate.length > 12_000_000) return undefined;
+  return { dataUrl: candidate, mimeType: match[1].toLowerCase() };
+}
+
+function mediaArtifactFromRecord(value: unknown): HermesMediaArtifact | undefined {
+  const record = asRecord(value);
+  const candidate = mediaDataUrl(record.dataUrl ?? record.data_url ?? record.fileDataUrl ?? record.file_data_url ?? record.url);
+  if (!candidate) return undefined;
+  const mimeType = stringValue(record.mimeType ?? record.mime_type ?? record.contentType, 160).toLowerCase() || candidate.mimeType || "application/octet-stream";
+  const fileName = stringValue(record.fileName ?? record.filename ?? record.name, 180) || undefined;
+  const title = stringValue(record.title ?? record.label, 240) || undefined;
+  return {
+    kind: mimeType.startsWith("image/") ? "image" : "file",
+    dataUrl: candidate.dataUrl,
+    ...(title ? { title } : {}),
+    ...(fileName ? { fileName } : {}),
+    ...(mimeType ? { mimeType } : {}),
+  };
+}
+
+function mediaArtifacts(data: JsonRecord): HermesMediaArtifact[] {
+  const values = [data.attachments, data.files, data.media, data.artifacts, data.output_attachments, data.output_files];
+  const artifacts: HermesMediaArtifact[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      const artifact = mediaArtifactFromRecord(item);
+      if (!artifact || seen.has(artifact.dataUrl)) continue;
+      seen.add(artifact.dataUrl);
+      artifacts.push(artifact);
+      if (artifacts.length >= 6) return artifacts;
+    }
+  }
+  return artifacts;
+}
+
+function emitMediaArtifacts(data: JsonRecord, requestId: string, write: StreamWriter): void {
+  for (const artifact of mediaArtifacts(data)) {
+    write({
+      type: "artifact",
+      artifact: {
+        ...artifact,
+        title: artifact.title || (artifact.kind === "image" ? "Output gambar dari Agent" : "File output dari Agent"),
+      },
+      requestId,
+    });
+  }
+}
+
+function stripMediaDirectives(value: string): string {
+  return value
+    .replace(/\s*MEDIA:\s*(?:`[^`]+`|"[^"]+"|'[^']+'|\S+)/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function runOutput(data: JsonRecord): string {
   const output = data.output;
-  if (typeof output === "string") return output.trim();
+  if (typeof output === "string") return stripMediaDirectives(output);
   if (Array.isArray(output)) {
     return output
       .map((item) => {
@@ -293,6 +392,7 @@ function runOutput(data: JsonRecord): string {
         }
         return streamTextValue(record.text);
       })
+      .map(stripMediaDirectives)
       .filter(Boolean)
       .join("\n\n")
       .trim();
@@ -332,6 +432,7 @@ function mapHermesEvent(eventName: string, data: JsonRecord, requestId: string, 
   const tool = eventToolName(data);
   if (image && !isToolCompletion && isComputerTool(tool)) write({ type: "computer_activity", activity: "screenshot", action: tool, message: "Screenshot Computer siap", screenshotDataUrl: image, requestId });
   if (image && type === "run.completed" && !isComputerTool(tool)) write({ type: "artifact", artifact: { kind: "image", dataUrl: image, title: "Output gambar dari Agent" }, requestId });
+  if (!isComputerTool(tool)) emitMediaArtifacts(data, requestId, write);
   if (type === "message.delta") {
     const text = eventDataText(data);
     if (text) {
@@ -454,6 +555,9 @@ async function runHermesStream(
   const emitStatusSnapshot = (status: JsonRecord): string => {
     const image = screenshotDataUrl(status);
     if (image) write({ type: "computer_activity", activity: "screenshot", action: "computer_screenshot", message: "Screenshot Computer siap", screenshotDataUrl: image, requestId });
+    for (const artifact of mediaArtifacts(status)) {
+      write({ type: "artifact", artifact: { ...artifact, title: artifact.title || (artifact.kind === "image" ? "Output gambar dari Agent" : "File output dari Agent") }, requestId });
+    }
     const approval = asRecord(status.approval);
     if (status.status === "waiting_for_approval" && Object.keys(approval).length) {
       waitingForApproval = true;
@@ -602,6 +706,10 @@ async function translateChatCompletionStream(
     if (!parsed) return;
     const event = parsed.event;
     const data = parsed.data;
+    // Keep the chat-completions path symmetrical with Runs: a provider may
+    // return a file manifest in a terminal or custom SSE event even when the
+    // request itself only contained an image.
+    emitMediaArtifacts(data, requestId, write);
     if (event === "hermes.tool.progress") {
       const progressType = stringValue(data.status, 40).toLowerCase() === "running" ? "tool.started" : "tool.completed";
       accumulated = mapHermesEvent(progressType, { ...data, type: progressType }, requestId, accumulated, write, stringValue(data.run_id, 180) || undefined);
@@ -719,9 +827,14 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
       const sessionKey = stringValue(koasis.sessionKey, 180);
       const sessionId = safeSessionId(context.sessionId);
       const latestMessage = Array.isArray(body.messages) ? asRecord(body.messages.at(-1)) : {};
-      const hasImageInput = attachmentRecords(latestMessage.attachments).some((item) => stringValue(item.kind, 30) === "image");
+      const latestAttachments = attachmentRecords(latestMessage.attachments ?? latestMessage.media);
+      const hasImageInput = latestAttachments.some((item) => stringValue(item.kind, 30) === "image");
+      const hasNonImageInput = latestAttachments.some((item) => stringValue(item.kind, 30) !== "image");
       const requestId = stringValue(body.requestId, 180) || `koasis-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const useChatCompletions = hasImageInput;
+      // Hermes' OpenAI-compatible endpoint can accept images directly. Files and
+      // audio use the Runs API because the Koasis Hermes fork materializes them
+      // inside the Agent sandbox and adds a Telegram-compatible path manifest.
+      const useChatCompletions = hasImageInput && !hasNonImageInput;
       let created: JsonRecord;
       let createResponse: Response;
       if (useChatCompletions) {
@@ -772,6 +885,7 @@ export function createHermesAdapter(env: Record<string, string>): HermesAdapter 
             Authorization: `Bearer ${apiKey}`,
             "Idempotency-Key": safeIdempotencyKey(body.requestId),
             ...(sessionKey ? { "X-Hermes-Session-Key": sessionKey } : {}),
+            ...(sessionId ? { "X-Hermes-Session-Id": sessionId } : {}),
           },
           body: JSON.stringify(buildRunPayload(body, model, provider)),
           signal,

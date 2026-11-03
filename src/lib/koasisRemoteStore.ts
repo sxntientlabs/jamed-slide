@@ -15,7 +15,7 @@ import { stripUndefinedFirestoreValues } from "./firestoreData";
 import type { OpsAssessmentAttempt, OpsEncounter } from "./clinicalOps";
 import type { EvidenceSource } from "./evidenceSearchClient";
 
-export type RemoteAttachmentKind = "image" | "pdf" | "audio";
+export type RemoteAttachmentKind = "image" | "pdf" | "audio" | "video" | "file";
 
 export type RemoteChatAttachment = {
   name: string;
@@ -25,7 +25,7 @@ export type RemoteChatAttachment = {
 };
 
 export type RemoteChatArtifact = {
-  kind: "pptx" | "docx" | "image";
+  kind: "pptx" | "docx" | "image" | "file";
   fileName: string;
   mimeType: string;
   title: string;
@@ -168,7 +168,7 @@ function normalizeRemoteAttachment(value: unknown): RemoteChatAttachment | null 
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<RemoteChatAttachment>;
   if (typeof item.name !== "string" || typeof item.mimeType !== "string") return null;
-  if (item.kind !== "image" && item.kind !== "pdf" && item.kind !== "audio") return null;
+  if (item.kind !== "image" && item.kind !== "pdf" && item.kind !== "audio" && item.kind !== "video" && item.kind !== "file") return null;
   return {
     name: item.name.slice(0, 180),
     mimeType: item.mimeType.slice(0, 120),
@@ -180,7 +180,7 @@ function normalizeRemoteAttachment(value: unknown): RemoteChatAttachment | null 
 function normalizeRemoteArtifact(value: unknown): RemoteChatArtifact | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<RemoteChatArtifact>;
-  if (item.kind !== "pptx" && item.kind !== "docx" && item.kind !== "image") return null;
+  if (item.kind !== "pptx" && item.kind !== "docx" && item.kind !== "image" && item.kind !== "file") return null;
   if (typeof item.fileName !== "string" || typeof item.mimeType !== "string" || typeof item.title !== "string" || typeof item.storagePath !== "string") return null;
   return {
     kind: item.kind,

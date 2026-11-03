@@ -1,7 +1,7 @@
 FROM python:3.14-slim-bookworm
 
 ARG HERMES_REPO=https://github.com/NousResearch/hermes-agent.git
-ARG HERMES_REF=a4994d4ead8f9c915b485cec5689909b349a49df
+ARG HERMES_REF=v2026.9.24
 ARG CUA_DRIVER_VERSION=0.21.0
 ARG CUA_DRIVER_AMD64_SHA256=cf29bfaad16737e31e72f38dad2a6424f24b21a4ac2edea885e83cb9d5034135
 ARG CUA_DRIVER_ARM64_SHA256=6b3a308c6741dd8291aad22a308bd2ec8eb52eab64687be007ac86ceaf7e3307
@@ -68,6 +68,12 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 # computer-use. This runs after uv sync so the final source tree is patched.
 COPY koasis-agent/patch_bot_desktop.py /tmp/patch_bot_desktop.py
 RUN python /tmp/patch_bot_desktop.py && rm -f /tmp/patch_bot_desktop.py
+
+# Bridge Telegram's already-proven native media contract to Koasis HTTP Runs:
+# inbound data URLs become agent-visible files/images, and MEDIA:/path output
+# becomes bounded file metadata that the Koasis chat can download.
+COPY koasis-agent/patch_media_bridge.py /tmp/patch_media_bridge.py
+RUN python /tmp/patch_media_bridge.py && rm -f /tmp/patch_media_bridge.py
 
 # The pinned Hermes revision expects the matching cua-driver release. Keep the
 # driver in the Agent image so Computer never needs the host Docker socket or an

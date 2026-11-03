@@ -1,8 +1,8 @@
 import JSZip from "jszip";
 
-export type ChatArtifactKind = "pptx" | "docx" | "image";
+export type ChatArtifactKind = "pptx" | "docx" | "image" | "file";
 
-export type EditableChatArtifactKind = Exclude<ChatArtifactKind, "image">;
+export type EditableChatArtifactKind = Exclude<ChatArtifactKind, "image" | "file">;
 
 export type GeneratedChatArtifact = {
   kind: ChatArtifactKind;
@@ -291,5 +291,45 @@ export async function createImageChatArtifact(dataUrl: string): Promise<Generate
     fileName: `koasis-screenshot-${Date.now()}.${extension}`,
     mimeType,
     blob: blob.type === mimeType ? blob : new Blob([blob], { type: mimeType }),
+  };
+}
+
+function extensionForMime(mimeType: string): string {
+  const normalized = mimeType.toLowerCase().split(";", 1)[0];
+  const known: Record<string, string> = {
+    "application/pdf": "pdf",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/ogg": "ogg",
+    "video/mp4": "mp4",
+    "text/plain": "txt",
+    "application/json": "json",
+    "application/zip": "zip",
+  };
+  return known[normalized] || (normalized.startsWith("image/") ? normalized.slice("image/".length).replace("jpeg", "jpg") : "bin");
+}
+
+export async function createRemoteChatArtifact(
+  dataUrl: string,
+  fileName?: string,
+  mimeType?: string,
+  title?: string,
+  preferredKind?: ChatArtifactKind,
+): Promise<GeneratedChatArtifact> {
+  const response = await fetch(dataUrl);
+  if (!response.ok) throw new Error("Output file dari Agent belum berhasil diambil.");
+  const blob = await response.blob();
+  if (!blob.size) throw new Error("Output file dari Agent kosong.");
+  const resolvedMimeType = (mimeType || blob.type || "application/octet-stream").split(";", 1)[0].toLowerCase();
+  const resolvedFileName = (fileName || `koasis-output-${Date.now()}.${extensionForMime(resolvedMimeType)}`)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || `koasis-output-${Date.now()}.${extensionForMime(resolvedMimeType)}`;
+  const resolvedKind = preferredKind || (resolvedMimeType.startsWith("image/") ? "image" : "file");
+  return {
+    kind: resolvedKind,
+    title: title?.trim() || (resolvedKind === "image" ? "Output gambar dari Agent" : "File output dari Agent"),
+    fileName: resolvedFileName,
+    mimeType: resolvedMimeType,
+    blob: blob.type === resolvedMimeType ? blob : new Blob([blob], { type: resolvedMimeType }),
   };
 }

@@ -53,3 +53,21 @@ Hermes dapat mempertahankan konteks antar-turn. `reasoningEffort` dipetakan ke
 `model_options.reasoning_effort` (`mild → low`, `moderate → medium`, `severe →
 high`). Idempotency key memakai request ID Koasis agar retry tidak membuat run
 ganda.
+
+## Kontrak file, gambar, dan media
+
+Adapter Koasis mengikuti pola media yang sudah dipakai gateway Telegram Hermes:
+
+- gambar dikirim melalui endpoint multimodal `/v1/chat/completions` sebagai
+  `image_url` data URL sehingga vision tetap native;
+- PDF, audio, video, DOCX/PPTX, dan file umum dikirim melalui `/v1/runs` sebagai
+  manifest `attachments`. Patch runtime menulis data URL ke cache Hermes dengan
+  nama/MIME asli dan memberi Agent path yang bisa dibaca tool file/media;
+- output eksplisit maupun `MEDIA:/path` dari Agent dikembalikan sebagai artifact
+  dengan `kind`, `fileName`, `mimeType`, dan data URL. Koasis menampilkan gambar,
+  menyediakan playback audio/video, dan menyediakan tombol unduh untuk file;
+- batas aman per file adalah 8 MB, total input/output per task 32 MB, maksimal
+  enam attachment di bridge dan empat attachment aktif dari composer.
+
+Patch ini dipasang saat image `koasis-agent` dibangun melalui
+`koasis-agent/patch_media_bridge.py`; ia tidak mengubah adapter Telegram.
